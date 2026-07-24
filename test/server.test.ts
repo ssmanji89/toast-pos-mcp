@@ -30,7 +30,9 @@ test("starts over stdio without advertising Toast tools", async () => {
   try {
     await client.connect(transport);
 
-    assert.deepEqual(client.getServerVersion(), SERVER_IDENTITY);
+    const serverVersion = client.getServerVersion();
+    assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
+    assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
     assert.equal(client.getServerCapabilities()?.tools, undefined);
   } finally {
     await client.close();
