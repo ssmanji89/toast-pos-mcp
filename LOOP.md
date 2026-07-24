@@ -89,7 +89,8 @@ The server must support operators using their own authorized Toast credentials, 
 - `T0-001-R1-F2`: `/ordersBulk` fixed pagination and configuration page-token pagination are documented separately; T1-006 fixture-proves order traversal before T3.
 - `T0-001-R1-F3`: Analytics POST/GET job lifecycle, 202 pending behavior, seven-day GUID expiry, 409 replacement, endpoint/time-range limiter keys, and completeness behavior are documented and isolated in T5-002.
 - `T0-001-R1-F4`: Analytics guest-payment data and guest-linked identifiers are removed from the initial scope and remain blocked pending a separately reviewed privacy and terms decision.
-- DOX: updated; these fixes change durable product, safety, architecture, reporting, and workflow contracts.
+- `T0-001-R2-F1`: issue #1 now carries the same transport-independent Merchant-consent, no-training, independently invented fixture, pagination-family, Analytics job/limit, and guest-linked-data contracts as the exact-head repository documents.
+- DOX: updated; R2 reconciliation changes the durable GitHub project orientation and workflow record without changing the accepted product boundary.
 
 ## Handoff rules
 
@@ -110,6 +111,6 @@ The server must support operators using their own authorized Toast credentials, 
 
 - **Next role:** REVIEWER
 - **Slice:** T0-001
-- **Review round:** T0-001-R2
-- **Artifact:** PR #2 on `docs/t0-toast-reporting-foundation`
-- **Review lens:** verify closure of T0-001-R1-F1 through F4 only; source fidelity, AI/third-party terms boundary, pagination families, Analytics job semantics, and guest-data exclusion
+- **Review round:** T0-001-R3
+- **Artifact:** PR #2 on `docs/t0-toast-reporting-foundation` plus reconciled issue #1
+- **Review lens:** verify closure of T0-001-R2-F1 and revalidate exact-head source fidelity, AI/third-party terms boundary, pagination families, Analytics job semantics, guest-data exclusion, and cross-document consistency
