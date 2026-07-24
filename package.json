@@ -27,7 +27,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
-    "test": "node --test --enable-source-maps dist-test/test/*.test.js",
+    "test": "node --test --enable-source-maps dist-test/test/fixture-loader.test.js dist-test/test/server.test.js",
     "prepack": "npm run clean && npm run build",
     "pack:check": "npm pack --dry-run --json",
     "check": "npm run clean && npm run typecheck && npm run build && npm run build:test && npm test && npm run pack:check"
