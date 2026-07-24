@@ -8,6 +8,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { createServer, SERVER_IDENTITY } from "../src/server.js";
 
+const STDIO_CONNECT_TIMEOUT_MS = 10_000;
+
 test("constructs a server without starting process IO", async () => {
   const server = createServer();
 
@@ -15,26 +17,55 @@ test("constructs a server without starting process IO", async () => {
   await server.close();
 });
 
-test("starts over stdio without advertising Toast tools", async () => {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [path.resolve(process.cwd(), "dist", "index.js")],
-    cwd: process.cwd(),
-    stderr: "pipe",
-  });
-  const client = new Client({
-    name: "toast-pos-mcp-test-client",
-    version: "0.0.0",
+test(
+  "starts over stdio without advertising Toast tools",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
+  async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [path.resolve(process.cwd(), "dist", "index.js")],
+      cwd: process.cwd(),
+      stderr: "pipe",
+    });
+    const client = new Client({
+      name: "toast-pos-mcp-test-client",
+      version: "0.0.0",
+    });
+
+    try {
+      await withTimeout(
+        client.connect(transport),
+        STDIO_CONNECT_TIMEOUT_MS,
+        "Timed out connecting to the stdio MCP server",
+      );
+
+      const serverVersion = client.getServerVersion();
+      assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
+      assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
+      assert.equal(client.getServerCapabilities()?.tools, undefined);
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMilliseconds: number,
+  message: string,
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMilliseconds);
   });
 
   try {
-    await client.connect(transport);
-
-    const serverVersion = client.getServerVersion();
-    assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
-    assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
-    assert.equal(client.getServerCapabilities()?.tools, undefined);
+    return await Promise.race([operation, timeout]);
   } finally {
-    await client.close();
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
-});
+}
