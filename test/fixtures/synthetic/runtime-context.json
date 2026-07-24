@@ -1,0 +1,10 @@
+{
+  "fixtureKind": "synthetic",
+  "fixtureId": "synthetic-runtime-context",
+  "restaurant": {
+    "guid": "00000000-0000-4000-8000-000000000001",
+    "name": "Synthetic Harbor Cafe",
+    "timezone": "America/Chicago",
+    "closeoutHour": 4
+  }
+}
