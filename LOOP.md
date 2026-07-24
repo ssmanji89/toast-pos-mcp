@@ -47,8 +47,8 @@ The server must support operators using their own authorized Toast credentials, 
 
 | Slice | Phase | Description | Depends on | State |
 |---|---|---|---|---|
-| T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | FIXED |
-| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLEAN | OPEN |
+| T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | CLOSED |
+| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLAIMED |
 | T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 | OPEN |
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 | OPEN |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 | OPEN |
@@ -68,29 +68,41 @@ The server must support operators using their own authorized Toast credentials, 
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
 | T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
 
-## Current slice
+## Completed slice
 
 ### T0-001: Research and public-use foundation
 
+- Review rounds: T0-001-R1 through T0-001-R3
+- Clean head: `ba3f75efdaf907d61add43550cc3227e83370102`
+- Squash merge: `13d0b73d1ecb0aa1abff308b3d558bee7d67b059`
+- Owning issue #1 reconciled and remains open as the project umbrella.
+- DOX: updated during T0; post-merge closure changes workflow state only.
+
+## Current slice
+
+### T1-001: TypeScript stdio runtime and synthetic fixture harness
+
 **Acceptance criteria**
 
-- Official Toast sources identify access types, scopes, authentication, Standard and Analytics rate limits, date semantics, both pagination families, Analytics report-job behavior, error behavior, deployment guidance, report recipes, API changes, and terms constraints.
-- The initial product is structurally read-only and locally run.
-- Locality is not represented as authorization for AI processing; documented Merchant consent and applicable Toast third-party review remain required.
-- Training, fine-tuning, model improvement, and API-derived synthetic training data are prohibited without Toast's prior written approval.
-- Standard API and Analytics API remain distinct reporting sources.
-- Guest PII, delivery addresses, Analytics guest-payment data, hosted credential processing, and write operations are explicitly excluded.
-- The backlog is sliced so the next builder can implement one complete runtime foundation without inventing product policy.
+- An npm package targets Node.js 20 or later and uses ESM TypeScript with strict type checking.
+- Runtime dependencies are pinned to the stable MCP TypeScript SDK v1 line and Zod; no v2 SDK or remote transport is introduced.
+- The executable starts an MCP server over `stdio`, emits no ordinary output on stdout outside MCP framing, and exposes no Toast data tools before later slices authorize them.
+- Server construction is separated from process startup so it can be tested without importing an auto-running entry point.
+- A synthetic fixture harness loads only repository-owned files beneath a dedicated synthetic fixture directory and rejects traversal outside that directory.
+- At least one clearly synthetic fixture proves the harness without containing Toast credentials, tokens, real merchant data, guest-linked data, or copied Toast payloads.
+- Local scripts cover clean build, strict type check, tests, and package dry-run; a single `npm run check` command executes the complete gate.
+- Package metadata, ignore rules, source maps, declaration output, and published-file boundaries are explicit; publication remains disabled until T6.
+- The README documents local development commands and states that the scaffold does not yet call Toast APIs.
+- No GitHub Actions workflow is added.
+- Exact commands and results are attached to the PR.
 - DOX check is recorded.
 
-**Finding closure evidence**
+**Non-goals**
 
-- `T0-001-R1-F1`: AI and third-party processing are now transport-independent contracts in `AGENTS.md`, the architecture decision, research summary, README operator notice, and this ledger.
-- `T0-001-R1-F2`: `/ordersBulk` fixed pagination and configuration page-token pagination are documented separately; T1-006 fixture-proves order traversal before T3.
-- `T0-001-R1-F3`: Analytics POST/GET job lifecycle, 202 pending behavior, seven-day GUID expiry, 409 replacement, endpoint/time-range limiter keys, and completeness behavior are documented and isolated in T5-002.
-- `T0-001-R1-F4`: Analytics guest-payment data and guest-linked identifiers are removed from the initial scope and remain blocked pending a separately reviewed privacy and terms decision.
-- `T0-001-R2-F1`: issue #1 now carries the same transport-independent Merchant-consent, no-training, independently invented fixture, pagination-family, Analytics job/limit, and guest-linked-data contracts as the exact-head repository documents.
-- DOX: updated; R2 reconciliation changes the durable GitHub project orientation and workflow record without changing the accepted product boundary.
+- Runtime credential configuration or Merchant-consent acknowledgment behavior; T1-002 owns it.
+- OAuth or Toast HTTP requests; T1-003 and T1-004 own them.
+- Pagination, location discovery, capabilities, report schemas, or report tools.
+- Publishing an npm release.
 
 ## Handoff rules
 
@@ -109,8 +121,8 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Next assignment
 
-- **Next role:** REVIEWER
-- **Slice:** T0-001
-- **Review round:** T0-001-R3
-- **Artifact:** PR #2 on `docs/t0-toast-reporting-foundation` plus reconciled issue #1
-- **Review lens:** verify closure of T0-001-R2-F1 and revalidate exact-head source fidelity, AI/third-party terms boundary, pagination families, Analytics job semantics, guest-data exclusion, and cross-document consistency
+- **Next role:** BUILDER
+- **Slice:** T1-001
+- **Base:** current `main`
+- **Branch:** `build/t1-001-runtime-foundation`
+- **Scope:** implement only the TypeScript stdio runtime and synthetic fixture harness acceptance criteria above
