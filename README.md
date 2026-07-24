@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** research and architecture foundation. No installable server has been released yet.
+> **Status:** runtime foundation under review. No installable release or Toast API integration exists yet.
 
 ## What this project is
 
@@ -51,16 +51,54 @@ Toast also uses more than one retrieval model:
 - Configuration endpoints use `Toast-Next-Page-Token`; a configuration publish can invalidate that page set and require a bounded restart.
 - Analytics reports use a two-step job flow: POST to create a `reportRequestGuid`, then GET to retrieve it. A 202 response means the report is still being prepared, and request GUIDs expire after seven days.
 
-## Planned runtime
+## Runtime foundation
 
-- TypeScript and Node.js 20+
-- stable MCP TypeScript SDK v1
-- local `stdio` transport first
-- Zod validation at external boundaries
-- independently invented synthetic fixtures only
-- bounded retries, endpoint-aware Toast rate limits, and explicit partial-data states
-- separate fixed-page, page-token, and Analytics report-job transports
-- deterministic pure report calculations separated from HTTP and MCP presentation
+The current scaffold provides:
+
+- Node.js 20-or-later ESM TypeScript with strict checking
+- the stable MCP TypeScript SDK v1 over local `stdio`
+- separate server construction and process startup modules
+- no registered tools, resources, prompts, Toast credentials, or Toast HTTP calls
+- an independently invented JSON fixture directory with schema validation and traversal protection
+- Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
+- declaration files, source maps, an explicit package file list, and an unpublished private package boundary
+
+Credential configuration, Merchant-consent acknowledgment, OAuth, Toast HTTP requests, pagination, capabilities, and reports belong to later slices.
+
+## Local development
+
+Requirements:
+
+- Node.js 20 or later
+- npm 10 or later
+
+Install exact dependencies and run the complete local gate:
+
+```bash
+npm install
+npm run check
+```
+
+Individual commands:
+
+```bash
+npm run typecheck
+npm run build
+npm run build:test
+npm test
+npm run pack:check
+```
+
+`npm run check` cleans generated output, performs strict source and test type checking, builds declarations and source maps, compiles and runs tests, performs the `stdio` handshake, and inspects the package with `npm pack --dry-run`. The package is marked `private` and is not publishable in this phase.
+
+The executable can be started after a build:
+
+```bash
+npm run build
+node dist/index.js
+```
+
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold does not call Toast APIs and does not yet accept Toast credentials.
 
 ## Repository orientation
 
@@ -71,7 +109,7 @@ Toast also uses more than one retrieval model:
 
 ## Current work
 
-The foundation slice documents the official Toast API surface, reporting semantics, operational constraints, 2026 compatibility changes, AI and third-party-processing boundary, and public-use terms constraints. The next implementation slice will create the TypeScript `stdio` package and synthetic fixture harness. It will not call production Toast APIs yet.
+T0-001 established the reviewed public-use foundation. T1-001 adds only the local TypeScript `stdio` runtime and synthetic fixture harness. Production Toast access remains intentionally absent.
 
 ## Important legal and operational note
 
