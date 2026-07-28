@@ -1,5 +1,3 @@
-import { inspect } from "node:util";
-
 import { z } from "zod";
 
 /**
@@ -13,6 +11,16 @@ import { z } from "zod";
  * serialized form. See docs/architecture/public-use-boundary.md for the
  * governing product decision.
  *
+ * `clientId` and `clientSecret` are never own data properties of a
+ * {@link RuntimeConfig}. They are held in a module-private `WeakMap` keyed by
+ * the frozen config object and reachable only through the deliberate, named
+ * {@link getRuntimeConfigCredentials} accessor. This is a structural
+ * decision, not redaction bolted onto serialization: generic enumeration,
+ * spreading, cloning, or serialization of a `RuntimeConfig` can never reach
+ * the credentials because they were never captured as data on that object in
+ * the first place. See the binding rule in `/AGENTS.md`: "Redaction is not a
+ * substitute for avoiding capture."
+ *
  * OAuth token lifecycle (T1-003), Toast HTTP transport (T1-004), and
  * pagination (T1-005/T1-006) are out of scope here; this module only loads
  * and validates the configuration those later layers will consume.
@@ -23,8 +31,6 @@ const DOCUMENTED_MACHINE_CLIENT_ACCESS_TYPE = "TOAST_MACHINE_CLIENT" as const;
 
 /** The only accepted value for explicit Merchant-AI-consent acknowledgment. */
 const REQUIRED_CONSENT_ACKNOWLEDGMENT = "true" as const;
-
-const REDACTED_PLACEHOLDER = "[redacted]" as const;
 
 /** Bare hostname only: no scheme, path, query string, or port. */
 const HOSTNAME_PATTERN =
@@ -91,11 +97,60 @@ export class RuntimeConfigError extends Error {
 
 export interface RuntimeConfig {
   readonly apiHostname: string;
-  readonly clientId: string;
-  readonly clientSecret: string;
   readonly machineClientAccessType: typeof DOCUMENTED_MACHINE_CLIENT_ACCESS_TYPE;
   readonly defaultRestaurantGuid?: string;
   readonly merchantAiConsentAcknowledged: true;
+}
+
+/**
+ * The Toast OAuth client-credentials pair. Obtainable only via
+ * {@link getRuntimeConfigCredentials}; never an own property of a
+ * {@link RuntimeConfig}.
+ */
+export interface RuntimeConfigCredentials {
+  readonly clientId: string;
+  readonly clientSecret: string;
+}
+
+/**
+ * Module-private store binding a frozen {@link RuntimeConfig} to its OAuth
+ * client-credentials pair. A `WeakMap` keyed by object identity holds the
+ * credentials outside the config object itself, so they are never reachable
+ * by enumerating, spreading, cloning, or serializing the config — only by
+ * calling {@link getRuntimeConfigCredentials} with that exact config
+ * reference.
+ */
+const credentialsByConfig = new WeakMap<RuntimeConfig, RuntimeConfigCredentials>();
+
+/**
+ * The sole deliberate, named accessor for the OAuth client-credentials pair
+ * bound to a {@link RuntimeConfig} produced by {@link loadRuntimeConfig}.
+ *
+ * This hands the raw credentials directly back to the caller rather than
+ * accepting a callback. The OAuth client-credentials layer (T1-003) needs
+ * `clientId`/`clientSecret` to build a token request (and later, a refresh
+ * request); a callback indirection would not close any additional leak path
+ * since the callback body still receives the raw values, and it would add
+ * incidental complexity (async correctness, error handling, retries) around
+ * a single deliberate call site. The leak surface this closes is generic
+ * enumeration of `RuntimeConfig` itself, not what a caller does after it
+ * has legitimately obtained the credentials it was always meant to use.
+ *
+ * Throws if `config` was not produced by {@link loadRuntimeConfig} (for
+ * example, a caller-constructed object matching the `RuntimeConfig` shape).
+ */
+export function getRuntimeConfigCredentials(
+  config: RuntimeConfig,
+): RuntimeConfigCredentials {
+  const credentials = credentialsByConfig.get(config);
+
+  if (credentials === undefined) {
+    throw new TypeError(
+      "getRuntimeConfigCredentials was called with a RuntimeConfig that loadRuntimeConfig did not produce.",
+    );
+  }
+
+  return credentials;
 }
 
 /** Read-only view of environment variables. `process.env` satisfies this. */
@@ -280,33 +335,29 @@ function validateMerchantAiConsentAcknowledgment(
 }
 
 /**
- * Attach non-enumerable, secret-safe `toJSON` and inspection overrides so
- * that `JSON.stringify(config)`, `console.log(config)`, and `util.inspect(config)`
- * can never leak `clientId` or `clientSecret`, and freeze the result.
+ * Freeze `config` and bind its OAuth client-credentials pair in the
+ * module-private {@link credentialsByConfig} store, keyed by the frozen
+ * object's identity.
  *
- * This is defense in depth for accidental logging in later slices. It is not
- * a substitute for never capturing credential-shaped values in the first
- * place.
+ * `config` itself never carries `clientId` or `clientSecret` as data: there
+ * is nothing for `JSON.stringify`, `util.inspect`, `Object.entries`,
+ * `Object.values`, object spread, `Object.assign`, `structuredClone`, or
+ * `for...in` to find, because those two values were never own properties of
+ * this object in the first place. This is real encapsulation, not
+ * redaction: see the binding rule in `/AGENTS.md`.
  */
-function finalizeRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
-  const redactedView: Record<string, unknown> = {
-    ...config,
-    clientId: REDACTED_PLACEHOLDER,
-    clientSecret: REDACTED_PLACEHOLDER,
-  };
+function finalizeRuntimeConfig(
+  config: RuntimeConfig,
+  credentials: RuntimeConfigCredentials,
+): RuntimeConfig {
+  const frozenConfig = Object.freeze(config);
 
-  Object.defineProperty(config, "toJSON", {
-    value: () => redactedView,
-    enumerable: false,
-    configurable: false,
-  });
-  Object.defineProperty(config, inspect.custom, {
-    value: () => redactedView,
-    enumerable: false,
-    configurable: false,
-  });
+  credentialsByConfig.set(
+    frozenConfig,
+    Object.freeze({ ...credentials }),
+  );
 
-  return Object.freeze(config);
+  return frozenConfig;
 }
 
 /**
@@ -354,14 +405,12 @@ export function loadRuntimeConfig(
 
   const config: RuntimeConfig = {
     apiHostname,
-    clientId,
-    clientSecret,
     machineClientAccessType,
     ...(defaultRestaurantGuid !== undefined ? { defaultRestaurantGuid } : {}),
     merchantAiConsentAcknowledged,
   };
 
-  return finalizeRuntimeConfig(config);
+  return finalizeRuntimeConfig(config, { clientId, clientSecret });
 }
 
 /** Env keys this module reads. Exported so tests can assert exhaustiveness. */
