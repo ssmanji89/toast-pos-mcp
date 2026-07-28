@@ -1,0 +1,43 @@
+{
+  "name": "toast-pos-mcp",
+  "version": "0.0.0",
+  "description": "Public, read-only Toast POS reporting MCP server.",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.2",
+  "bin": {
+    "toast-pos-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node --eval \"import('node:fs/promises').then(({ rm }) => Promise.all([rm('dist', { recursive: true, force: true }), rm('dist-test', { recursive: true, force: true })]))\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "node scripts/run-tests.mjs",
+    "prepack": "npm run clean && npm run build",
+    "pack:check": "npm pack --dry-run --json",
+    "check": "npm run clean && npm run typecheck && npm run build && npm run build:test && npm test && npm run pack:check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "6.0.3"
+  }
+}

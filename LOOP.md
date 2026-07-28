@@ -48,7 +48,7 @@ The server must support operators using their own authorized Toast credentials, 
 | Slice | Phase | Description | Depends on | State |
 |---|---|---|---|---|
 | T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | CLOSED |
-| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLAIMED |
+| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | FIXED |
 | T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 | OPEN |
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 | OPEN |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 | OPEN |
@@ -104,6 +104,13 @@ The server must support operators using their own authorized Toast credentials, 
 - Pagination, location discovery, capabilities, report schemas, or report tools.
 - Publishing an npm release.
 
+**Review and fix history**
+
+- PR: #3 on `build/t1-001-runtime-foundation`
+- `T1-001-R1-F1`: fixed by testing an in-root symlink that resolves outside the dedicated synthetic fixture root, with platform-permission skip and cleanup.
+- `T1-001-R1-F2`: fixed by bounding the real child-process `stdio` connection attempt and preserving deterministic cleanup and identity/no-tools assertions.
+- DOX: updated for the durable runtime structure and local operator commands; R1 fixes change test proof only.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -121,8 +128,8 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Next assignment
 
-- **Next role:** BUILDER
+- **Next role:** REVIEWER
 - **Slice:** T1-001
-- **Base:** current `main`
-- **Branch:** `build/t1-001-runtime-foundation`
-- **Scope:** implement only the TypeScript stdio runtime and synthetic fixture harness acceptance criteria above
+- **Review round:** T1-001-R2
+- **Artifact:** PR #3 at its current exact head
+- **Review lens:** verify closure of T1-001-R1-F1 and T1-001-R1-F2, rerun the complete applicable gate, inspect package contents, and revalidate the T1-001 scope and acceptance criteria
