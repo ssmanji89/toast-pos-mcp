@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "description": "Public, read-only Toast POS reporting MCP server.",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=20"
