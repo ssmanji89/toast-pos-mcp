@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   CREDENTIAL_ENV_KEYS_FOR_TESTS,
+  getRuntimeConfigCredentials,
   loadRuntimeConfig,
   RUNTIME_CONFIG_ENV_KEYS_FOR_TESTS,
   RuntimeConfigError,
@@ -31,14 +32,28 @@ test("loads a fully valid synthetic runtime configuration", () => {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
 
   assert.equal(config.apiHostname, "ws-api.synthetic-toast-fixture.test");
-  assert.equal(config.clientId, "synthetic-client-id-0001");
-  assert.equal(config.clientSecret, SYNTHETIC_CLIENT_SECRET_MARKER);
   assert.equal(config.machineClientAccessType, "TOAST_MACHINE_CLIENT");
   assert.equal(
     config.defaultRestaurantGuid,
     "00000000-0000-4000-8000-000000000002",
   );
   assert.equal(config.merchantAiConsentAcknowledged, true);
+});
+
+test("the OAuth client-credentials pair is reachable only through the named accessor", () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+
+  const credentials = getRuntimeConfigCredentials(config);
+
+  assert.equal(credentials.clientId, "synthetic-client-id-0001");
+  assert.equal(credentials.clientSecret, SYNTHETIC_CLIENT_SECRET_MARKER);
+});
+
+test("the accessor throws for a config object loadRuntimeConfig did not produce", () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const lookalike = { ...config };
+
+  assert.throws(() => getRuntimeConfigCredentials(lookalike), TypeError);
 });
 
 test("omitting the optional default restaurant GUID is valid", () => {
@@ -253,31 +268,72 @@ test("never includes the raw client id value in a thrown error", () => {
   );
 });
 
-test("returned config redacts credentials from JSON.stringify", () => {
-  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
-  const serialized = JSON.stringify(config);
-
-  assert.ok(!serialized.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
-  assert.ok(!serialized.includes("synthetic-client-id-0001"));
-  assert.match(serialized, /\[redacted\]/u);
-  assert.match(serialized, /ws-api\.synthetic-toast-fixture\.test/u);
-});
-
-test("returned config redacts credentials from util.inspect / console.log rendering", () => {
-  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
-  const rendered = inspect(config);
-
-  assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
-  assert.ok(!rendered.includes("synthetic-client-id-0001"));
-  assert.match(rendered, /\[redacted\]/u);
-});
-
 test("returned config is frozen and cannot be mutated", () => {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
 
   assert.ok(Object.isFrozen(config));
   assert.throws(() => {
-    // @ts-expect-error verifying runtime immutability of a readonly field
+    // @ts-expect-error verifying runtime immutability: clientSecret is not
+    // (and must never become) an own property of RuntimeConfig.
     config.clientSecret = "mutated";
   }, TypeError);
+});
+
+test("clientId and clientSecret are never own properties of the returned config", () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+
+  const ownKeys = Object.getOwnPropertyNames(config);
+  assert.ok(!ownKeys.includes("clientId"));
+  assert.ok(!ownKeys.includes("clientSecret"));
+  assert.ok(!("clientId" in config));
+  assert.ok(!("clientSecret" in config));
+});
+
+// Full adversarial probe table for T1-002-R1-F1: every access pattern below
+// must be safe against the returned config. Each assertion checks the raw
+// synthetic client-secret marker is not reachable by that idiom, not merely
+// that the accessor works — an accessor working is necessary but not
+// sufficient to close this finding.
+test("probe table: none of the eleven access patterns reach the raw client secret", () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const MARKER = SYNTHETIC_CLIENT_SECRET_MARKER;
+  const CLIENT_ID = "synthetic-client-id-0001";
+
+  const assertSafe = (label: string, value: unknown): void => {
+    const rendered =
+      (typeof value === "string" ? value : JSON.stringify(value)) +
+      " " +
+      inspect(value, { depth: null });
+    assert.ok(
+      !rendered.includes(MARKER) && !rendered.includes(CLIENT_ID),
+      `${label} must not leak the raw client credentials, got: ${rendered}`,
+    );
+  };
+
+  // Previously safe (already passed before the fix); must remain safe.
+  assertSafe("JSON.stringify(config)", JSON.stringify(config));
+  assertSafe("inspect(config) default", inspect(config));
+  assertSafe(
+    "inspect(config, {depth:null, showHidden:true})",
+    inspect(config, { depth: null, showHidden: true }),
+  );
+  assertSafe("template interpolation `${config}`", `${config}`);
+
+  // Previously leaking; must now be safe because clientId/clientSecret are
+  // no longer own data properties of config at all.
+  assertSafe(
+    "inspect(config, {customInspect:false})",
+    inspect(config, { customInspect: false }),
+  );
+  assertSafe("Object.entries(config)", Object.entries(config));
+  assertSafe("Object.values(config)", Object.values(config));
+  assertSafe("{...config} spread", { ...config });
+  assertSafe("Object.assign({}, config)", Object.assign({}, config));
+  assertSafe("structuredClone(config)", structuredClone(config));
+
+  const forInCollected: Record<string, unknown> = {};
+  for (const key in config) {
+    forInCollected[key] = (config as unknown as Record<string, unknown>)[key];
+  }
+  assertSafe("for...in enumeration", forInCollected);
 });
