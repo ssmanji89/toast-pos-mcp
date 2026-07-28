@@ -67,7 +67,7 @@ OAuth, Toast HTTP requests, pagination, capabilities, and reports belong to late
 
 ## Runtime configuration
 
-The process loads non-persistent runtime configuration from environment variables only, validated with Zod, before it starts the MCP transport. Nothing is written to disk and nothing is cached to a durable artifact. `TOAST_CLIENT_ID` and `TOAST_CLIENT_SECRET` are never logged, printed, returned, included in error messages, or captured in fixtures or snapshots; the loaded configuration object also redacts them from `JSON.stringify` and `console.log`/`util.inspect` output as defense in depth.
+The process loads non-persistent runtime configuration from environment variables only, validated with Zod, before it starts the MCP transport. Nothing is written to disk and nothing is cached to a durable artifact. `TOAST_CLIENT_ID` and `TOAST_CLIENT_SECRET` are never logged, printed, returned, or included in error messages, fixtures, or snapshots. The loaded configuration object never carries the OAuth client-credentials pair as a data property at all: it is held in a module-private store keyed by the config object's identity and reachable only through a single named accessor, so generic enumeration, spreading, cloning, or serialization of the configuration (`JSON.stringify`, `util.inspect`, `Object.entries`/`values`, object spread, `Object.assign`, `structuredClone`, `for...in`) can never reach it.
 
 Required variables:
 
