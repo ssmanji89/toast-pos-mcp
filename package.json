@@ -27,10 +27,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
-    "test": "node --test --enable-source-maps dist-test/test/fixture-loader.test.js dist-test/test/server.test.js",
+    "test": "npm run test:discovered && node --test --enable-source-maps \"dist-test/test/**/*.test.js\"",
     "prepack": "npm run clean && npm run build",
     "pack:check": "npm pack --dry-run --json",
-    "check": "npm run clean && npm run typecheck && npm run build && npm run build:test && npm test && npm run pack:check"
+    "check": "npm run clean && npm run typecheck && npm run build && npm run build:test && npm test && npm run pack:check",
+    "test:discovered": "node --eval \"import('node:fs').then(({readdirSync})=>{const f=readdirSync('dist-test/test',{recursive:true}).filter(n=>String(n).endsWith('.test.js'));if(f.length===0){console.error('no compiled test files discovered under dist-test/test');process.exit(1);}console.log('discovered '+f.length+' test file(s)');})\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
