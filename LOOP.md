@@ -48,8 +48,8 @@ The server must support operators using their own authorized Toast credentials, 
 | Slice | Phase | Description | Depends on | State |
 |---|---|---|---|---|
 | T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | CLOSED |
-| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | FIXED |
-| T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 | OPEN |
+| T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLOSED |
+| T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | FINDINGS |
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 | OPEN |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 | OPEN |
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 | OPEN |
@@ -80,36 +80,38 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-### T1-001: TypeScript stdio runtime and synthetic fixture harness
+None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking finding; see below.
 
-**Acceptance criteria**
+### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
 
-- An npm package targets Node.js 20 or later and uses ESM TypeScript with strict type checking.
-- Runtime dependencies are pinned to the stable MCP TypeScript SDK v1 line and Zod; no v2 SDK or remote transport is introduced.
-- The executable starts an MCP server over `stdio`, emits no ordinary output on stdout outside MCP framing, and exposes no Toast data tools before later slices authorize them.
-- Server construction is separated from process startup so it can be tested without importing an auto-running entry point.
-- A synthetic fixture harness loads only repository-owned files beneath a dedicated synthetic fixture directory and rejects traversal outside that directory.
-- At least one clearly synthetic fixture proves the harness without containing Toast credentials, tokens, real merchant data, guest-linked data, or copied Toast payloads.
-- Local scripts cover clean build, strict type check, tests, and package dry-run; a single `npm run check` command executes the complete gate.
-- Package metadata, ignore rules, source maps, declaration output, and published-file boundaries are explicit; publication remains disabled until T6.
-- The README documents local development commands and states that the scaffold does not yet call Toast APIs.
-- No GitHub Actions workflow is added.
-- Exact commands and results are attached to the PR.
-- DOX check is recorded.
+- Review rounds: `T1-001-R1` through `T1-001-R4`
+- Clean head: `d460dfc2ada6a644a4dc219312b0ccaa9eb36447`
+- Squash merge: `acc8096170383195dc9af249d47aa8371c2233bb`
+- Acceptance evidence verified on `main` at the declared Node floor: `npm ci` exit 0, `npm run check` exit 0, 2 test files discovered, 7 of 7 passing on Node 20.20.2.
+- DOX: no durable change in the fix rounds; build tooling and package metadata only.
 
-**Non-goals**
+**Findings closed**
 
-- Runtime credential configuration or Merchant-consent acknowledgment behavior; T1-002 owns it.
-- OAuth or Toast HTTP requests; T1-003 and T1-004 own them.
-- Pagination, location discovery, capabilities, report schemas, or report tools.
-- Publishing an npm release.
+- `T1-001-R1-F1`, `T1-001-R1-F2`: symlink-escape coverage and a bounded stdio handshake with deterministic cleanup.
+- `T1-001-R2-F1`: no lockfile was committed, so `npm ci` failed from a clean checkout.
+- `T1-001-R2-F2`: `package.json` declared `UNLICENSED` while the repository ships Apache-2.0.
+- `T1-001-R2-F4`: the test script enumerated compiled test files by hand, so a new test file silently did not run while the gate still exited 0.
+- `T1-001-R3-F1`: the F4 fix passed a quoted glob to `node --test`, which only expands globs on Node 22 and later, so the gate failed outright on the declared Node 20 floor.
+- `T1-001-R3-F2`: the committed lockfile still recorded the pre-fix license value.
 
-**Review and fix history**
+**Findings withdrawn**
 
-- PR: #3 on `build/t1-001-runtime-foundation`
-- `T1-001-R1-F1`: fixed by testing an in-root symlink that resolves outside the dedicated synthetic fixture root, with platform-permission skip and cleanup.
-- `T1-001-R1-F2`: fixed by bounding the real child-process `stdio` connection attempt and preserving deterministic cleanup and identity/no-tools assertions.
-- DOX: updated for the durable runtime structure and local operator commands; R1 fixes change test proof only.
+- `T1-001-R2-F3`: alleged ledger divergence from GitHub. Unsupported; the ledger was accurate.
+
+**Repository-hygiene finding, resolved out of band**
+
+- `T1-001-R2-S1`: two instructions pointed at npm and pnpm package bytes hosted in unrelated third parties' GitHub repositories, framed as cache-archive workarounds for a failing registry mirror. The `tmp/pnpm-transfer` branch was deleted and the provenance-probe comment on PR #3 was replaced with a repudiation. Originals archived offline. No package bytes from those sources were ever fetched or installed.
+
+**Verification lessons carried forward — these cost two extra rounds**
+
+1. Verify the gate on the floor declared in `engines.node`, not only on the locally installed Node. A fix validated solely on Node 25 broke Node 20 completely and became a blocking finding.
+2. A green gate is not proof that tests ran. Read the discovered-file count and the total test count. Three independent review lenses, one of them performing mutation testing, all missed `F4` because they verified that existing tests were sound and none verified that a new test file would be discovered.
+3. Never attach simulated, reconstructed, or validation-double results as gate evidence. If the gate cannot run, say so. That substitution occurred during the R1 fix round and became part of a blocking finding.
 
 ## Handoff rules
 
@@ -128,8 +130,10 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Next assignment
 
-- **Next role:** REVIEWER
-- **Slice:** T1-001
-- **Review round:** T1-001-R2
-- **Artifact:** PR #3 at its current exact head
-- **Review lens:** verify closure of T1-001-R1-F1 and T1-001-R1-F2, rerun the complete applicable gate, inspect package contents, and revalidate the T1-001 scope and acceptance criteria
+- **Next role:** FIXER
+- **Slice:** T1-002
+- **Finding:** `T1-002-R1-F1` (HIGH, blocking)
+- **Artifact:** PR #5 on `build/t1-002-runtime-configuration`
+- **Required fix:** `clientId` and `clientSecret` are stored as ordinary enumerable properties with redaction bolted onto `toJSON` and `util.inspect.custom` only. An adversarial probe leaked the raw secret through `Object.entries`, `Object.values`, spread, `Object.assign`, `structuredClone`, `for...in`, and `inspect` with `customInspect: false`. `AGENTS.md` rule 2 states redaction is not a substitute for avoiding capture. Encapsulate the values so generic enumeration, spreading, cloning, and serialization structurally cannot reach them, and extend the tests to cover every access pattern in that probe rather than the two happy paths.
+- **Also required:** rebase onto the merged `main`. Take the base's `node scripts/run-tests.mjs` test script and drop this branch's enumerated file list entirely; all three compiled test files are then discovered automatically.
+- **After the fix:** review round `T1-002-R1` reruns before T1-003 begins. T1-003 consumes these exact credential values, so the encapsulation must land first.
