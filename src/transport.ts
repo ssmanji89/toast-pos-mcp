@@ -3,6 +3,8 @@ import type { RuntimeConfig } from "./config.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
+const DEFAULT_MAX_CONFIGURATION_PAGE_COUNT = 100;
+const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
 
 /**
@@ -44,6 +46,15 @@ export interface ToastGetJsonRequest {
   readonly apiFamily?: ToastApiFamily;
 }
 
+export interface ToastConfigurationPagesRequest {
+  readonly path: `/${string}`;
+  readonly restaurantGuid: string;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly rateLimitKey: string;
+  readonly maxPages?: number;
+  readonly maxRestarts?: number;
+}
+
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
   readonly restaurantGuid: string;
@@ -56,6 +67,9 @@ export interface ToastRateLimitSnapshot {
 }
 
 export type ToastHttpErrorCode =
+  | "configuration_page_bound_exceeded"
+  | "configuration_page_restart_exceeded"
+  | "configuration_page_token_repeated"
   | "rate_limit_wait_exceeded"
   | "request_failed"
   | "request_network_error"
@@ -93,6 +107,8 @@ export interface ToastHttpClientOptions {
   readonly baseRetryDelayMs?: number;
   readonly fetch?: typeof fetch;
   readonly maxAttempts?: number;
+  readonly maxConfigurationPages?: number;
+  readonly maxConfigurationRestarts?: number;
   readonly maxRateLimitWaitMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly now?: () => number;
@@ -105,6 +121,8 @@ export class ToastHttpClient {
   #config: RuntimeConfig;
   #fetch: typeof fetch;
   #maxAttempts: number;
+  #maxConfigurationPages: number;
+  #maxConfigurationRestarts: number;
   #maxRateLimitWaitMs: number;
   #maxRetryDelayMs: number;
   #now: () => number;
@@ -125,6 +143,10 @@ export class ToastHttpClient {
     this.#random = options.random ?? Math.random;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.#maxConfigurationPages =
+      options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGE_COUNT;
+    this.#maxConfigurationRestarts =
+      options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
     this.#baseRetryDelayMs =
       options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
     this.#maxRetryDelayMs =
@@ -135,9 +157,111 @@ export class ToastHttpClient {
     if (this.#maxAttempts < 1) {
       throw new RangeError("ToastHttpClient maxAttempts must be at least 1.");
     }
+    if (this.#maxConfigurationPages < 1) {
+      throw new RangeError(
+        "ToastHttpClient maxConfigurationPages must be at least 1.",
+      );
+    }
+    if (this.#maxConfigurationRestarts < 0) {
+      throw new RangeError(
+        "ToastHttpClient maxConfigurationRestarts must be at least 0.",
+      );
+    }
   }
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
+    return (await this.#requestJson(request)).body;
+  }
+
+  async getConfigurationPagesJson(
+    request: ToastConfigurationPagesRequest,
+  ): Promise<readonly unknown[]> {
+    const maxPages = request.maxPages ?? this.#maxConfigurationPages;
+    const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
+    if (maxPages < 1) {
+      throw new RangeError("Toast configuration maxPages must be at least 1.");
+    }
+    if (maxRestarts < 0) {
+      throw new RangeError(
+        "Toast configuration maxRestarts must be at least 0.",
+      );
+    }
+
+    let restartCount = 0;
+
+    for (;;) {
+      const pages: unknown[] = [];
+      const seenTokens = new Set<string>();
+      let pageToken: string | undefined;
+
+      for (;;) {
+        if (pages.length >= maxPages) {
+          throw new ToastHttpError(
+            "configuration_page_bound_exceeded",
+            "Toast configuration page-token traversal exceeded the configured page bound.",
+            { apiFamily: "standard", retryable: false },
+          );
+        }
+
+        try {
+          const response = await this.#requestJson({
+            path: request.path,
+            restaurantGuid: request.restaurantGuid,
+            query: { ...request.query, pageToken },
+            rateLimitKey: request.rateLimitKey,
+            apiFamily: "standard",
+          });
+
+          pages.push(response.body);
+
+          const nextToken = response.headers.get("toast-next-page-token");
+          if (nextToken === null || nextToken === "") {
+            return Object.freeze([...pages]);
+          }
+          if (seenTokens.has(nextToken) || nextToken === pageToken) {
+            throw new ToastHttpError(
+              "configuration_page_token_repeated",
+              "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
+              { apiFamily: "standard", retryable: false },
+            );
+          }
+
+          seenTokens.add(nextToken);
+          pageToken = nextToken;
+        } catch (error) {
+          if (
+            error instanceof ToastHttpError &&
+            error.upstreamStatus === 409
+          ) {
+            if (restartCount >= maxRestarts) {
+              throw new ToastHttpError(
+                "configuration_page_restart_exceeded",
+                "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
+                {
+                  apiFamily: "standard",
+                  retryable: false,
+                  upstreamStatus: 409,
+                  ...(error.upstreamRequestId !== undefined
+                    ? { upstreamRequestId: error.upstreamRequestId }
+                    : {}),
+                },
+              );
+            }
+
+            restartCount += 1;
+            break;
+          }
+
+          throw error;
+        }
+      }
+    }
+  }
+
+  async #requestJson(request: ToastGetJsonRequest): Promise<{
+    readonly body: unknown;
+    readonly headers: Headers;
+  }> {
     const apiFamily = request.apiFamily ?? "standard";
     const stateKey = rateLimitStateKey(
       apiFamily,
@@ -225,7 +349,10 @@ export class ToastHttpClient {
       }
 
       try {
-        return await response.json();
+        return {
+          body: await response.json(),
+          headers: response.headers,
+        };
       } catch {
         throw new ToastHttpError(
           "response_invalid_json",
