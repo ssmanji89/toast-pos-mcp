@@ -21,6 +21,8 @@ const SYNTHETIC_UPSTREAM_BODY_MARKER =
   "synthetic-upstream-body-marker-must-not-leak";
 const SYNTHETIC_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000000099";
+const SYNTHETIC_RESTAURANT_GUID_B =
+  "00000000-0000-4000-8000-000000000100";
 
 test("sends a location-scoped Toast GET request with a bearer token and records rate-limit state", async () => {
   const harness = new TransportHarness({
@@ -63,15 +65,23 @@ test("sends a location-scoped Toast GET request with a bearer token and records 
     SYNTHETIC_RESTAURANT_GUID,
   );
   assert.equal(harness.dataFetch.calls[0]?.init.body, undefined);
-  assert.deepEqual(harness.client.getRateLimitSnapshot("standard", "ordersBulk"), {
-    apiFamily: "standard",
-    key: "ordersBulk",
-    limit: 20,
-    remaining: 19,
-    resetAtEpochMs: 1_785_326_405_000,
-    retryAfterEpochMs: undefined,
-    updatedAtEpochMs: Date.UTC(2026, 6, 29, 12, 0, 0),
-  });
+  assert.deepEqual(
+    harness.client.getRateLimitSnapshot(
+      "standard",
+      SYNTHETIC_RESTAURANT_GUID,
+      "ordersBulk",
+    ),
+    {
+      apiFamily: "standard",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      key: "ordersBulk",
+      limit: 20,
+      remaining: 19,
+      resetAtEpochMs: 1_785_326_405_000,
+      retryAfterEpochMs: undefined,
+      updatedAtEpochMs: Date.UTC(2026, 6, 29, 12, 0, 0),
+    },
+  );
 });
 
 test("retries retryable 429 responses within the configured attempt budget and honors Retry-After", async () => {
@@ -242,6 +252,63 @@ test("fails closed rather than waiting out a far-future stored rate-limit reset 
 
   assert.equal(harness.dataFetch.calls.length, 1);
   assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not cross-contaminate rate-limit state between restaurant GUIDs sharing a limiter key (T1-004-R1-S1 / T1-004-R1-F7)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { synthetic: "location-a" },
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "105",
+          },
+        },
+      ),
+      jsonResponse({ synthetic: "location-b" }),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    { synthetic: "location-a" },
+  );
+
+  // Location A is now recorded as exhausted with a reset 5 seconds out
+  // (now=100_000ms, Toast-RateLimit-Reset=105 -> 105_000ms). A distinct
+  // restaurant GUID sharing the same limiter key ("ordersBulk") must not be
+  // delayed by location A's exhausted quota: the second call, for a
+  // different restaurantGuid, must fetch immediately with zero sleeps.
+  assert.deepEqual(
+    await harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID_B,
+      rateLimitKey: "ordersBulk",
+    }),
+    { synthetic: "location-b" },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, []);
+
+  const snapshotA = harness.client.getRateLimitSnapshot(
+    "standard",
+    SYNTHETIC_RESTAURANT_GUID,
+    "ordersBulk",
+  );
+  const snapshotB = harness.client.getRateLimitSnapshot(
+    "standard",
+    SYNTHETIC_RESTAURANT_GUID_B,
+    "ordersBulk",
+  );
+  assert.equal(snapshotA?.restaurantGuid, SYNTHETIC_RESTAURANT_GUID);
+  assert.equal(snapshotB?.restaurantGuid, SYNTHETIC_RESTAURANT_GUID_B);
 });
 
 test("does not retry authorization or validation failures and does not expose upstream bodies", async () => {

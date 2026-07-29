@@ -46,6 +46,7 @@ export interface ToastGetJsonRequest {
 
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
+  readonly restaurantGuid: string;
   readonly key: string;
   readonly limit: number | undefined;
   readonly remaining: number | undefined;
@@ -138,7 +139,11 @@ export class ToastHttpClient {
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
     const apiFamily = request.apiFamily ?? "standard";
-    const stateKey = rateLimitStateKey(apiFamily, request.rateLimitKey);
+    const stateKey = rateLimitStateKey(
+      apiFamily,
+      request.restaurantGuid,
+      request.rateLimitKey,
+    );
     let lastError: ToastHttpError | undefined;
 
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
@@ -186,7 +191,13 @@ export class ToastHttpClient {
         continue;
       }
 
-      this.#recordRateLimit(stateKey, apiFamily, request.rateLimitKey, response);
+      this.#recordRateLimit(
+        stateKey,
+        apiFamily,
+        request.restaurantGuid,
+        request.rateLimitKey,
+        response,
+      );
 
       if (!response.ok) {
         const retryable = RETRYABLE_STATUSES.has(response.status);
@@ -238,9 +249,12 @@ export class ToastHttpClient {
 
   getRateLimitSnapshot(
     apiFamily: ToastApiFamily,
+    restaurantGuid: string,
     key: string,
   ): ToastRateLimitSnapshot | undefined {
-    return this.#rateLimits.get(rateLimitStateKey(apiFamily, key));
+    return this.#rateLimits.get(
+      rateLimitStateKey(apiFamily, restaurantGuid, key),
+    );
   }
 
   #buildUrl(request: ToastGetJsonRequest): string {
@@ -258,6 +272,7 @@ export class ToastHttpClient {
   #recordRateLimit(
     stateKey: string,
     apiFamily: ToastApiFamily,
+    restaurantGuid: string,
     key: string,
     response: Response,
   ): void {
@@ -265,6 +280,7 @@ export class ToastHttpClient {
     const retryAfterEpochMs = retryAfterEpochMsFromHeaders(response, now);
     const snapshot: ToastRateLimitSnapshot = Object.freeze({
       apiFamily,
+      restaurantGuid,
       key,
       limit: numericHeader(response, "toast-ratelimit-limit"),
       remaining: numericHeader(response, "toast-ratelimit-remaining"),
@@ -393,8 +409,28 @@ function epochHeader(response: Response, name: string): number | undefined {
   return parsed > 9_999_999_999 ? parsed : parsed * 1000;
 }
 
-function rateLimitStateKey(apiFamily: ToastApiFamily, key: string): string {
-  return `${apiFamily}:${key}`;
+/**
+ * Sole constructor of rate-limit map keys.
+ *
+ * AGENTS.md rule 6 ("Location isolation is mandatory") requires every cache
+ * key to be explicitly bound to a restaurant GUID. `restaurantGuid` was
+ * previously used only for the outbound `toast-restaurant-external-id`
+ * header and never entered the key derived here, so two distinct
+ * restaurants sharing a `rateLimitKey` (for example `"ordersBulk"`) shared
+ * one rate-limit bucket: location A's exhausted quota blocked location B.
+ * See T1-004-R1-S1 / T1-004-R1-F7.
+ *
+ * `restaurantGuid` is a required, non-optional parameter — not a caller
+ * convention — so a bare `apiFamily:key` state key can no longer be
+ * constructed from this module at all. Every caller of this function (both
+ * within this file) must supply it.
+ */
+function rateLimitStateKey(
+  apiFamily: ToastApiFamily,
+  restaurantGuid: string,
+  key: string,
+): string {
+  return `${apiFamily}:${restaurantGuid}:${key}`;
 }
 
 async function defaultSleep(milliseconds: number): Promise<void> {
