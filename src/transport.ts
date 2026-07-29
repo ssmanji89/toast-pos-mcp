@@ -5,6 +5,33 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
 
+/**
+ * Ceiling on any server-derived wait — a `Retry-After` value, a
+ * `Toast-RateLimit-Reset` value fed back from a prior response, or the
+ * corresponding absolute reset time replayed by `#waitForKnownRateLimit`
+ * before a later request even attempts to fetch.
+ *
+ * `#maxRetryDelayMs` only ever bounded the client's own exponential/jitter
+ * component; `Math.max(serverDelayMs ?? 0, jitteredDelayMs)` let an
+ * unbounded server-supplied value dominate it completely. A `Retry-After:
+ * 86400` or a stored reset 24 hours out produced sleeps of 86,400,000 ms —
+ * in a locally run `stdio` server, an indefinite hang with no output.
+ *
+ * T0 research (`docs/research/toast-api-reporting-landscape.md`) documents
+ * no per-call wait anywhere near this long; the longest documented Standard
+ * API rate-limit window is the global 10,000-requests-per-15-minutes
+ * ceiling. 15 minutes (900,000 ms) is chosen as a generous ceiling that
+ * comfortably covers any plausible in-window wait this project's Standard
+ * API traffic could legitimately be asked to honor, while still rejecting
+ * the class of implausible values (a corrupted header, a hostile stand-in,
+ * or a Toast-side incident reporting a reset far outside any documented
+ * window) that would otherwise hang the process silently. Per AGENTS.md
+ * rule 11, a wait beyond this ceiling fails closed with a structured,
+ * non-retryable error instead of sleeping past it — surfacing loudly beats
+ * hanging silently. See T1-004-R1-F2.
+ */
+const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export type ToastApiFamily = "standard";
@@ -28,6 +55,7 @@ export interface ToastRateLimitSnapshot {
 }
 
 export type ToastHttpErrorCode =
+  | "rate_limit_wait_exceeded"
   | "request_failed"
   | "request_network_error"
   | "response_invalid_json"
@@ -64,6 +92,7 @@ export interface ToastHttpClientOptions {
   readonly baseRetryDelayMs?: number;
   readonly fetch?: typeof fetch;
   readonly maxAttempts?: number;
+  readonly maxRateLimitWaitMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -75,6 +104,7 @@ export class ToastHttpClient {
   #config: RuntimeConfig;
   #fetch: typeof fetch;
   #maxAttempts: number;
+  #maxRateLimitWaitMs: number;
   #maxRetryDelayMs: number;
   #now: () => number;
   #random: () => number;
@@ -98,6 +128,8 @@ export class ToastHttpClient {
       options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
     this.#maxRetryDelayMs =
       options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+    this.#maxRateLimitWaitMs =
+      options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
 
     if (this.#maxAttempts < 1) {
       throw new RangeError("ToastHttpClient maxAttempts must be at least 1.");
@@ -150,7 +182,7 @@ export class ToastHttpClient {
           { apiFamily, retryable: true },
         );
 
-        await this.#sleepBeforeRetry(attempt, undefined);
+        await this.#sleepBeforeRetry(attempt, undefined, apiFamily);
         continue;
       }
 
@@ -173,7 +205,11 @@ export class ToastHttpClient {
           throw lastError;
         }
 
-        await this.#sleepBeforeRetry(attempt, retryDelayFromHeaders(response, this.#now()));
+        await this.#sleepBeforeRetry(
+          attempt,
+          retryDelayFromHeaders(response, this.#now()),
+          apiFamily,
+        );
         continue;
       }
 
@@ -243,9 +279,23 @@ export class ToastHttpClient {
   async #sleepBeforeRetry(
     attempt: number,
     serverDelayMs: number | undefined,
+    apiFamily: ToastApiFamily,
   ): Promise<void> {
     if (attempt >= this.#maxAttempts) {
       return;
+    }
+
+    // A server-derived delay (Retry-After, or a rate-limit reset fed back
+    // from a prior response) is honored up to the ceiling, but never past
+    // it — clamping it down to the ceiling and retrying early would ignore
+    // what Toast asked for and risk repeating the exact violation that
+    // triggered the wait. See T1-004-R1-F2 and DEFAULT_MAX_RATE_LIMIT_WAIT_MS.
+    if (serverDelayMs !== undefined && serverDelayMs > this.#maxRateLimitWaitMs) {
+      throw new ToastHttpError(
+        "rate_limit_wait_exceeded",
+        "Toast requested a retry wait longer than the configured rate-limit wait ceiling.",
+        { apiFamily, retryable: false },
+      );
     }
 
     const exponentialDelayMs = Math.min(
@@ -263,9 +313,22 @@ export class ToastHttpClient {
     }
 
     const waitMs = snapshot.retryAfterEpochMs - this.#now();
-    if (waitMs > 0) {
-      await this.#sleep(waitMs);
+    if (waitMs <= 0) {
+      return;
     }
+
+    // Same ceiling as #sleepBeforeRetry, applied pre-flight: a stored reset
+    // far in the future must not block an unrelated later call for its
+    // full duration. See T1-004-R1-F2.
+    if (waitMs > this.#maxRateLimitWaitMs) {
+      throw new ToastHttpError(
+        "rate_limit_wait_exceeded",
+        "A stored Toast rate-limit reset is further in the future than the configured rate-limit wait ceiling.",
+        { apiFamily: snapshot.apiFamily, retryable: false },
+      );
+    }
+
+    await this.#sleep(waitMs);
   }
 }
 

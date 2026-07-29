@@ -165,6 +165,85 @@ test("waits before a later request when stored rate-limit state shows exhausted 
   assert.deepEqual(harness.sleeps, [1_000]);
 });
 
+test("fails closed rather than sleeping past the rate-limit wait ceiling for a large Retry-After (T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "86400",
+            "Toast-Request-Id": "synthetic-request-id-429-huge",
+          },
+        },
+      ),
+      jsonResponse({ synthetic: "unreachable" }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("fails closed rather than waiting out a far-future stored rate-limit reset (T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { synthetic: "first" },
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "100000",
+          },
+        },
+      ),
+      jsonResponse({ synthetic: "unreachable" }),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    { synthetic: "first" },
+  );
+
+  await assert.rejects(
+    harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
 test("does not retry authorization or validation failures and does not expose upstream bodies", async () => {
   const harness = new TransportHarness({
     responses: [
