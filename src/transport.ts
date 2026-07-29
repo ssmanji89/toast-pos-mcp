@@ -379,9 +379,24 @@ function retryAfterEpochMsFromHeaders(
 ): number | undefined {
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter !== null) {
+    // RFC 7231 permits `Retry-After` as either delta-seconds or an HTTP-date.
+    // Try delta-seconds first; only a string of digits parses as a safe
+    // non-negative integer here, so an HTTP-date (which begins with a day
+    // name, e.g. "Wed, 21 Oct 2026 07:28:00 GMT") correctly falls through
+    // to the Date.parse fallback below rather than being misread. Without
+    // that fallback, an HTTP-date yielded NaN and the header was silently
+    // ignored, producing a sleep of 0 for a wait Toast asked for an hour
+    // out. The clamp in #sleepBeforeRetry / #waitForKnownRateLimit (see
+    // DEFAULT_MAX_RATE_LIMIT_WAIT_MS, T1-004-R1-F2) applies to whichever
+    // form resolves here.
     const seconds = Number.parseInt(retryAfter, 10);
     if (Number.isSafeInteger(seconds) && seconds >= 0) {
       return now + seconds * 1000;
+    }
+
+    const parsedDateEpochMs = Date.parse(retryAfter);
+    if (!Number.isNaN(parsedDateEpochMs)) {
+      return parsedDateEpochMs;
     }
   }
 

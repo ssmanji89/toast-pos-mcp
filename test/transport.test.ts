@@ -114,6 +114,82 @@ test("retries retryable 429 responses within the configured attempt budget and h
   assert.deepEqual(harness.sleeps, [2_000]);
 });
 
+test("honors an RFC 7231 HTTP-date Retry-After within the wait ceiling (T1-004-R1-F3)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 5 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-http-date",
+          },
+        },
+      ),
+      jsonResponse({ synthetic: "after-http-date-retry" }),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  const payload = await harness.client.getJson({
+    path: "/orders/v2/ordersBulk",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "ordersBulk",
+  });
+
+  assert.deepEqual(payload, { synthetic: "after-http-date-retry" });
+  assert.equal(harness.dataFetch.calls.length, 2);
+  // Before the fix, an HTTP-date form failed `Number.parseInt` and yielded
+  // NaN, so the wait silently fell through to 0. It must instead resolve
+  // to the actual delay implied by the date (five minutes).
+  assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
+});
+
+test("fails closed on an RFC 7231 HTTP-date Retry-After beyond the wait ceiling (T1-004-R1-F3, T1-004-R1-F2)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 60 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-http-date-huge",
+          },
+        },
+      ),
+      jsonResponse({ synthetic: "unreachable" }),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  await assert.rejects(
+    harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
 test("retries retryable 5xx responses with bounded exponential jitter", async () => {
   const harness = new TransportHarness({
     responses: [
