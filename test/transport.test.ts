@@ -823,6 +823,40 @@ test("keeps 409 restart behavior scoped out of ordinary getJson calls", async ()
   assert.equal(harness.dataFetch.calls.length, 1);
 });
 
+test("rejects a maxConfigurationRestarts value above the configured ceiling at construction (T1-005-R1-F4)", () => {
+  assert.throws(
+    () => new TransportHarness({ maxConfigurationRestarts: 11, responses: [] }),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError);
+      assert.match(
+        (error as RangeError).message,
+        /maxConfigurationRestarts must not exceed 10/,
+      );
+      return true;
+    },
+  );
+});
+
+test("rejects a per-call maxRestarts override above the configured ceiling before any fetch (T1-005-R1-F4)", async () => {
+  const harness = new TransportHarness({ responses: [] });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/diningOptions",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:diningOptions",
+      maxRestarts: 11,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError);
+      assert.match((error as RangeError).message, /maxRestarts must not exceed 10/);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
 test("wraps rejected fetches in sanitized network errors and retries only within bounds", async () => {
   const harness = new TransportHarness({
     responses: [
