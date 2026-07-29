@@ -23,6 +23,8 @@ const SYNTHETIC_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000000099";
 const SYNTHETIC_RESTAURANT_GUID_B =
   "00000000-0000-4000-8000-000000000100";
+const SYNTHETIC_NEXT_URL_MARKER =
+  "synthetic-ordersbulk-next-url-marker-must-not-leak";
 
 test("sends a location-scoped Toast GET request with a bearer token and records rate-limit state", async () => {
   const harness = new TransportHarness({
@@ -1773,6 +1775,85 @@ test("honors an RFC 7231 HTTP-date Retry-After for ordersBulk (T1-006-R1-S2 / T1
   assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
 });
 
+// T1-006-R1-S3: the committed secret-safety enumeration test calls getJson
+// once, so linkRelations, assertOrdersBulkNextUrl, and the response
+// url/headers fields this slice added are never exercised by it. This
+// performs a real multi-page traversal first, then applies the eleven-idiom
+// probe to the client, the returned pages array, and a pagination error.
+
+test("does not expose bearer tokens, upstream data, or Link/next-URL values through the client, a multi-page ordersBulk result, or a pagination error (T1-006-R1-S3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: `<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&marker=${SYNTHETIC_NEXT_URL_MARKER}&page=2&pageSize=100>; rel="next"`,
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729, marker: SYNTHETIC_NEXT_URL_MARKER },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+
+  const clientObserved = elevenIdiomProbe(harness.client);
+  assert.ok(!clientObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!clientObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  const pagesObserved = elevenIdiomProbe(pages);
+  assert.ok(!pagesObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!pagesObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  // A malformed Link header -- missing its closing angle bracket and its
+  // rel parameter entirely -- carries the marker in its raw (untrusted)
+  // value. The thrown pagination error must not leak it anywhere.
+  const errorHarness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: `<${SYNTHETIC_NEXT_URL_MARKER}`,
+        },
+      }),
+    ],
+  });
+
+  let capturedError: unknown;
+  await assert.rejects(
+    errorHarness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      capturedError = error;
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      return true;
+    },
+  );
+
+  const errorObserved = elevenIdiomProbe(capturedError);
+  assert.ok(!errorObserved.includes(SYNTHETIC_NEXT_URL_MARKER));
+  assert.ok(!errorObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!errorObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  if (capturedError instanceof Error) {
+    assert.ok(!capturedError.message.includes(SYNTHETIC_NEXT_URL_MARKER));
+    assert.ok(!(capturedError.stack ?? "").includes(SYNTHETIC_NEXT_URL_MARKER));
+    assert.equal((capturedError as { cause?: unknown }).cause, undefined);
+  }
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
@@ -1891,4 +1972,41 @@ function jsonResponse(
       ...options.headers,
     },
   });
+}
+
+/**
+ * T1-006-R1-S3: applies the same secret-enumeration idioms as the committed
+ * "does not expose bearer tokens or credentials through client enumeration
+ * or inspection" test, generalized to any value (a client instance, a
+ * traversal result array, or a thrown error) rather than only the client.
+ */
+function elevenIdiomProbe(value: unknown): string {
+  const boxed = Object(value) as Record<string, unknown>;
+  const forInCollected: Record<string, unknown> = {};
+  for (const key in boxed) {
+    forInCollected[key] = boxed[key];
+  }
+
+  let cloned: unknown;
+  try {
+    cloned = structuredClone(value);
+  } catch {
+    cloned = undefined;
+  }
+
+  return [
+    Object.keys(boxed),
+    Object.getOwnPropertyNames(boxed),
+    Object.entries(boxed),
+    Object.values(boxed),
+    { ...boxed },
+    Object.assign({}, boxed),
+    cloned,
+    inspect(value, { depth: null, showHidden: true, customInspect: false }),
+    inspect(value, { depth: null }),
+    JSON.stringify(value),
+    forInCollected,
+  ]
+    .map((entry) => inspect(entry, { depth: null }))
+    .join(" ");
 }
