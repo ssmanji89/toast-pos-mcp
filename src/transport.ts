@@ -79,6 +79,30 @@ const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
  */
 const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
 
+/**
+ * `DEFAULT_MAX_ORDERS_BULK_PAGES` and `MAX_ALLOWED_ORDERS_BULK_PAGES` are the
+ * `/ordersBulk` Link-traversal analog of `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * above. `maxPages` was previously a required, fully caller-supplied field
+ * with no default and no ceiling at all -- worst-case raw fetch count was
+ * `maxPages * maxAttempts` with `maxPages` uncapped from either direction.
+ * `/ordersBulk` has no 409-restart budget (`docs/architecture/public-use-
+ * boundary.md` states the configuration 409-restart rule does not apply to
+ * `/ordersBulk`), so the composed worst case is simpler than the
+ * configuration traversal's: with the defaults below (`maxPages=100`,
+ * `maxAttempts=3`), that is `100 * 3 = 300` raw `fetch` calls; at the
+ * ceiling (`maxPages=1000`), `1000 * 3 = 3000` -- still finite and bounded.
+ * The ceiling is an order of magnitude above the default, the same
+ * proportion `MAX_ALLOWED_CONFIGURATION_RESTARTS` uses relative to
+ * `DEFAULT_MAX_CONFIGURATION_RESTARTS`, generous enough for ordinary
+ * operation while still rejecting an implausible caller-supplied value
+ * loudly per AGENTS.md rule 11. Every page also accumulates its full JSON
+ * body in memory for the life of the call -- no streaming or page-callback
+ * interface exists yet; see T1-006-R1-F4 for the note that one should be
+ * considered before any MCP tool is built on this primitive.
+ */
+const DEFAULT_MAX_ORDERS_BULK_PAGES = 100;
+const MAX_ALLOWED_ORDERS_BULK_PAGES = 1_000;
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export type ToastApiFamily = "standard";
@@ -104,7 +128,12 @@ export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly pageSize: number;
-  readonly maxPages: number;
+  // Optional as of T1-006-R1-F4: previously required with no upper bound,
+  // so worst-case raw fetch count (`maxPages * maxAttempts`) was uncapped
+  // on the caller's side. Now defaults to `DEFAULT_MAX_ORDERS_BULK_PAGES`
+  // and is rejected above `MAX_ALLOWED_ORDERS_BULK_PAGES` either way. See
+  // the composed worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
+  readonly maxPages?: number;
 }
 
 export interface ToastRateLimitSnapshot {
@@ -162,6 +191,7 @@ export interface ToastHttpClientOptions {
   readonly maxAttempts?: number;
   readonly maxConfigurationPages?: number;
   readonly maxConfigurationRestarts?: number;
+  readonly maxOrdersBulkPages?: number;
   readonly maxRateLimitWaitMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly now?: () => number;
@@ -182,6 +212,7 @@ export class ToastHttpClient {
   #maxAttempts: number;
   #maxConfigurationPages: number;
   #maxConfigurationRestarts: number;
+  #maxOrdersBulkPages: number;
   #maxRateLimitWaitMs: number;
   #maxRetryDelayMs: number;
   #now: () => number;
@@ -206,6 +237,8 @@ export class ToastHttpClient {
       options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGE_COUNT;
     this.#maxConfigurationRestarts =
       options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
+    this.#maxOrdersBulkPages =
+      options.maxOrdersBulkPages ?? DEFAULT_MAX_ORDERS_BULK_PAGES;
     this.#baseRetryDelayMs =
       options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
     this.#maxRetryDelayMs =
@@ -229,6 +262,16 @@ export class ToastHttpClient {
     if (this.#maxConfigurationRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
       throw new RangeError(
         `ToastHttpClient maxConfigurationRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+      );
+    }
+    if (this.#maxOrdersBulkPages < 1) {
+      throw new RangeError(
+        "ToastHttpClient maxOrdersBulkPages must be at least 1.",
+      );
+    }
+    if (this.#maxOrdersBulkPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
+      throw new RangeError(
+        `ToastHttpClient maxOrdersBulkPages must not exceed ${MAX_ALLOWED_ORDERS_BULK_PAGES}.`,
       );
     }
   }
@@ -370,9 +413,21 @@ export class ToastHttpClient {
         "ordersBulk pageSize must be an integer between 1 and 100.",
       );
     }
-    if (!Number.isInteger(request.maxPages) || request.maxPages < 1) {
+    // T1-006-R1-F4: `maxPages` was previously required with no default and
+    // no ceiling. It is now optional (defaulting to
+    // `DEFAULT_MAX_ORDERS_BULK_PAGES`) and rejected above
+    // `MAX_ALLOWED_ORDERS_BULK_PAGES` regardless of whether the caller
+    // supplied it explicitly or relied on the default -- see the composed
+    // worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
+    const maxPages = request.maxPages ?? this.#maxOrdersBulkPages;
+    if (!Number.isInteger(maxPages) || maxPages < 1) {
       throw paginationIntegrityError(
         "ordersBulk maxPages must be a positive integer.",
+      );
+    }
+    if (maxPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
+      throw paginationIntegrityError(
+        `ordersBulk maxPages must not exceed ${MAX_ALLOWED_ORDERS_BULK_PAGES}.`,
       );
     }
 
@@ -381,7 +436,7 @@ export class ToastHttpClient {
     let page = 1;
 
     while (true) {
-      if (pages.length >= request.maxPages) {
+      if (pages.length >= maxPages) {
         throw paginationIntegrityError(
           "ordersBulk pagination exceeded the configured page bound.",
         );

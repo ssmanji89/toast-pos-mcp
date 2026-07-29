@@ -1548,6 +1548,29 @@ test("fails closed when ordersBulk Link next changes pageSize (T1-006-R1-F3)", a
   assert.equal(harness.dataFetch.calls.length, 1);
 });
 
+test("rejects an ordersBulk maxPages value above the configured ceiling (T1-006-R1-F4)", async () => {
+  const harness = new TransportHarness({
+    responses: [jsonResponse({ synthetic: "unreachable" })],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 1_001,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
