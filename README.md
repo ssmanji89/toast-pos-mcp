@@ -139,6 +139,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The
 - [`LOOP.md`](LOOP.md): phase map, atomic slice ledger, review handoffs, and current state
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
+- [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): assets, trust boundaries, local-distribution and AI-provider data-flow threats, future-remote-transport requirements, and residual risk
 
 ## Current work
 
