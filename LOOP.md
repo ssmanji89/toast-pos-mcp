@@ -51,8 +51,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLOSED |
 | T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | CLOSED |
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLOSED |
-| T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLAIMED |
-| T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 | OPEN |
+| T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLOSED |
+| T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLAIMED |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 | OPEN |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 | OPEN |
 | T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 | OPEN |
@@ -164,6 +164,42 @@ No test asserts the accepted side of the expiry ceiling — that `expiresIn: 864
 
 `auth.ts` is not wired into `index.ts` or `server.ts`. T1-004 owns that wiring along with the data-endpoint transport. Remember that `index.ts` discards `loadRuntimeConfig()`'s return and credential lookup is identity-keyed, so a consumer must load its own config.
 
+### T1-004: HTTP transport, structured errors, rate-limit state, and bounded retries — CLOSED
+
+- Review rounds: `T1-004-R1` (two lenses: retry/rate-limit correctness, transport safety) and `T1-004-R2`
+- Clean head: `03ee8cb27d30d3e7750e580a43c600a394008477`
+- Merged with a merge commit to preserve the T1-005 stack
+- Acceptance evidence on `main` at the declared Node floor: 5 test files discovered, 64 of 64 passing on Node 20.20.2 and 22.22.2
+- DOX: updated (README and the research doc)
+
+This was the most defect-dense slice so far — two blockers and six warnings, all reproduced empirically rather than inferred.
+
+**Blockers closed**
+
+- `T1-004-R1-F1`: the authorization header was acquired inside the `headers` literal within the fetch `try`, so a throwing token manager produced a `retryable: true` network error with zero fetch calls. Permanent credential failures were retried to the ceiling under a message claiming the request failed before a response — the exact class rule-based retry policy forbids retrying. Fixed by acquiring the header before the try and failing closed with a non-retryable `token_acquisition_failed`.
+- `T1-004-R1-F2`: server-derived delays were never clamped. `Retry-After: 86400` produced two 24-hour sleeps, and a stored far-future reset blocked the next unrelated call for a day — an indefinite hang in a local stdio process. Fixed with a `maxRateLimitWaitMs` ceiling applied in both the retry sleep and the pre-flight wait, failing closed with `rate_limit_wait_exceeded` past it.
+- `T1-004-R1-S1`, also reported as `F7`: rate-limit state was keyed by API family and limiter key only, never by restaurant GUID — a rule 6 violation. Reproduced live: location A's exhausted quota blocked a different restaurant for 30 seconds. The research documents these Standard API limits as per client per location, so account-wide treatment was unsupported. Fixed by binding the state key to the GUID structurally.
+
+**Warnings closed**
+
+`F3` HTTP-date `Retry-After` was silently ignored, causing immediate retries against a still-limited endpoint. `F4` the rate-limit-reset epoch-versus-delta assumption was undocumented; now recorded as an original implementation note. `F5` and `F6` were coverage gaps proven vacuous by mutation — adding `401` to the retryable set left all 50 tests passing, and removing the retry-ceiling check also passed.
+
+**Verification standard established by this slice**
+
+Test-reading failed twice here. Every fix round from now on must self-mutation-check each new test — break the implementation, confirm the test fails — and report each result. R2 independently re-applied all five mutations and confirmed every one is now caught.
+
+**Bounded worst case**
+
+A single `getJson` call incurs at most one pre-flight wait plus two retry sleeps, each clamped, for a bounded worst case of roughly 45 minutes. In practice any single oversized value trips `rate_limit_wait_exceeded` immediately.
+
+**Carried forward to T5**
+
+The 15-minute wait ceiling is scoped to the Standard API, whose longest documented window is the global 10,000-request-per-15-minute bucket. Analytics limits can legitimately require longer waits — metrics jobs are documented around 10 requests per hour. The Analytics adapter must not reuse this constant unmodified.
+
+**Also carried forward**
+
+The expiry-ceiling assertion noted at T1-003 remains open: no test asserts that `expiresIn: 86400` is accepted. Add it when `auth.ts` is next touched.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -182,8 +218,8 @@ No test asserts the accepted side of the expiry ceiling — that `expiresIn: 864
 ## Next assignment
 
 - **Next role:** BUILDER
-- **Slice:** T1-004 — Implement HTTP transport, structured errors, rate-limit state, and bounded retries
+- **Slice:** T1-005 — Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior
 - **Base:** `main`
-- **Scope:** a Toast HTTP transport layer that obtains bearer tokens through the T1-003 `OAuthTokenManager`, honors Toast rate-limit headers, maintains rate-limit state, and retries with bounded exponential backoff and jitter. Retries must not be attempted for non-retryable authorization or validation failures. Errors must be structured and must never carry credentials, bearer tokens, or upstream response bodies — match the discipline already established in `auth.ts`.
-- **Non-goals:** pagination (T1-005, T1-006); location discovery and capabilities (T2); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
-- **Must honor:** the endpoint-specific rate-limit constraints documented in the T0 research, and the error-sanitization pattern proven in `auth.ts` — no interpolation of caught values, no `cause` attachment, no upstream body in any error.
+- **Scope:** `Toast-Next-Page-Token` traversal for configuration endpoints, guards against a repeated or looping page token, and 409 restart behavior scoped specifically to page-token configuration reads. Build on the `ToastHttpClient` delivered by T1-004 rather than issuing requests directly.
+- **Non-goals:** `/ordersBulk` fixed-page and Link-header traversal (T1-006); location discovery and capabilities (T2); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
+- **Must honor:** rule 6 — page state is location-scoped and must be bound to restaurant GUID, exactly as rate-limit state now is. Reuse the established error-sanitization discipline: no interpolation of caught values, no `cause` attachment, no upstream body in any error.
