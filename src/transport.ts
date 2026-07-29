@@ -218,6 +218,27 @@ export class ToastHttpClient {
           if (nextToken === null || nextToken === "") {
             return Object.freeze([...pages]);
           }
+          // Toast page tokens are treated as case-sensitive opaque values,
+          // compared and stored by exact string equality — deliberately,
+          // not by accident. Toast's pagination documentation does not
+          // state that `Toast-Next-Page-Token` is safe to compare
+          // case-insensitively, and common opaque-token encodings (base64,
+          // base64url, and similar) are legitimately case-sensitive: two
+          // tokens differing only by case can be genuinely distinct values
+          // encoding different pagination cursors, not the same cursor
+          // twice. Normalizing case before comparing/storing would risk
+          // treating two truly distinct tokens as identical and silently
+          // discarding real pages — a worse failure mode than the one this
+          // guards against.
+          //
+          // The accepted trade-off: two next-tokens differing only by case
+          // (e.g. "TOKEN-X" then "token-x") are treated as progress rather
+          // than caught as an immediate repeat. This traversal is still
+          // fail-closed either way — a genuine loop that happens to differ
+          // only by case degrades from a fast rejection after ~2 requests
+          // to a slower one bounded by `maxPages`
+          // (`configuration_page_bound_exceeded`), never an unbounded loop.
+          // See T1-005-R1-F1.
           // `nextToken === pageToken` was previously checked here alongside
           // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
           // ever assigned a value immediately after that same value was
