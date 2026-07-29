@@ -50,8 +50,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | CLOSED |
 | T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLOSED |
 | T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | CLOSED |
-| T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLAIMED |
-| T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 | OPEN |
+| T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLOSED |
+| T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLAIMED |
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 | OPEN |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 | OPEN |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 | OPEN |
@@ -134,6 +134,36 @@ None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking findi
 
 Squash-merging a base branch orphans any pull request stacked on it. While slices remain stacked, merge with a merge commit, or rebase and retarget every stacked pull request immediately after each squash.
 
+### T1-003: OAuth client-credentials token lifecycle — CLOSED
+
+- Review rounds: `T1-003-R1` (two lenses: secret material, correctness) and `T1-003-R2`
+- Clean head: `eba703e5e39ae562ef962d7008109ec01744b208`
+- Merged with a merge commit, not a squash, to preserve the T1-004 stack
+- Acceptance evidence on `main` at the declared Node floor: `npm ci` exit 0, `npm run check` exit 0, 4 test files discovered, 42 of 42 passing on Node 20.20.2 and 22.22.2
+- DOX: updated (README, plus an original implementation note in the research doc)
+
+**Findings closed**
+
+- `T1-003-R1-S1` (MEDIUM): the fetch call was not wrapped, so a rejecting transport propagated its raw error verbatim — a stubbed rejection carrying a marker reached the caller's `message`. Fixed by normalizing into `ToastAuthError` with a `token_request_network_error` code and no interpolation of the caught value. Verified no marker reaches `message`, `code`, `stack`, `cause`, or any inspected surface; `cause` is never attached.
+- `T1-003-R1-F1` (WARNING): `expiresIn` had no ceiling, so `Number.MAX_SAFE_INTEGER` cached a token as permanently valid and silently defeated the refresh contract. Fixed with an inclusive 86,400-second ceiling. Rejection rather than clamping was chosen deliberately: Toast documents no maximum, and rule 11 favors surfacing an implausible value loudly over silently clamping one the client cannot verify.
+- `T1-003-R1-F2`, `F3` (WARNING): missing coverage for concurrent in-flight rejection and for expiry boundaries. Both added, using a real deferred promise rather than a synchronously-rejecting stub.
+- `T1-003-R1-F4` (WARNING): the response shape had no documented basis. Recorded as an original implementation note, explicitly not sourced from Toast documentation.
+- `T1-003-R1-F5`: commit granularity. Coordinator decision — the existing commit was not rewritten, because rewriting history for a style precedent is not worth the lineage risk on a stacked branch. Fix work landed as six atomic commits, restoring the pattern.
+
+**Verified properties, mutation-confirmed**
+
+Deduplication coalesces concurrent callers to a single fetch (50 concurrent calls produced one). A rejected in-flight promise is cleared in `finally`, so later calls retry rather than returning a permanently-rejected cached promise. Expiry is seconds times 1000 with an injectable clock. An HTTP error status carrying a token-shaped body is rejected before the body is parsed. The bearer token is unreachable across an eleven-pattern probe — native `#` private fields, structurally stronger than the WeakMap pattern used in `config.ts`.
+
+Three mutations were applied and all were caught: removing the try/catch, raising the ceiling, and removing the in-flight clearing each failed tests.
+
+**Follow-up carried forward**
+
+No test asserts the accepted side of the expiry ceiling — that `expiresIn: 86400` succeeds. Confirmed working by direct probe. Add the assertion when `auth.ts` is next touched.
+
+**Note for T1-004**
+
+`auth.ts` is not wired into `index.ts` or `server.ts`. T1-004 owns that wiring along with the data-endpoint transport. Remember that `index.ts` discards `loadRuntimeConfig()`'s return and credential lookup is identity-keyed, so a consumer must load its own config.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -152,8 +182,8 @@ Squash-merging a base branch orphans any pull request stacked on it. While slice
 ## Next assignment
 
 - **Next role:** BUILDER
-- **Slice:** T1-003 — Implement OAuth client-credentials token lifecycle
-- **Base:** `build/t1-002-runtime-configuration` (now an ancestor of `main`)
-- **Scope:** acquisition via client credentials, in-memory-only storage with no disk persistence, expiry tracking with refresh before expiry, concurrent-request coalescing so parallel callers do not trigger duplicate token fetches, and explicit structured failure on auth rejection that never echoes the credential. Fail closed per rule 11.
-- **Non-goals:** HTTP transport, rate-limit state, and bounded retries (T1-004); pagination (T1-005, T1-006); location discovery and capabilities (T2); any report tooling. Register no Toast data tool.
-- **Must honor:** the credential-reachability constraint recorded in the T1-002 record above, and the WeakMap encapsulation pattern rather than redaction.
+- **Slice:** T1-004 — Implement HTTP transport, structured errors, rate-limit state, and bounded retries
+- **Base:** `main`
+- **Scope:** a Toast HTTP transport layer that obtains bearer tokens through the T1-003 `OAuthTokenManager`, honors Toast rate-limit headers, maintains rate-limit state, and retries with bounded exponential backoff and jitter. Retries must not be attempted for non-retryable authorization or validation failures. Errors must be structured and must never carry credentials, bearer tokens, or upstream response bodies — match the discipline already established in `auth.ts`.
+- **Non-goals:** pagination (T1-005, T1-006); location discovery and capabilities (T2); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
+- **Must honor:** the endpoint-specific rate-limit constraints documented in the T0 research, and the error-sanitization pattern proven in `auth.ts` — no interpolation of caught values, no `cause` attachment, no upstream body in any error.
