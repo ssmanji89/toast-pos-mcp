@@ -52,8 +52,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | CLOSED |
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLOSED |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLOSED |
-| T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLAIMED |
-| T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 | OPEN |
+| T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLOSED |
+| T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | BUILT |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 | OPEN |
 | T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 | OPEN |
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
@@ -64,7 +64,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
-| T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T5-003 | OPEN |
+| T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | BUILT |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
 | T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
 
@@ -200,6 +200,38 @@ The 15-minute wait ceiling is scoped to the Standard API, whose longest document
 
 The expiry-ceiling assertion noted at T1-003 remains open: no test asserts that `expiresIn: 86400` is accepted. Add it when `auth.ts` is next touched.
 
+### T1-005: Configuration page-token iteration — CLOSED
+
+- Review rounds: `T1-005-R1` (two lenses) and `T1-005-R2`
+- Clean head: `1b5a33d13c99efb8c7667fa6ec92376164ed7dfc`
+- Merged with a merge commit to preserve the T1-006 stack
+- Acceptance evidence on `main` at the declared Node floor: 5 test files discovered, 73 of 73 passing on Node 20.20.2 and 22.22.2
+- The safety lens returned CLEAN with zero findings, having re-probed and mutation-tested all five T1-004 regression points through the refactored `#requestJson`.
+
+**Findings closed**
+
+- `F1`: the loop guard compares tokens by exact string, so tokens differing only by case were treated as progress. Resolved by DOCUMENTING rather than normalizing — folding case on an opaque base64 or base64url cursor risks silently merging two genuinely distinct cursors and dropping pages with no error, which is worse than the degraded-but-fail-closed alternative. A case-varying loop now fails via `configuration_page_bound_exceeded` instead of `configuration_page_token_repeated`; both fail closed.
+- `F2`: `nextToken === pageToken` was dead code, always implied by the set membership check. Removed; cycle detection verified intact.
+- `F4`: `maxRestarts` had a floor but no ceiling. `MAX_ALLOWED_CONFIGURATION_RESTARTS = 10` now enforced at both the constructor and the per-call override, throwing before any fetch rather than clamping.
+- `F5`: the composed worst case is now documented in code — `maxPages × maxAttempts × (maxRestarts + 1)` = 600 raw fetch calls with defaults.
+
+**Carried forward — F3 materialization**
+
+`getConfigurationPagesJson` materializes up to 100 page bodies before returning. Judged acceptable at the transport layer, since this slice registers no MCP tool and the accumulation is bounded rather than unbounded. But it moves the "prefer aggregate tools over raw-record dumping" obligation one layer up. **The constraint must land on whichever T2 or T3 slice first wraps this in an MCP tool response.**
+
+### T6-001: Threat model — BUILT OUT OF ORDER, in review
+
+Built ahead of its declared T5-003 dependency. That dependency is a delivery convention: a threat model depends on the architecture and product boundary, both committed and reviewed in T0, and it touches no source file so it cannot conflict with code slices building in parallel.
+
+The build corrected two claims that had been asserted about this codebase:
+
+1. "Rate-limit **and configuration page state** bound to restaurant GUID" was half wrong at the time — rate-limit state is GUID-bound, but no configuration page-token code existed on `main` while T1-005 was unmerged. Documentation must reflect what is merged, not what is in flight.
+2. "Structurally GET-only" is scoped to `transport.ts`. `auth.ts` issues its own POST to the auth endpoint, correct layer separation, and **T5-002's Analytics adapter will require POST**. GET-only is a property of the data transport, not a permanent shape of the system.
+
+**Design gap recorded, deliberately not fixed**
+
+The Merchant-AI-consent acknowledgment is validated at startup in `index.ts` but is **not threaded into `server.ts`'s tool-registration surface**. Nothing depends on it today because zero tools are registered. The first slice to register a tool must deliberately re-derive consent rather than inheriting it from existing plumbing. Whichever T3 slice registers the first tool owns closing this.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -217,9 +249,7 @@ The expiry-ceiling assertion noted at T1-003 remains open: no test asserts that 
 
 ## Next assignment
 
-- **Next role:** BUILDER
-- **Slice:** T1-005 — Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior
-- **Base:** `main`
-- **Scope:** `Toast-Next-Page-Token` traversal for configuration endpoints, guards against a repeated or looping page token, and 409 restart behavior scoped specifically to page-token configuration reads. Build on the `ToastHttpClient` delivered by T1-004 rather than issuing requests directly.
-- **Non-goals:** `/ordersBulk` fixed-page and Link-header traversal (T1-006); location discovery and capabilities (T2); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
-- **Must honor:** rule 6 — page state is location-scoped and must be bound to restaurant GUID, exactly as rate-limit state now is. Reuse the established error-sanitization discipline: no interpolation of caught values, no `cause` attachment, no upstream body in any error.
+- **Next role:** FIXER, then REVIEWER
+- **Slice:** T1-006 — rebase onto merged `main`, then review round T1-006-R1 outcomes
+- **Rebase requirement:** T1-005 and T1-006 each independently refactored the shared JSON GET internals in `src/transport.ts` for the same reason — pagination needing header access. T1-005 is now merged. T1-006 must rebase onto `main` and, critically, the five T1-004 regression probes must be re-run against the MERGED result, not only against either branch. A fix can survive two branches independently and still die in the merge between them.
+- **Then:** T2-001 — discover locations and bind all state to restaurant GUID. This is the gate for every reporting slice in T3 onward.
