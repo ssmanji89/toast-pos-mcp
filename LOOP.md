@@ -64,7 +64,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
-| T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | BUILT |
+| T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
 | T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
 
@@ -232,6 +232,30 @@ The build corrected two claims that had been asserted about this codebase:
 
 The Merchant-AI-consent acknowledgment is validated at startup in `index.ts` but is **not threaded into `server.ts`'s tool-registration surface**. Nothing depends on it today because zero tools are registered. The first slice to register a tool must deliberately re-derive consent rather than inheriting it from existing plumbing. Whichever T3 slice registers the first tool owns closing this.
 
+### T6-001: Threat model — CLOSED, built out of ledger order
+
+- Review rounds: `T6-001-R1` and `T6-001-R2`
+- Clean head: `115a7be`; deliverable is `docs/architecture/threat-model.md`
+- Built ahead of its declared T5-003 dependency. That dependency was a delivery convention: a threat model depends on the architecture and product boundary, both closed in T0, and it touches no source file so it cannot conflict with code slices building in parallel.
+
+**Two corrections it produced about this codebase**
+
+1. A control was asserted that did not exist — configuration page state bound to restaurant GUID — because the asserting party was reasoning about an unmerged branch as if it were `main`. Documentation must reflect what is merged.
+2. "Structurally GET-only" is scoped to the data transport in `transport.ts`. `auth.ts` issues its own POST to the auth endpoint, correct layer separation, and **T5-002's Analytics adapter will require POST**. GET-only is not a permanent shape of the system.
+
+Then, during its own review, `main` moved and the document's accurate claim that configuration pagination did not exist became false. The fix round re-verified against the rebased head. **A threat model describing a control as absent when it exists is as misleading as one claiming a control that does not** — both directions require re-verification after any rebase.
+
+**Findings closed**
+
+- `F1`: the supply-chain section omitted the current audit result. Now records 2 moderate advisories, both `GHSA-frvp-7c67-39w9` in `@hono/node-server` reached transitively through the MCP SDK, **with a traced reachability determination** — `src/` imports only `server/stdio.js` and `server/mcp.js`, neither imports `hono`, and `@hono/node-server` is reached only from `server/streamableHttp.js`. Not reachable today, recorded with a tracking plan. Severity alone would have been noise.
+- `F2`: missing threat class — credential and consent revocation. `auth.ts` caches a bearer token for up to 24 hours with no revocation re-check, so a revoked credential leaves a usable token for that window; an eventual 401 lands on `request_failed`, not `token_acquisition_failed`. **Consent withdrawal is worse and is recorded separately: the consent gate is a startup check, so a mid-session withdrawal is never observed at all.**
+- `F3`: missing threat class — over-scoped operator credential. Scope is configured in Toast Web, outside this repository's control, and no scope-narrowing parameter exists at request time. GUID binding scopes requests and cache keys; it cannot narrow what the credential is authorized for.
+- `F4`: an error-field enumeration was incomplete.
+
+**Open items this document now carries**
+
+The Analytics wait-ceiling note for T5, the `expiresIn: 86400` assertion gap from T1-003, the consent-threading gap that the first tool-registering slice must close, and the two unreachable-today advisories.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -249,7 +273,18 @@ The Merchant-AI-consent acknowledgment is validated at startup in `index.ts` but
 
 ## Next assignment
 
-- **Next role:** FIXER, then REVIEWER
-- **Slice:** T1-006 — rebase onto merged `main`, then review round T1-006-R1 outcomes
-- **Rebase requirement:** T1-005 and T1-006 each independently refactored the shared JSON GET internals in `src/transport.ts` for the same reason — pagination needing header access. T1-005 is now merged. T1-006 must rebase onto `main` and, critically, the five T1-004 regression probes must be re-run against the MERGED result, not only against either branch. A fix can survive two branches independently and still die in the merge between them.
-- **Then:** T2-001 — discover locations and bind all state to restaurant GUID. This is the gate for every reporting slice in T3 onward.
+- **Next role:** BUILDER
+- **Slice:** T2-001 — Discover locations and bind all state to restaurant GUID
+- **Base:** `main`
+- **Why now:** T2-001's declared dependency on T1-006 is a delivery convention. Location discovery calls the restaurants endpoint through the T1-004 client and does not need `/ordersBulk` pagination. T1-006 is in a fix round for a blocking Link-parser defect; T2-001 lands in a new file and does not conflict.
+- **Scope:** discover accessible locations, represent them explicitly, and bind all state to restaurant GUID. This is the gate for every reporting slice from T3 onward.
+- **Non-goals:** scope decoding and capability denials (T2-002); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
+- **Must honor:** rule 6 at every layer. The transport already binds rate-limit and configuration page state to restaurant GUID — follow that pattern rather than inventing a second one. Reuse the error-sanitization discipline proven across T1-003 through T1-005: no interpolation of caught values, no `cause` attachment, no upstream body in any error.
+
+## Standing verification requirement, added after four slices
+
+Every build and every fix round must self-mutation-check: for each test added, break the corresponding implementation, confirm the test fails, revert, and report the result.
+
+Tests that pass while the implementation is broken are the single largest source of real defects on this project. Confirmed cases: adding `401` to the retryable set left all 50 tests passing; four duplicate-detection guards were removed individually and together with all 70 tests passing, because they were dead code; path and page-size preservation guards were removed with all tests passing; and six RFC-legal Link header forms were mishandled with no test covering any of them.
+
+Three independent review lenses, one performing mutation testing, missed the first of these. Writing a test is not evidence the test works.
