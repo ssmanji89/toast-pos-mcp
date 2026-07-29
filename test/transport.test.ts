@@ -1571,6 +1571,208 @@ test("rejects an ordersBulk maxPages value above the configured ceiling (T1-006-
   assert.equal(harness.dataFetch.calls.length, 0);
 });
 
+// T1-006-R1-S2: every T1-004 regression test above calls getJson directly;
+// none call getOrdersBulkPages. The shared #requestJson internal makes
+// these protections apply identically to both entry points, but nothing
+// proved that until now -- one regression test per T1-004 finding, routed
+// through getOrdersBulkPages instead of getJson.
+
+test("does not retry ordersBulk token acquisition failures and never calls fetch (T1-006-R1-S2 / T1-004-R1-F1)", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const dataFetch = new RecordingFetch([jsonResponse([{ synthetic: "unused" }])]);
+  let acquisitionAttempts = 0;
+  const throwingTokenManager: Pick<OAuthTokenManager, "getAuthorizationHeader"> = {
+    getAuthorizationHeader: async () => {
+      acquisitionAttempts += 1;
+      throw new Error(
+        `token acquisition failure ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+      );
+    },
+  };
+
+  const client = createToastHttpClient(
+    config,
+    throwingTokenManager as OAuthTokenManager,
+    {
+      fetch: dataFetch.fetch,
+      maxAttempts: 3,
+      now: () => 0,
+      random: () => 0,
+      sleep: async () => {
+        throw new Error("must not sleep for a token acquisition failure");
+      },
+    },
+  );
+
+  await assert.rejects(
+    client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "token_acquisition_failed");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(acquisitionAttempts, 1);
+  assert.equal(dataFetch.calls.length, 0);
+});
+
+test("fails closed rather than sleeping past the rate-limit wait ceiling for ordersBulk (T1-006-R1-S2 / T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "86400",
+            "Toast-Request-Id": "synthetic-request-id-429-ordersbulk-huge",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "unreachable" }]),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not cross-contaminate ordersBulk rate-limit state between restaurant GUIDs (T1-006-R1-S2 / T1-004-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        [{ synthetic: "location-a" }],
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "105",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "location-b" }]),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    [[{ synthetic: "location-a" }]],
+  );
+
+  // Location A is now recorded as exhausted with a reset 5 seconds out. A
+  // distinct restaurant GUID sharing the same rateLimitKey ("ordersBulk")
+  // must not inherit that wait.
+  assert.deepEqual(
+    await harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID_B,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    [[{ synthetic: "location-b" }]],
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not retry a non-retryable ordersBulk status (T1-006-R1-S2 / T1-004-R1-F5)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { developerMessage: `${SYNTHETIC_UPSTREAM_BODY_MARKER} for ordersBulk 401` },
+        {
+          status: 401,
+          headers: { "Toast-Request-Id": "synthetic-request-id-401-ordersbulk" },
+        },
+      ),
+      jsonResponse([{ synthetic: "unreachable" }]),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "request_failed");
+      assert.equal(error.upstreamStatus, 401);
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("honors an RFC 7231 HTTP-date Retry-After for ordersBulk (T1-006-R1-S2 / T1-004-R1-F3)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 5 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-ordersbulk-http-date",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "after-http-date-retry" }]),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [[{ synthetic: "after-http-date-retry" }]]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
