@@ -30,7 +30,8 @@ export interface ToastRateLimitSnapshot {
 export type ToastHttpErrorCode =
   | "request_failed"
   | "request_network_error"
-  | "response_invalid_json";
+  | "response_invalid_json"
+  | "token_acquisition_failed";
 
 export class ToastHttpError extends Error {
   readonly apiFamily: ToastApiFamily;
@@ -111,13 +112,34 @@ export class ToastHttpClient {
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       await this.#waitForKnownRateLimit(stateKey);
 
+      // Acquire the authorization header in its own try/catch, outside the
+      // fetch-transport try below. `getAuthorizationHeader()` never reaches
+      // the network when it throws (an expired/invalid credential, a token
+      // endpoint failure already classified by `auth.ts`, and so on); it is a
+      // credential/config failure, not a Toast Data API transport hiccup.
+      // Letting it fall into the network catch mischaracterized a permanent
+      // credential failure as `request_network_error` with `retryable: true`,
+      // which retried something AGENTS.md rule 11 requires to fail closed
+      // instead. Deliberately do not read or interpolate the caught value,
+      // matching the sanitization discipline in `auth.ts`.
+      let authorizationHeader: string;
+      try {
+        authorizationHeader = await this.#tokenManager.getAuthorizationHeader();
+      } catch {
+        throw new ToastHttpError(
+          "token_acquisition_failed",
+          "Toast data request could not acquire an authorization header before the request was attempted.",
+          { apiFamily, retryable: false },
+        );
+      }
+
       let response: Response;
       try {
         response = await this.#fetch(this.#buildUrl(request), {
           method: "GET",
           headers: {
             accept: "application/json",
-            authorization: await this.#tokenManager.getAuthorizationHeader(),
+            authorization: authorizationHeader,
             "toast-restaurant-external-id": request.restaurantGuid,
           },
         });

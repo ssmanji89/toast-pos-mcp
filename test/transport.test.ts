@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import test from "node:test";
 
+import type { OAuthTokenManager } from "../src/auth.js";
 import { createOAuthTokenManager } from "../src/auth.js";
 import { loadRuntimeConfig } from "../src/config.js";
 import {
@@ -313,6 +314,53 @@ test("does not expose bearer tokens or credentials through client enumeration or
   assert.ok(!observed.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
   assert.ok(!inspect(forInCollected).includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
   assert.ok(!inspect(forInCollected).includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+});
+
+test("does not retry token acquisition failures and never calls fetch (T1-004-R1-F1)", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const dataFetch = new RecordingFetch([jsonResponse({ synthetic: "unused" })]);
+  let acquisitionAttempts = 0;
+  const throwingTokenManager: Pick<OAuthTokenManager, "getAuthorizationHeader"> = {
+    getAuthorizationHeader: async () => {
+      acquisitionAttempts += 1;
+      throw new Error(
+        `token acquisition failure ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+      );
+    },
+  };
+
+  const client = createToastHttpClient(
+    config,
+    throwingTokenManager as OAuthTokenManager,
+    {
+      fetch: dataFetch.fetch,
+      maxAttempts: 3,
+      now: () => 0,
+      random: () => 0,
+      sleep: async () => {
+        throw new Error("must not sleep for a token acquisition failure");
+      },
+    },
+  );
+
+  await assert.rejects(
+    client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "token_acquisition_failed");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(acquisitionAttempts, 1);
+  assert.equal(dataFetch.calls.length, 0);
 });
 
 type FetchResult = Response | Error;
