@@ -583,6 +583,280 @@ for (const status of NON_RETRYABLE_STATUSES_UNDER_TEST) {
   });
 }
 
+test("iterates configuration pages with Toast-Next-Page-Token and preserves location scope", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: 1 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-token-2" } },
+      ),
+      jsonResponse({ syntheticPage: 2 }),
+    ],
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/revenueCenters",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { modifiedSince: "2026-07-29T12:00:00.000Z" },
+    rateLimitKey: "config:revenueCenters",
+  });
+
+  assert.deepEqual(pages, [{ syntheticPage: 1 }, { syntheticPage: 2 }]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.equal(
+    harness.dataFetch.calls[0]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/config/v2/revenueCenters?modifiedSince=2026-07-29T12%3A00%3A00.000Z",
+  );
+  assert.equal(
+    harness.dataFetch.calls[1]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/config/v2/revenueCenters?modifiedSince=2026-07-29T12%3A00%3A00.000Z&pageToken=synthetic-token-2",
+  );
+  assert.equal(
+    harness.dataFetch.calls[0]?.headers["toast-restaurant-external-id"],
+    SYNTHETIC_RESTAURANT_GUID,
+  );
+  assert.equal(
+    harness.dataFetch.calls[1]?.headers["toast-restaurant-external-id"],
+    SYNTHETIC_RESTAURANT_GUID,
+  );
+});
+
+test("fails closed when configuration page-token traversal repeats a token", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: 1 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-loop-token" } },
+      ),
+      jsonResponse(
+        { syntheticPage: 2 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-loop-token" } },
+      ),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/diningOptions",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:diningOptions",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "configuration_page_token_repeated");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("treats a next page token differing only by case as progress rather than a repeat, by design (T1-005-R1-F1)", async () => {
+  // Locks in the deliberate design choice recorded beside the guard in
+  // src/transport.ts: page tokens are compared and stored by exact,
+  // case-sensitive string equality. Two next-tokens differing only in case
+  // ("SYNTHETIC-CASE-TOKEN" then "synthetic-case-token") must be accepted
+  // as genuine progress, not rejected as a repeated/non-progressing token.
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: 1 },
+        { headers: { "Toast-Next-Page-Token": "SYNTHETIC-CASE-TOKEN" } },
+      ),
+      jsonResponse(
+        { syntheticPage: 2 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-case-token" } },
+      ),
+      jsonResponse({ syntheticPage: 3 }),
+    ],
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/diningOptions",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "config:diningOptions",
+  });
+
+  assert.deepEqual(pages, [
+    { syntheticPage: 1 },
+    { syntheticPage: 2 },
+    { syntheticPage: 3 },
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 3);
+});
+
+test("fails closed when configuration page-token traversal exceeds the page bound", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: 1 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-token-2" } },
+      ),
+      jsonResponse(
+        { syntheticPage: 2 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-token-3" } },
+      ),
+      jsonResponse({ synthetic: "unreachable" }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/serviceCharges",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:serviceCharges",
+      maxPages: 2,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "configuration_page_bound_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("restarts configuration page-token traversal once on a scoped 409 and discards partial pages", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: "stale-first-page" },
+        { headers: { "Toast-Next-Page-Token": "stale-token" } },
+      ),
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-config-409" },
+        },
+      ),
+      jsonResponse(
+        { syntheticPage: "fresh-first-page" },
+        { headers: { "Toast-Next-Page-Token": "fresh-token" } },
+      ),
+      jsonResponse({ syntheticPage: "fresh-second-page" }),
+    ],
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/salesCategories",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "config:salesCategories",
+  });
+
+  assert.deepEqual(pages, [
+    { syntheticPage: "fresh-first-page" },
+    { syntheticPage: "fresh-second-page" },
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 4);
+  assert.equal(
+    harness.dataFetch.calls[1]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/config/v2/salesCategories?pageToken=stale-token",
+  );
+  assert.equal(
+    harness.dataFetch.calls[2]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/config/v2/salesCategories",
+  );
+});
+
+test("fails closed when configuration 409 restarts exceed the configured budget without leaking upstream body", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-config-409" },
+        },
+      ),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/voidReasons",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:voidReasons",
+      maxRestarts: 0,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "configuration_page_restart_exceeded");
+      assert.equal(error.upstreamStatus, 409);
+      assert.equal(error.upstreamRequestId, "synthetic-config-409");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_UPSTREAM_BODY_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("keeps 409 restart behavior scoped out of ordinary getJson calls", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse({ synthetic: "ordinary-conflict" }, { status: 409 }),
+      jsonResponse({ synthetic: "unreachable" }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "request_failed");
+      assert.equal(error.upstreamStatus, 409);
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("rejects a maxConfigurationRestarts value above the configured ceiling at construction (T1-005-R1-F4)", () => {
+  assert.throws(
+    () => new TransportHarness({ maxConfigurationRestarts: 11, responses: [] }),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError);
+      assert.match(
+        (error as RangeError).message,
+        /maxConfigurationRestarts must not exceed 10/,
+      );
+      return true;
+    },
+  );
+});
+
+test("rejects a per-call maxRestarts override above the configured ceiling before any fetch (T1-005-R1-F4)", async () => {
+  const harness = new TransportHarness({ responses: [] });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/diningOptions",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:diningOptions",
+      maxRestarts: 11,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError);
+      assert.match((error as RangeError).message, /maxRestarts must not exceed 10/);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
 test("wraps rejected fetches in sanitized network errors and retries only within bounds", async () => {
   const harness = new TransportHarness({
     responses: [
@@ -738,6 +1012,8 @@ test("does not retry token acquisition failures and never calls fetch (T1-004-R1
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
+  readonly maxConfigurationPages?: number;
+  readonly maxConfigurationRestarts?: number;
   readonly maxAttempts?: number;
   readonly now?: number;
   readonly random?: () => number;
@@ -771,6 +1047,12 @@ class TransportHarness {
     this.dataFetch = new RecordingFetch(options.responses);
     this.client = createToastHttpClient(config, tokenManager, {
       fetch: this.dataFetch.fetch,
+      ...(options.maxConfigurationPages !== undefined
+        ? { maxConfigurationPages: options.maxConfigurationPages }
+        : {}),
+      ...(options.maxConfigurationRestarts !== undefined
+        ? { maxConfigurationRestarts: options.maxConfigurationRestarts }
+        : {}),
       ...(options.maxAttempts !== undefined
         ? { maxAttempts: options.maxAttempts }
         : {}),

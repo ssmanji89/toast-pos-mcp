@@ -3,6 +3,27 @@ import type { RuntimeConfig } from "./config.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
+
+/**
+ * `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT` and `DEFAULT_MAX_CONFIGURATION_RESTARTS`
+ * compose with `DEFAULT_MAX_ATTEMPTS` (`#requestJson`'s own per-request retry
+ * ceiling) into the true worst-case raw fetch-call count for a single
+ * `getConfigurationPagesJson` traversal. Each page-token traversal attempt
+ * fetches at most `maxPages` pages; a scoped 409 restart (see
+ * `getConfigurationPagesJson`) discards the partial page set and starts a
+ * fresh traversal attempt, up to `maxRestarts` times, so the traversal
+ * fetches at most `maxPages * (maxRestarts + 1)` page requests. Every one of
+ * those page requests is itself retried by `#requestJson` up to
+ * `maxAttempts` times on a retryable status. With the defaults below
+ * (`maxPages=100`, `maxRestarts=1`, `maxAttempts=3`), that is
+ * `100 * (1 + 1) = 200` page-fetch attempts, composing to a true worst case
+ * of `100 * 3 * 2 = 600` raw `fetch` calls. This is finite and bounded, and
+ * in practice a single 409 or a run of retryable statuses is rare — but it
+ * had never been written down anywhere before this comment. See
+ * T1-005-R1-F5.
+ */
+const DEFAULT_MAX_CONFIGURATION_PAGE_COUNT = 100;
+const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
 
 /**
@@ -32,6 +53,32 @@ const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
  */
 const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
 
+/**
+ * Ceiling on the caller-supplied 409 restart budget for configuration
+ * page-token traversal (constructor-level `maxConfigurationRestarts` or the
+ * per-call `maxRestarts` override).
+ *
+ * Unlike a `Retry-After` header or a rate-limit reset, this value is never
+ * server-derived — it is always caller-supplied — so severity is lower than
+ * `DEFAULT_MAX_RATE_LIMIT_WAIT_MS`. But it had no ceiling at all, only a
+ * `>= 0` floor: an oversized value has no fail-closed signal of its own and
+ * directly multiplies worst-case request count, because each restart
+ * re-fetches the entire page set from scratch (up to `maxPages` requests,
+ * each itself subject to `#requestJson`'s own `maxAttempts` retries — see
+ * the composed worst-case comment beside `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * and `DEFAULT_MAX_CONFIGURATION_RESTARTS` below).
+ *
+ * A scoped 409 restart exists for a transient event — a restaurant
+ * publishing configuration changes mid-traversal — that is expected to
+ * resolve within a handful of attempts; the default of 1 already covers
+ * ordinary operation. This ceiling is generous relative to that default
+ * (an order of magnitude higher) while still rejecting an implausible
+ * caller-supplied value loudly, per AGENTS.md rule 11, rather than
+ * silently admitting one that would blow up the composed worst case. See
+ * T1-005-R1-F4.
+ */
+const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export type ToastApiFamily = "standard";
@@ -42,6 +89,15 @@ export interface ToastGetJsonRequest {
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly rateLimitKey: string;
   readonly apiFamily?: ToastApiFamily;
+}
+
+export interface ToastConfigurationPagesRequest {
+  readonly path: `/${string}`;
+  readonly restaurantGuid: string;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly rateLimitKey: string;
+  readonly maxPages?: number;
+  readonly maxRestarts?: number;
 }
 
 export interface ToastRateLimitSnapshot {
@@ -56,6 +112,9 @@ export interface ToastRateLimitSnapshot {
 }
 
 export type ToastHttpErrorCode =
+  | "configuration_page_bound_exceeded"
+  | "configuration_page_restart_exceeded"
+  | "configuration_page_token_repeated"
   | "rate_limit_wait_exceeded"
   | "request_failed"
   | "request_network_error"
@@ -93,6 +152,8 @@ export interface ToastHttpClientOptions {
   readonly baseRetryDelayMs?: number;
   readonly fetch?: typeof fetch;
   readonly maxAttempts?: number;
+  readonly maxConfigurationPages?: number;
+  readonly maxConfigurationRestarts?: number;
   readonly maxRateLimitWaitMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly now?: () => number;
@@ -105,6 +166,8 @@ export class ToastHttpClient {
   #config: RuntimeConfig;
   #fetch: typeof fetch;
   #maxAttempts: number;
+  #maxConfigurationPages: number;
+  #maxConfigurationRestarts: number;
   #maxRateLimitWaitMs: number;
   #maxRetryDelayMs: number;
   #now: () => number;
@@ -125,6 +188,10 @@ export class ToastHttpClient {
     this.#random = options.random ?? Math.random;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.#maxConfigurationPages =
+      options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGE_COUNT;
+    this.#maxConfigurationRestarts =
+      options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
     this.#baseRetryDelayMs =
       options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
     this.#maxRetryDelayMs =
@@ -135,9 +202,152 @@ export class ToastHttpClient {
     if (this.#maxAttempts < 1) {
       throw new RangeError("ToastHttpClient maxAttempts must be at least 1.");
     }
+    if (this.#maxConfigurationPages < 1) {
+      throw new RangeError(
+        "ToastHttpClient maxConfigurationPages must be at least 1.",
+      );
+    }
+    if (this.#maxConfigurationRestarts < 0) {
+      throw new RangeError(
+        "ToastHttpClient maxConfigurationRestarts must be at least 0.",
+      );
+    }
+    if (this.#maxConfigurationRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
+      throw new RangeError(
+        `ToastHttpClient maxConfigurationRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+      );
+    }
   }
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
+    return (await this.#requestJson(request)).body;
+  }
+
+  async getConfigurationPagesJson(
+    request: ToastConfigurationPagesRequest,
+  ): Promise<readonly unknown[]> {
+    const maxPages = request.maxPages ?? this.#maxConfigurationPages;
+    const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
+    if (maxPages < 1) {
+      throw new RangeError("Toast configuration maxPages must be at least 1.");
+    }
+    if (maxRestarts < 0) {
+      throw new RangeError(
+        "Toast configuration maxRestarts must be at least 0.",
+      );
+    }
+    if (maxRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
+      throw new RangeError(
+        `Toast configuration maxRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+      );
+    }
+
+    let restartCount = 0;
+
+    for (;;) {
+      const pages: unknown[] = [];
+      const seenTokens = new Set<string>();
+      let pageToken: string | undefined;
+
+      for (;;) {
+        if (pages.length >= maxPages) {
+          throw new ToastHttpError(
+            "configuration_page_bound_exceeded",
+            "Toast configuration page-token traversal exceeded the configured page bound.",
+            { apiFamily: "standard", retryable: false },
+          );
+        }
+
+        try {
+          const response = await this.#requestJson({
+            path: request.path,
+            restaurantGuid: request.restaurantGuid,
+            query: { ...request.query, pageToken },
+            rateLimitKey: request.rateLimitKey,
+            apiFamily: "standard",
+          });
+
+          pages.push(response.body);
+
+          const nextToken = response.headers.get("toast-next-page-token");
+          if (nextToken === null || nextToken === "") {
+            return Object.freeze([...pages]);
+          }
+          // Toast page tokens are treated as case-sensitive opaque values,
+          // compared and stored by exact string equality — deliberately,
+          // not by accident. Toast's pagination documentation does not
+          // state that `Toast-Next-Page-Token` is safe to compare
+          // case-insensitively, and common opaque-token encodings (base64,
+          // base64url, and similar) are legitimately case-sensitive: two
+          // tokens differing only by case can be genuinely distinct values
+          // encoding different pagination cursors, not the same cursor
+          // twice. Normalizing case before comparing/storing would risk
+          // treating two truly distinct tokens as identical and silently
+          // discarding real pages — a worse failure mode than the one this
+          // guards against.
+          //
+          // The accepted trade-off: two next-tokens differing only by case
+          // (e.g. "TOKEN-X" then "token-x") are treated as progress rather
+          // than caught as an immediate repeat. This traversal is still
+          // fail-closed either way — a genuine loop that happens to differ
+          // only by case degrades from a fast rejection after ~2 requests
+          // to a slower one bounded by `maxPages`
+          // (`configuration_page_bound_exceeded`), never an unbounded loop.
+          // See T1-005-R1-F1.
+          // `nextToken === pageToken` was previously checked here alongside
+          // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
+          // ever assigned a value immediately after that same value was
+          // added to `seenTokens` on the prior iteration (see the
+          // `seenTokens.add(nextToken); pageToken = nextToken;` pair below),
+          // so `pageToken` is always already a member of `seenTokens` by the
+          // time this check runs. `seenTokens.has(nextToken)` alone
+          // therefore already catches every case the redundant clause
+          // caught. Confirmed by removing it: zero regressions across all
+          // traversal tests. See T1-005-R1-F2.
+          if (seenTokens.has(nextToken)) {
+            throw new ToastHttpError(
+              "configuration_page_token_repeated",
+              "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
+              { apiFamily: "standard", retryable: false },
+            );
+          }
+
+          seenTokens.add(nextToken);
+          pageToken = nextToken;
+        } catch (error) {
+          if (
+            error instanceof ToastHttpError &&
+            error.upstreamStatus === 409
+          ) {
+            if (restartCount >= maxRestarts) {
+              throw new ToastHttpError(
+                "configuration_page_restart_exceeded",
+                "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
+                {
+                  apiFamily: "standard",
+                  retryable: false,
+                  upstreamStatus: 409,
+                  ...(error.upstreamRequestId !== undefined
+                    ? { upstreamRequestId: error.upstreamRequestId }
+                    : {}),
+                },
+              );
+            }
+
+            restartCount += 1;
+            break;
+          }
+
+          throw error;
+        }
+      }
+    }
+  }
+
+  async #requestJson(request: ToastGetJsonRequest): Promise<{
+    readonly body: unknown;
+    readonly headers: Headers;
+  }> {
     const apiFamily = request.apiFamily ?? "standard";
     const stateKey = rateLimitStateKey(
       apiFamily,
@@ -225,7 +435,10 @@ export class ToastHttpClient {
       }
 
       try {
-        return await response.json();
+        return {
+          body: await response.json(),
+          headers: response.headers,
+        };
       } catch {
         throw new ToastHttpError(
           "response_invalid_json",
