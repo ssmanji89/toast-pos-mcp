@@ -19,6 +19,8 @@ const SYNTHETIC_ACCESS_TOKEN_MARKER =
   "synthetic-location-access-token-marker";
 const SYNTHETIC_UPSTREAM_BODY_MARKER =
   "synthetic-location-body-marker-must-not-leak";
+const SYNTHETIC_MALFORMED_PAYLOAD_MARKER =
+  "synthetic-malformed-payload-marker-must-not-leak";
 const SYNTHETIC_DEFAULT_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000000002";
 const SYNTHETIC_SECOND_RESTAURANT_GUID =
@@ -219,6 +221,42 @@ test("fails closed on malformed location payloads without recording partial stat
       assert.ok(error instanceof ToastLocationError);
       assert.equal(error.code, "location_response_invalid");
       assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.deepEqual(registry.list(harness.config), []);
+});
+
+test("fails closed on malformed location payloads without leaking the raw upstream payload", async () => {
+  const registry = createLocationRegistry();
+  const harness = new LocationHarness({
+    responses: [
+      jsonResponse({
+        restaurants: [
+          {
+            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+            name: SYNTHETIC_MALFORMED_PAYLOAD_MARKER,
+            timeZone: "America/Chicago",
+            closeoutHour: "not-a-number",
+          },
+        ],
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry,
+      toastHttpClient: harness.client,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastLocationError);
+      assert.equal(error.code, "location_response_invalid");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_MALFORMED_PAYLOAD_MARKER));
       return true;
     },
   );
