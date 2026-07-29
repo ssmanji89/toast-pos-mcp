@@ -67,6 +67,33 @@ Analytics requests operate on a management-group restaurant set. The request bod
 - Decode scope claims for capability reporting, but do not treat unverified JWT display metadata as an authorization decision. Actual API authorization remains authoritative.
 - Bind token cache, rate-limit state, page state, Analytics job state, configuration cache, and report results to credential identity and restaurant or management-group identity.
 
+### Token response shape — original implementation note, not sourced from Toast documentation
+
+None of the primary sources reviewed for this document describe the shape of the
+authentication endpoint's response body, only the request body and the general
+caching/refresh obligation above. `src/auth.ts` (T1-003) assumes the following
+response shape and encodes that assumption as a Zod schema, so the assumption
+is explicit, fails closed if wrong, and is independently checkable by a
+reviewer rather than left implicit in the parsing code:
+
+```
+{
+  "token": {
+    "tokenType": "Bearer",
+    "expiresIn": <positive integer seconds, capped at 86400 by this project>,
+    "accessToken": "<opaque bearer token string>"
+  }
+}
+```
+
+`tokenType` is asserted to be the literal string `"Bearer"`; any other value, or
+a response missing the `token` wrapper object entirely, is treated as an
+unusable response and fails closed. The response may include additional fields
+(for example, a `status` field or a `scope` field) that this project does not
+depend on and does not validate one way or the other. This note records an
+original implementation assumption for reviewability; it is not, and must not
+be treated as, Toast's own documentation of the endpoint.
+
 ## Reporting source map
 
 ### Restaurant and configuration context
