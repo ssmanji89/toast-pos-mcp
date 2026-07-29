@@ -54,8 +54,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLOSED |
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLOSED |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | CLOSED |
-| T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 | OPEN |
-| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 | OPEN |
+| T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 CLOSED | CLOSED |
+| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLAIMED |
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
 | T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | OPEN |
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | OPEN |
@@ -284,6 +284,32 @@ Both branches' reviewers had verified those fixes on their own branch. That is n
 
 **Note carried into T2 and T3:** 409 is not uniformly a one-fetch terminal status. On configuration page-token traversal it correctly takes a second fetch before `configuration_page_restart_exceeded`, because it is the scoped-restart trigger. Any test asserting uniform non-retryable behavior across entry points is wrong.
 
+### T2-001: Location discovery and GUID binding — CLOSED
+
+- Review rounds: `T2-001-R1` (two lenses) and `T2-001-R2`
+- Clean head: `67d986a`; 128 tests on `main` at the declared Node floor
+- Isolation, secret material, data minimization, and fail-closed ordering were all verified CLEAN with empirical proof in R1 and reverified in R2.
+
+**BLOCKER — `timeZone` was carried but never validated**
+
+The schema was `z.string().min(1)`. `"Not/AZone"`, `"-05:00"`, and free text were all silently accepted and stored. Rule 8 makes restaurant timezone the foundation of every business-date calculation from T3 onward, so a bad zone would have surfaced much later inside a report calculation rather than at the one point it could be checked cheaply.
+
+**The fix uncovered a version-dependence worth recording permanently.** `Intl.DateTimeFormat` alone is NOT sufficient: Node 20 rejects `"-05:00"`, while Node 22, 24, and 25 all ACCEPT it via the TC39 offset-timezone extension. A bare `Intl` guard would therefore have passed this project's gate on its declared floor while silently accepting fixed offsets for every operator on a newer runtime. The shipped guard pairs an offset-designator regex with the `Intl` probe, and mutation proves the regex is load-bearing: removing it produces zero failures on Node 20 and one targeted failure on Node 22.
+
+Verified accepting: deprecated aliases `US/Central` and `Asia/Calcutta`, which are real zones Toast could return for older records — an over-strict guard would have failed closed on legitimate restaurants. Also verified that `Etc/GMT+5` and similar are not falsely caught by the offset regex.
+
+**The enumerated mutation requirement proved itself on first use**
+
+The builder reported six mutations with six caught. That was accurate for the six it chose, and two reviewer-mandated mutations survived anyway. The fix round then enumerated **16 guards** and mutated each: 12 caught, **4 survived** — GUID format, non-empty name, `closeoutHour` integer check, and non-empty restaurants array — all closed with new tests.
+
+Self-selected mutation sampling skews toward guards you were already thinking about. Enumerate first, then mutate every item.
+
+**Also closed:** `closeoutHour` bounds were correct but untested, with `0` now asserted by strict value rather than truthiness; the `location_response_invalid` path had no sanitization test; and the threat model was updated for shipped location discovery.
+
+**Documentation staleness, closed at merge**
+
+The threat model went stale twice during this slice — once because `main` moved mid-review, and once again roughly thirty seconds after the fix head was committed, when T1-006 merged. Refreshed at merge time rather than mid-round. **When a document makes claims about what is merged, refresh it at merge, not when the fix is written.**
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -301,10 +327,7 @@ Both branches' reviewers had verified those fixes on their own branch. That is n
 
 ## Next assignment
 
-- **Next role:** BUILDER
-- **Slice:** T2-002 — Decode scopes and expose deterministic capability denials
-- **Base:** `main`
-- **Note:** T2-001 is in a fix round for a blocking timezone-validation finding and is not yet merged. T2-002 depends on it in the ledger. Assess whether scope decoding genuinely needs the location registry or only the transport; if only the transport, it may build in parallel in a new file. State the assessment explicitly rather than assuming either way.
-- **Scope:** determine available scopes before calling a report path, and expose deterministic capability denials. Rule 11 requires missing scopes to return explicit structured denials, never fabricated zeroes or silent empty results.
-- **Non-goals:** normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
-- **Must honor:** the established error-sanitization discipline — no interpolation of caught values, no `cause` attachment, no upstream body in any error. Bind any cached capability state to restaurant GUID and runtime-config identity, following `InMemoryToastLocationRegistry`'s `WeakMap<RuntimeConfig, ...>` pattern rather than inventing a second one.
+- **Next role:** REVIEWER, once T2-002 reports
+- **Slice:** T2-002 — Decode scopes and expose deterministic capability denials, currently building on `main`
+- **Dependency note:** T2-002's declared dependency on T2-001 was assessed rather than assumed. Scope decoding reads what a credential is authorized for, which needs the transport rather than the location registry, so it was launched in parallel off `main` in a new file. T2-001 has since merged, so the question is moot.
+- **After T2-002:** T3-001 normalization is the next gate. It unlocks four genuinely independent report domains — sales, items, cash, and labor — in separate files, which is the first point where parallel builds earn more than they cost in rebases.
