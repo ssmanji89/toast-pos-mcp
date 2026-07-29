@@ -49,8 +49,8 @@ The server must support operators using their own authorized Toast credentials, 
 |---|---|---|---|---|
 | T0-001 | T0 | Research Toast reporting surface and establish public-use boundary | none | CLOSED |
 | T1-001 | T1 | Scaffold TypeScript stdio MCP package with synthetic fixture harness | T0-001 CLOSED | CLOSED |
-| T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | FINDINGS |
-| T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 | OPEN |
+| T1-002 | T1 | Load and validate non-persistent runtime configuration and explicit Merchant-AI-consent acknowledgment | T1-001 CLOSED | CLOSED |
+| T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLAIMED |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 | OPEN |
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 | OPEN |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 | OPEN |
@@ -113,6 +113,27 @@ None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking findi
 2. A green gate is not proof that tests ran. Read the discovered-file count and the total test count. Three independent review lenses, one of them performing mutation testing, all missed `F4` because they verified that existing tests were sound and none verified that a new test file would be discovered.
 3. Never attach simulated, reconstructed, or validation-double results as gate evidence. If the gate cannot run, say so. That substitution occurred during the R1 fix round and became part of a blocking finding.
 
+### T1-002: Non-persistent runtime configuration and Merchant-AI-consent acknowledgment — CLOSED
+
+- Review rounds: `T1-002-R1` through `T1-002-R3`
+- Clean head: `d360dad8b136d7045505c5502497be2a8eb5a7b3`
+- Merge commit: `353a125` — merged with a merge commit, not a squash, to preserve the T1-003 stack
+- Acceptance evidence verified on `main` at the declared Node floor: `npm ci` exit 0, `npm run check` exit 0, 3 test files discovered, 31 of 31 passing on Node 20.20.2 and 22.22.2.
+- DOX: updated (README runtime-configuration section)
+
+**Findings closed**
+
+- `T1-002-R1-F1` (HIGH): `clientId` and `clientSecret` were ordinary enumerable properties with redaction attached only to `toJSON` and `util.inspect.custom`. An adversarial probe leaked the raw secret through seven idioms — `Object.entries`, `Object.values`, spread, `Object.assign`, `structuredClone`, `for...in`, and `inspect` with `customInspect: false`. Fixed by holding credentials in a module-private `WeakMap` keyed by the frozen config object's identity, reachable only through `getRuntimeConfigCredentials`. The redaction overrides were removed entirely — nothing remains on the object to redact. Mutation-tested: reintroducing enumerable credentials fails 2 of 31 tests.
+- `T1-002-R2-F1` (HIGH): PR #3 was squash-merged, creating a `main` commit with no ancestry to the branch, which orphaned this stacked pull request. A real merge produced add/add conflicts on `src/index.ts` where a hand resolution could have silently dropped the `loadRuntimeConfig()` fail-closed gate. Fixed by rebasing the nine slice commits `--onto main` and retargeting the pull request base. Verified byte-identical across all owned files before and after.
+
+**Constraint recorded for T1-003 and later**
+
+`src/index.ts` discards `loadRuntimeConfig()`'s return value, and credential lookup is identity-keyed through a `WeakMap`. The config object validated at startup is therefore unreachable afterward and eligible for collection almost immediately. A later slice cannot recover it — it must call `loadRuntimeConfig()` itself, or `index.ts` must be restructured to thread one reference through. A clone or lookalike fails closed with a clear error rather than silently.
+
+**Merge-strategy rule for the rest of the chain**
+
+Squash-merging a base branch orphans any pull request stacked on it. While slices remain stacked, merge with a merge commit, or rebase and retarget every stacked pull request immediately after each squash.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -130,10 +151,9 @@ None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking findi
 
 ## Next assignment
 
-- **Next role:** FIXER
-- **Slice:** T1-002
-- **Finding:** `T1-002-R1-F1` (HIGH, blocking)
-- **Artifact:** PR #5 on `build/t1-002-runtime-configuration`
-- **Required fix:** `clientId` and `clientSecret` are stored as ordinary enumerable properties with redaction bolted onto `toJSON` and `util.inspect.custom` only. An adversarial probe leaked the raw secret through `Object.entries`, `Object.values`, spread, `Object.assign`, `structuredClone`, `for...in`, and `inspect` with `customInspect: false`. `AGENTS.md` rule 2 states redaction is not a substitute for avoiding capture. Encapsulate the values so generic enumeration, spreading, cloning, and serialization structurally cannot reach them, and extend the tests to cover every access pattern in that probe rather than the two happy paths.
-- **Also required:** rebase onto the merged `main`. Take the base's `node scripts/run-tests.mjs` test script and drop this branch's enumerated file list entirely; all three compiled test files are then discovered automatically.
-- **After the fix:** review round `T1-002-R1` reruns before T1-003 begins. T1-003 consumes these exact credential values, so the encapsulation must land first.
+- **Next role:** BUILDER
+- **Slice:** T1-003 — Implement OAuth client-credentials token lifecycle
+- **Base:** `build/t1-002-runtime-configuration` (now an ancestor of `main`)
+- **Scope:** acquisition via client credentials, in-memory-only storage with no disk persistence, expiry tracking with refresh before expiry, concurrent-request coalescing so parallel callers do not trigger duplicate token fetches, and explicit structured failure on auth rejection that never echoes the credential. Fail closed per rule 11.
+- **Non-goals:** HTTP transport, rate-limit state, and bounded retries (T1-004); pagination (T1-005, T1-006); location discovery and capabilities (T2); any report tooling. Register no Toast data tool.
+- **Must honor:** the credential-reachability constraint recorded in the T1-002 record above, and the WeakMap encapsulation pattern rather than redaction.
