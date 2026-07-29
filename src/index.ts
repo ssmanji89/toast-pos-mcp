@@ -2,19 +2,21 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { createOAuthTokenManager } from "./auth.js";
 import { loadRuntimeConfig } from "./config.js";
 import { createServer } from "./server.js";
+import { createToastHttpClient } from "./transport.js";
 
 async function main(): Promise<void> {
   // Fail closed before any MCP transport starts: runtime configuration must
   // validate and the operator must have explicitly acknowledged documented
   // Merchant consent for AI processing. See
-  // docs/architecture/public-use-boundary.md. The loaded configuration is not
-  // yet consumed further here; OAuth (T1-003) and Toast HTTP transport
-  // (T1-004) are separate, later slices.
-  loadRuntimeConfig();
+  // docs/architecture/public-use-boundary.md.
+  const config = loadRuntimeConfig();
+  const tokenManager = createOAuthTokenManager(config);
+  const toastHttpClient = createToastHttpClient(config, tokenManager);
 
-  const server = createServer();
+  const server = createServer({ toastHttpClient });
   const transport = new StdioServerTransport();
 
   await server.connect(transport);
