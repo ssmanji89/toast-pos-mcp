@@ -1009,6 +1009,177 @@ test("does not retry token acquisition failures and never calls fetch (T1-004-R1
   assert.equal(dataFetch.calls.length, 0);
 });
 
+test("traverses ordersBulk pages from Link next relations until next is absent", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.deepEqual(
+    harness.dataFetch.calls.map((call) => call.url),
+    [
+      "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=1&pageSize=100",
+      "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100",
+    ],
+  );
+});
+
+test("rejects ordersBulk page sizes above Toast's documented maximum", async () => {
+  const harness = new TransportHarness({
+    responses: [jsonResponse({ synthetic: "unreachable" })],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 101,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
+test("fails closed when ordersBulk Link next repeats a page number", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=1&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next skips a page number", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=3&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next changes the bounded query", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260730&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk traversal exceeds the configured page bound", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 1,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {

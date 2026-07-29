@@ -100,6 +100,13 @@ export interface ToastConfigurationPagesRequest {
   readonly maxRestarts?: number;
 }
 
+export interface ToastOrdersBulkPagesRequest {
+  readonly restaurantGuid: string;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly pageSize: number;
+  readonly maxPages: number;
+}
+
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
   readonly restaurantGuid: string;
@@ -115,6 +122,7 @@ export type ToastHttpErrorCode =
   | "configuration_page_bound_exceeded"
   | "configuration_page_restart_exceeded"
   | "configuration_page_token_repeated"
+  | "pagination_integrity_failed"
   | "rate_limit_wait_exceeded"
   | "request_failed"
   | "request_network_error"
@@ -159,6 +167,12 @@ export interface ToastHttpClientOptions {
   readonly now?: () => number;
   readonly random?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+interface JsonResponseResult {
+  readonly body: unknown;
+  readonly headers: Headers;
+  readonly url: string;
 }
 
 export class ToastHttpClient {
@@ -344,10 +358,82 @@ export class ToastHttpClient {
     }
   }
 
-  async #requestJson(request: ToastGetJsonRequest): Promise<{
-    readonly body: unknown;
-    readonly headers: Headers;
-  }> {
+  async getOrdersBulkPages(
+    request: ToastOrdersBulkPagesRequest,
+  ): Promise<unknown[]> {
+    if (
+      !Number.isInteger(request.pageSize)
+      || request.pageSize < 1
+      || request.pageSize > 100
+    ) {
+      throw paginationIntegrityError(
+        "ordersBulk pageSize must be an integer between 1 and 100.",
+      );
+    }
+    if (!Number.isInteger(request.maxPages) || request.maxPages < 1) {
+      throw paginationIntegrityError(
+        "ordersBulk maxPages must be a positive integer.",
+      );
+    }
+
+    const boundedQuery = normalizedBoundedQuery(request.query);
+    const visitedPages = new Set<number>();
+    const visitedUrls = new Set<string>();
+    const pages: unknown[] = [];
+    let page = 1;
+
+    while (true) {
+      if (visitedPages.has(page)) {
+        throw paginationIntegrityError(
+          "ordersBulk pagination encountered a repeated page number.",
+        );
+      }
+      if (pages.length >= request.maxPages) {
+        throw paginationIntegrityError(
+          "ordersBulk pagination exceeded the configured page bound.",
+        );
+      }
+
+      visitedPages.add(page);
+      const result = await this.#requestJson({
+        path: "/orders/v2/ordersBulk",
+        restaurantGuid: request.restaurantGuid,
+        query: {
+          ...request.query,
+          page,
+          pageSize: request.pageSize,
+        },
+        rateLimitKey: "ordersBulk",
+      });
+
+      if (visitedUrls.has(result.url)) {
+        throw paginationIntegrityError(
+          "ordersBulk pagination encountered a repeated page URL.",
+        );
+      }
+      visitedUrls.add(result.url);
+      pages.push(result.body);
+
+      const nextUrl = linkRelations(result.headers).get("next");
+      if (nextUrl === undefined) {
+        return pages;
+      }
+
+      const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
+      assertOrdersBulkNextUrl(
+        parsedNextUrl,
+        boundedQuery,
+        request.pageSize,
+        page,
+        visitedPages,
+        visitedUrls,
+      );
+
+      page = Number(parsedNextUrl.searchParams.get("page"));
+    }
+  }
+
+  async #requestJson(request: ToastGetJsonRequest): Promise<JsonResponseResult> {
     const apiFamily = request.apiFamily ?? "standard";
     const stateKey = rateLimitStateKey(
       apiFamily,
@@ -381,8 +467,9 @@ export class ToastHttpClient {
       }
 
       let response: Response;
+      const url = this.#buildUrl(request);
       try {
-        response = await this.#fetch(this.#buildUrl(request), {
+        response = await this.#fetch(url, {
           method: "GET",
           headers: {
             accept: "application/json",
@@ -438,6 +525,7 @@ export class ToastHttpClient {
         return {
           body: await response.json(),
           headers: response.headers,
+          url,
         };
       } catch {
         throw new ToastHttpError(
@@ -574,6 +662,115 @@ function requestIdMetadata(
 ): { readonly upstreamRequestId?: string } {
   const upstreamRequestId = response.headers.get("toast-request-id");
   return upstreamRequestId !== null ? { upstreamRequestId } : {};
+}
+
+function paginationIntegrityError(message: string): ToastHttpError {
+  return new ToastHttpError("pagination_integrity_failed", message, {
+    apiFamily: "standard",
+    retryable: false,
+  });
+}
+
+function normalizedBoundedQuery(
+  query: ToastGetJsonRequest["query"],
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && key !== "page" && key !== "pageSize") {
+      result.set(key, String(value));
+    }
+  }
+  return result;
+}
+
+function linkRelations(headers: Headers): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  const header = headers.get("link");
+  if (header === null) {
+    return result;
+  }
+
+  for (const segment of header.split(",")) {
+    const match = /^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u.exec(segment);
+    if (match !== null) {
+      result.set(match[2] ?? "", match[1] ?? "");
+    }
+  }
+
+  return result;
+}
+
+function parsePaginationUrl(nextUrl: string, baseUrl: string): URL {
+  try {
+    return new URL(nextUrl, baseUrl);
+  } catch {
+    throw paginationIntegrityError(
+      "ordersBulk pagination received an unusable next Link URL.",
+    );
+  }
+}
+
+function assertOrdersBulkNextUrl(
+  nextUrl: URL,
+  boundedQuery: ReadonlyMap<string, string>,
+  pageSize: number,
+  currentPage: number,
+  visitedPages: ReadonlySet<number>,
+  visitedUrls: ReadonlySet<string>,
+): void {
+  if (nextUrl.pathname !== "/orders/v2/ordersBulk") {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed the endpoint path.",
+    );
+  }
+
+  if (visitedUrls.has(nextUrl.toString())) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination encountered a repeated next Link URL.",
+    );
+  }
+
+  const nextPageText = nextUrl.searchParams.get("page");
+  const nextPage = nextPageText === null ? NaN : Number(nextPageText);
+  if (
+    !Number.isInteger(nextPage)
+    || nextPage !== currentPage + 1
+    || visitedPages.has(nextPage)
+  ) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link did not advance to a new page.",
+    );
+  }
+
+  if (nextUrl.searchParams.get("pageSize") !== String(pageSize)) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed pageSize.",
+    );
+  }
+
+  const nextBoundedQuery = normalizedBoundedQuery(
+    Object.fromEntries(nextUrl.searchParams.entries()),
+  );
+  if (!sameQuery(boundedQuery, nextBoundedQuery)) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed the bounded query.",
+    );
+  }
+}
+
+function sameQuery(
+  left: ReadonlyMap<string, string>,
+  right: ReadonlyMap<string, string>,
+): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [key, value] of left) {
+    if (right.get(key) !== value) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function retryDelayFromHeaders(
