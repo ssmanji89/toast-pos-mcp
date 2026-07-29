@@ -34,6 +34,32 @@ const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
  */
 const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
 
+/**
+ * Ceiling on the caller-supplied 409 restart budget for configuration
+ * page-token traversal (constructor-level `maxConfigurationRestarts` or the
+ * per-call `maxRestarts` override).
+ *
+ * Unlike a `Retry-After` header or a rate-limit reset, this value is never
+ * server-derived — it is always caller-supplied — so severity is lower than
+ * `DEFAULT_MAX_RATE_LIMIT_WAIT_MS`. But it had no ceiling at all, only a
+ * `>= 0` floor: an oversized value has no fail-closed signal of its own and
+ * directly multiplies worst-case request count, because each restart
+ * re-fetches the entire page set from scratch (up to `maxPages` requests,
+ * each itself subject to `#requestJson`'s own `maxAttempts` retries — see
+ * the composed worst-case comment beside `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * and `DEFAULT_MAX_CONFIGURATION_RESTARTS` below).
+ *
+ * A scoped 409 restart exists for a transient event — a restaurant
+ * publishing configuration changes mid-traversal — that is expected to
+ * resolve within a handful of attempts; the default of 1 already covers
+ * ordinary operation. This ceiling is generous relative to that default
+ * (an order of magnitude higher) while still rejecting an implausible
+ * caller-supplied value loudly, per AGENTS.md rule 11, rather than
+ * silently admitting one that would blow up the composed worst case. See
+ * T1-005-R1-F4.
+ */
+const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export type ToastApiFamily = "standard";
@@ -167,6 +193,11 @@ export class ToastHttpClient {
         "ToastHttpClient maxConfigurationRestarts must be at least 0.",
       );
     }
+    if (this.#maxConfigurationRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
+      throw new RangeError(
+        `ToastHttpClient maxConfigurationRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+      );
+    }
   }
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
@@ -184,6 +215,11 @@ export class ToastHttpClient {
     if (maxRestarts < 0) {
       throw new RangeError(
         "Toast configuration maxRestarts must be at least 0.",
+      );
+    }
+    if (maxRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
+      throw new RangeError(
+        `Toast configuration maxRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
       );
     }
 
