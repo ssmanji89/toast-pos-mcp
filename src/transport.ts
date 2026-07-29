@@ -3,6 +3,25 @@ import type { RuntimeConfig } from "./config.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
+
+/**
+ * `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT` and `DEFAULT_MAX_CONFIGURATION_RESTARTS`
+ * compose with `DEFAULT_MAX_ATTEMPTS` (`#requestJson`'s own per-request retry
+ * ceiling) into the true worst-case raw fetch-call count for a single
+ * `getConfigurationPagesJson` traversal. Each page-token traversal attempt
+ * fetches at most `maxPages` pages; a scoped 409 restart (see
+ * `getConfigurationPagesJson`) discards the partial page set and starts a
+ * fresh traversal attempt, up to `maxRestarts` times, so the traversal
+ * fetches at most `maxPages * (maxRestarts + 1)` page requests. Every one of
+ * those page requests is itself retried by `#requestJson` up to
+ * `maxAttempts` times on a retryable status. With the defaults below
+ * (`maxPages=100`, `maxRestarts=1`, `maxAttempts=3`), that is
+ * `100 * (1 + 1) = 200` page-fetch attempts, composing to a true worst case
+ * of `100 * 3 * 2 = 600` raw `fetch` calls. This is finite and bounded, and
+ * in practice a single 409 or a run of retryable statuses is rare — but it
+ * had never been written down anywhere before this comment. See
+ * T1-005-R1-F5.
+ */
 const DEFAULT_MAX_CONFIGURATION_PAGE_COUNT = 100;
 const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
