@@ -8,10 +8,34 @@ import {
 const AUTHENTICATION_LOGIN_PATH = "/authentication/v1/authentication/login";
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 60_000;
 
+/**
+ * Sanity ceiling on Toast's returned `expiresIn` (seconds).
+ *
+ * T0 research (`docs/research/toast-api-reporting-landscape.md`) documents the
+ * authentication request body precisely but says nothing about a maximum
+ * token lifetime; the client is told only to cache "according to the
+ * returned expiry rather than assuming a fixed duration." Without an upper
+ * bound, `z.number().int().positive()` accepts `Number.MAX_SAFE_INTEGER`,
+ * which computes a refresh time millions of years in the future and silently
+ * defeats the final-minute refresh contract for the life of the process.
+ *
+ * 24 hours is chosen as a defensible, generous ceiling: no legitimate
+ * client-credentials access token needs to be cached longer than a day, so
+ * this comfortably accommodates any plausible Toast-issued expiry while
+ * still rejecting the class of implausible values (integer overflow,
+ * corrupted upstream response, hostile stand-in) that would otherwise cache
+ * a token as effectively permanent. See T1-003-R1-F1.
+ */
+const MAX_ACCEPTABLE_EXPIRES_IN_SECONDS = 86_400;
+
 const toastTokenResponseSchema = z.object({
   token: z.object({
     tokenType: z.literal("Bearer"),
-    expiresIn: z.number().int().positive(),
+    expiresIn: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_ACCEPTABLE_EXPIRES_IN_SECONDS),
     accessToken: z.string().min(1),
   }),
 });
