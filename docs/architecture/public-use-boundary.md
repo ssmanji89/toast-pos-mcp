@@ -189,6 +189,10 @@ The design lowers credential and tenant risk, preserves read-only safety, keeps 
 
 Restaurant financial data does not become less sensitive because an LLM can summarize it attractively.
 
+## Threat model
+
+`threat-model.md` extends this decision with a concrete threat catalog — assets, trust boundaries, per-area threat walkthroughs for local distribution, AI-provider data flow, and future remote transport, file-level evidence for controls implemented to date, and an explicit residual-risk list. Read it alongside this decision rather than in place of it.
+
 ## Revisit triggers
 
 A new architecture decision is required before:
