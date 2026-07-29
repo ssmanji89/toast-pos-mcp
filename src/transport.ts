@@ -218,7 +218,17 @@ export class ToastHttpClient {
           if (nextToken === null || nextToken === "") {
             return Object.freeze([...pages]);
           }
-          if (seenTokens.has(nextToken) || nextToken === pageToken) {
+          // `nextToken === pageToken` was previously checked here alongside
+          // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
+          // ever assigned a value immediately after that same value was
+          // added to `seenTokens` on the prior iteration (see the
+          // `seenTokens.add(nextToken); pageToken = nextToken;` pair below),
+          // so `pageToken` is always already a member of `seenTokens` by the
+          // time this check runs. `seenTokens.has(nextToken)` alone
+          // therefore already catches every case the redundant clause
+          // caught. Confirmed by removing it: zero regressions across all
+          // traversal tests. See T1-005-R1-F2.
+          if (seenTokens.has(nextToken)) {
             throw new ToastHttpError(
               "configuration_page_token_repeated",
               "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
