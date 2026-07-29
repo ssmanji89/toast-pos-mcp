@@ -52,6 +52,7 @@ export interface OAuthTokenManagerOptions {
 
 export type ToastAuthErrorCode =
   | "token_request_failed"
+  | "token_request_network_error"
   | "token_response_invalid";
 
 export class ToastAuthError extends Error {
@@ -128,20 +129,36 @@ export class OAuthTokenManager {
 
   async #requestAccessToken(): Promise<string> {
     const credentials = getRuntimeConfigCredentials(this.#config);
-    const response = await this.#fetch(
-      `https://${this.#config.apiHostname}${AUTHENTICATION_LOGIN_PATH}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
+    let response: Response;
+
+    try {
+      response = await this.#fetch(
+        `https://${this.#config.apiHostname}${AUTHENTICATION_LOGIN_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            clientId: credentials.clientId,
+            clientSecret: credentials.clientSecret,
+            userAccessType: this.#config.machineClientAccessType,
+          }),
         },
-        body: JSON.stringify({
-          clientId: credentials.clientId,
-          clientSecret: credentials.clientSecret,
-          userAccessType: this.#config.machineClientAccessType,
-        }),
-      },
-    );
+      );
+    } catch {
+      // `this.#fetch` is an injectable `OAuthFetch`; a later slice (T1-004)
+      // or a hostile stand-in could reject with an error whose `message`
+      // carries upstream body content, header values, or other unsanitized
+      // detail. Every other failure path in this file normalizes through
+      // `ToastAuthError` and never surfaces an upstream body; this path must
+      // have the same guarantee. Deliberately do not read or interpolate
+      // any property of the caught value here.
+      throw new ToastAuthError(
+        "token_request_network_error",
+        "Toast authentication request failed before a response was received.",
+      );
+    }
 
     if (!response.ok) {
       throw new ToastAuthError(
