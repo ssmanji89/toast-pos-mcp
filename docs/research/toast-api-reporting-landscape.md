@@ -300,6 +300,38 @@ The shared limiter must key Analytics limits by method, endpoint, time range, cr
 
 The transport must read Toast rate-limit headers, coordinate all tools through a shared limiter, honor 429 responses, and use bounded exponential backoff with jitter for retryable failures. Credential, scope, validation, inaccessible-location, expired-GUID, and consent-acknowledgment failures are not blindly retryable.
 
+### Rate-limit-reset header semantics — original implementation note, not sourced from Toast documentation
+
+None of the primary sources reviewed for this document describe whether a
+Toast rate-limit "reset" response header (for example `Toast-RateLimit-Reset`)
+carries an absolute epoch timestamp or a relative delta (seconds until reset).
+`src/transport.ts` (T1-004) assumes the header is always an **absolute**
+point in time, encoded as either epoch seconds or epoch milliseconds:
+
+```
+epochHeader(value):
+  if value > 9,999,999,999:
+    treat value as already epoch milliseconds
+  else:
+    treat value as epoch seconds and multiply by 1000
+```
+
+This assumption is explicit and independently checkable by a reviewer rather
+than left implicit in the parsing code, matching the precedent set for the
+authentication response shape above. It has a known failure mode if wrong:
+if Toast ever sends this header as a relative delta (seconds until reset,
+the way `Retry-After` delta-seconds works) rather than an absolute
+timestamp, a small value such as `42` would be misread as epoch-seconds
+`42` — a moment in 1970, already in the past — and the derived wait would
+silently resolve to zero rather than the intended 42-second delay. The
+transport does not currently distinguish these two cases; it always treats
+the header as absolute. A future reviewer with access to a live rate-limited
+response, or an updated Toast document describing this header precisely,
+should confirm or correct this assumption before it is relied upon for a
+long-lived wait. This note records an original implementation assumption
+for reviewability; it is not, and must not be treated as, Toast's own
+documentation of the header.
+
 ### Errors and completeness
 
 Toast commonly returns JSON error objects containing HTTP status, service code, user message, request ID, developer detail, nested errors, and retry guidance. Important classes include:

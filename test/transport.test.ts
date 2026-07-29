@@ -84,6 +84,76 @@ test("sends a location-scoped Toast GET request with a bearer token and records 
   );
 });
 
+test("treats a Toast-RateLimit-Reset value above the epoch-ms threshold as already epoch milliseconds (T1-004-R1-F4)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { synthetic: "ok" },
+        {
+          headers: {
+            "Toast-RateLimit-Reset": "12000000000",
+          },
+        },
+      ),
+    ],
+    now: 100_000,
+  });
+
+  await harness.client.getJson({
+    path: "/orders/v2/ordersBulk",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "ordersBulk",
+  });
+
+  assert.equal(
+    harness.client.getRateLimitSnapshot(
+      "standard",
+      SYNTHETIC_RESTAURANT_GUID,
+      "ordersBulk",
+    )?.resetAtEpochMs,
+    12_000_000_000,
+  );
+});
+
+test("treats a small Toast-RateLimit-Reset value as epoch seconds, per the documented assumption (T1-004-R1-F4)", async () => {
+  // This locks in the documented implementation assumption recorded in
+  // docs/research/toast-api-reporting-landscape.md: the header is always
+  // read as an absolute timestamp, never a relative delta. A value of "42"
+  // is read as epoch-seconds 42 (a moment in 1970) rather than "42 seconds
+  // from now" — if Toast ever sends a genuinely relative delta here, the
+  // derived wait silently resolves to the past instead of firing. This
+  // test documents the current, explicit interpretation; it does not
+  // assert that interpretation is the only one Toast could mean.
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { synthetic: "ok" },
+        {
+          headers: {
+            "Toast-RateLimit-Reset": "42",
+          },
+        },
+      ),
+    ],
+    now: 100_000,
+  });
+
+  await harness.client.getJson({
+    path: "/orders/v2/ordersBulk",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "ordersBulk",
+  });
+
+  assert.equal(
+    harness.client.getRateLimitSnapshot(
+      "standard",
+      SYNTHETIC_RESTAURANT_GUID,
+      "ordersBulk",
+    )?.resetAtEpochMs,
+    42_000,
+  );
+});
+
 test("retries retryable 429 responses within the configured attempt budget and honors Retry-After", async () => {
   const harness = new TransportHarness({
     responses: [

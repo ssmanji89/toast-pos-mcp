@@ -415,6 +415,16 @@ function numericHeader(response: Response, name: string): number | undefined {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+/**
+ * Interprets a Toast rate-limit "reset" header (currently only
+ * `toast-ratelimit-reset`) as an absolute point in time, never a relative
+ * delta — an original implementation assumption, not sourced from Toast
+ * documentation. See the "Rate-limit-reset header semantics" note in
+ * `docs/research/toast-api-reporting-landscape.md` for the full reasoning
+ * and its consequence (a genuinely relative-delta value would be
+ * misinterpreted as an already-past absolute timestamp and silently never
+ * trigger a wait). See T1-004-R1-F4.
+ */
 function epochHeader(response: Response, name: string): number | undefined {
   const parsed = numericHeader(response, name);
   if (parsed === undefined) {
