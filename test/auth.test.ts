@@ -63,6 +63,32 @@ test("deduplicates simultaneous token requests behind one authentication exchang
   assert.equal(fetch.calls.length, 1);
 });
 
+test("propagates a rejected in-flight token request to every concurrent caller, then issues a fresh request that succeeds", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const fetch = new DeferredFetch();
+  const manager = createOAuthTokenManager(config, { fetch: fetch.fetch });
+
+  const first = manager.getAccessToken();
+  const second = manager.getAccessToken();
+  const third = manager.getAccessToken();
+  fetch.rejectNext(
+    new Error(`network failure while sending ${SYNTHETIC_CLIENT_SECRET_MARKER}`),
+  );
+
+  await assert.rejects(first, ToastAuthError);
+  await assert.rejects(second, ToastAuthError);
+  await assert.rejects(third, ToastAuthError);
+  assert.equal(fetch.calls.length, 1);
+
+  const fourth = manager.getAccessToken();
+  fetch.resolveNext(
+    tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-after-rejection`, 300),
+  );
+
+  assert.equal(await fourth, `${SYNTHETIC_ACCESS_TOKEN_MARKER}-after-rejection`);
+  assert.equal(fetch.calls.length, 2);
+});
+
 test("returns an authorization header from the cached bearer token", async () => {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
   const fetch = new RecordingFetch([
@@ -250,6 +276,14 @@ class DeferredFetch {
       throw new Error("DeferredFetch has no pending request");
     }
     this.#pending.resolve(response);
+    this.#pending = undefined;
+  }
+
+  rejectNext(reason: unknown): void {
+    if (this.#pending === undefined) {
+      throw new Error("DeferredFetch has no pending request");
+    }
+    this.#pending.reject(reason);
     this.#pending = undefined;
   }
 }
