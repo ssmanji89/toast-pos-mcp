@@ -53,7 +53,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-003 | T1 | Implement OAuth client-credentials token lifecycle | T1-002 CLOSED | CLOSED |
 | T1-004 | T1 | Implement HTTP transport, structured errors, rate-limit state, and bounded retries | T1-003 CLOSED | CLOSED |
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLOSED |
-| T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | BUILT |
+| T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | CLOSED |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 | OPEN |
 | T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 | OPEN |
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
@@ -256,6 +256,34 @@ Then, during its own review, `main` moved and the document's accurate claim that
 
 The Analytics wait-ceiling note for T5, the `expiresIn: 86400` assertion gap from T1-003, the consent-threading gap that the first tool-registering slice must close, and the two unreachable-today advisories.
 
+### T1-006: `/ordersBulk` Link-header traversal — CLOSED. **PHASE T1 COMPLETE.**
+
+- Review rounds: `T1-006-R1` (two lenses, both independently finding the same blocker) and `T1-006-R2`
+- Clean head: `42cf4b1`; 109 tests on `main` at the declared Node floor
+- Merged with a merge commit
+
+**BLOCKER — the Link `next` parser silently truncated orders reports**
+
+The regex required the entire header segment to be exactly `<url>; rel="value"` — quoted, rel-only, rel-first. Everything else was silently dropped, and an absent `next` means "pagination complete." Six RFC 8288-legal forms truncated after page 1 with no signal: unquoted `rel=next`, `Rel="Next"`, `REL="NEXT"`, an extra parameter after `rel`, a parameter before `rel`, and both malformed shapes.
+
+**Two of those are ordinary spec-compliant headers, not corrupted input.**
+
+The deeper defect was that no code path distinguished "Link present but unparseable" from "Link absent." A better parser alone would have moved the silent-truncation boundary rather than removing it. The fix adds a real RFC 8288 parser AND fails closed with `pagination_integrity_failed` when a header is present but unparseable — the distinction the contract in `public-use-boundary.md` always required.
+
+Verified post-fix across the full matrix, including cases beyond the original findings: commas and semicolons inside quoted values, escaped quotes, multiple separate `Link` headers, relative URLs, `rel="prev next"` multi-relation lists, and whitespace variations. All parse correctly; malformed shapes throw.
+
+**Warnings closed**
+
+`F2` four duplicate-detection guards were dead code — removed individually and together, all 70 tests still passed, because the `+1` increment invariant already covered them. `F3` path and pageSize preservation guards were real but entirely untested. `F4` `maxPages` had no ceiling; now defaults to 100 with a ceiling of 1000 that throws rather than clamping. `S2` and `S3` were coverage gaps where T1-004 regressions and the secret probe never routed through the new entry point. `T1-006-R2-F1` closed the same gap for `getConfigurationPagesJson`.
+
+**The merge between two independent refactors was the real risk**
+
+T1-005 and T1-006 each refactored the shared JSON GET internal for the same reason — pagination needing header access. The fix unified them into one `#requestJson` returning `{ body, headers, url }`. All five T1-004 regression probes were then re-run against the **merged** result on all three entry points, and T1-005's page-token traversal, duplicate-token guard, scoped 409 restart, and restart ceiling were all re-verified.
+
+Both branches' reviewers had verified those fixes on their own branch. That is not the same claim as surviving the merge. **Record this as a standing rule: when two branches independently refactor the same function, re-run the affected regression probes against the merged result, not against either branch.**
+
+**Note carried into T2 and T3:** 409 is not uniformly a one-fetch terminal status. On configuration page-token traversal it correctly takes a second fetch before `configuration_page_restart_exceeded`, because it is the scoped-restart trigger. Any test asserting uniform non-retryable behavior across entry points is wrong.
+
 ## Handoff rules
 
 1. Derive state from this repository and GitHub, not chat memory.
@@ -274,17 +302,9 @@ The Analytics wait-ceiling note for T5, the `expiresIn: 86400` assertion gap fro
 ## Next assignment
 
 - **Next role:** BUILDER
-- **Slice:** T2-001 — Discover locations and bind all state to restaurant GUID
+- **Slice:** T2-002 — Decode scopes and expose deterministic capability denials
 - **Base:** `main`
-- **Why now:** T2-001's declared dependency on T1-006 is a delivery convention. Location discovery calls the restaurants endpoint through the T1-004 client and does not need `/ordersBulk` pagination. T1-006 is in a fix round for a blocking Link-parser defect; T2-001 lands in a new file and does not conflict.
-- **Scope:** discover accessible locations, represent them explicitly, and bind all state to restaurant GUID. This is the gate for every reporting slice from T3 onward.
-- **Non-goals:** scope decoding and capability denials (T2-002); normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
-- **Must honor:** rule 6 at every layer. The transport already binds rate-limit and configuration page state to restaurant GUID — follow that pattern rather than inventing a second one. Reuse the error-sanitization discipline proven across T1-003 through T1-005: no interpolation of caught values, no `cause` attachment, no upstream body in any error.
-
-## Standing verification requirement, added after four slices
-
-Every build and every fix round must self-mutation-check: for each test added, break the corresponding implementation, confirm the test fails, revert, and report the result.
-
-Tests that pass while the implementation is broken are the single largest source of real defects on this project. Confirmed cases: adding `401` to the retryable set left all 50 tests passing; four duplicate-detection guards were removed individually and together with all 70 tests passing, because they were dead code; path and page-size preservation guards were removed with all tests passing; and six RFC-legal Link header forms were mishandled with no test covering any of them.
-
-Three independent review lenses, one performing mutation testing, missed the first of these. Writing a test is not evidence the test works.
+- **Note:** T2-001 is in a fix round for a blocking timezone-validation finding and is not yet merged. T2-002 depends on it in the ledger. Assess whether scope decoding genuinely needs the location registry or only the transport; if only the transport, it may build in parallel in a new file. State the assessment explicitly rather than assuming either way.
+- **Scope:** determine available scopes before calling a report path, and expose deterministic capability denials. Rule 11 requires missing scopes to return explicit structured denials, never fabricated zeroes or silent empty results.
+- **Non-goals:** normalization and report tooling (T3 onward); the Analytics job lifecycle (T5). Register no Toast data tool.
+- **Must honor:** the established error-sanitization discipline — no interpolation of caught values, no `cause` attachment, no upstream body in any error. Bind any cached capability state to restaurant GUID and runtime-config identity, following `InMemoryToastLocationRegistry`'s `WeakMap<RuntimeConfig, ...>` pattern rather than inventing a second one.
