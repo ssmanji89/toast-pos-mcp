@@ -503,6 +503,51 @@ test("does not retry authorization or validation failures and does not expose up
   assert.deepEqual(harness.sleeps, []);
 });
 
+// T1-004-R1-F5: only 200, 403, 429, and 503 were exercised anywhere in this
+// file. Adding 401 to RETRYABLE_STATUSES left every existing test passing —
+// mutation-confirmed vacuous coverage for the rest of the non-retryable
+// class. One test per remaining documented non-retryable status, matching
+// the shape of the existing 403 test above: exactly one fetch call and
+// retryable: false.
+const NON_RETRYABLE_STATUSES_UNDER_TEST = [400, 401, 404, 409, 422] as const;
+
+for (const status of NON_RETRYABLE_STATUSES_UNDER_TEST) {
+  test(`does not retry a ${status} response (T1-004-R1-F5)`, async () => {
+    const harness = new TransportHarness({
+      responses: [
+        jsonResponse(
+          {
+            developerMessage: `${SYNTHETIC_UPSTREAM_BODY_MARKER} for status ${status}`,
+          },
+          {
+            status,
+            headers: { "Toast-Request-Id": `synthetic-request-id-${status}` },
+          },
+        ),
+        jsonResponse({ synthetic: "unreachable" }),
+      ],
+    });
+
+    await assert.rejects(
+      harness.client.getJson({
+        path: "/orders/v2/ordersBulk",
+        restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+        rateLimitKey: "ordersBulk",
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof ToastHttpError);
+        assert.equal(error.code, "request_failed");
+        assert.equal(error.upstreamStatus, status);
+        assert.equal(error.retryable, false);
+        return true;
+      },
+    );
+
+    assert.equal(harness.dataFetch.calls.length, 1);
+    assert.deepEqual(harness.sleeps, []);
+  });
+}
+
 test("wraps rejected fetches in sanitized network errors and retries only within bounds", async () => {
   const harness = new TransportHarness({
     responses: [
