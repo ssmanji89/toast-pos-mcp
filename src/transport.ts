@@ -377,24 +377,16 @@ export class ToastHttpClient {
     }
 
     const boundedQuery = normalizedBoundedQuery(request.query);
-    const visitedPages = new Set<number>();
-    const visitedUrls = new Set<string>();
     const pages: unknown[] = [];
     let page = 1;
 
     while (true) {
-      if (visitedPages.has(page)) {
-        throw paginationIntegrityError(
-          "ordersBulk pagination encountered a repeated page number.",
-        );
-      }
       if (pages.length >= request.maxPages) {
         throw paginationIntegrityError(
           "ordersBulk pagination exceeded the configured page bound.",
         );
       }
 
-      visitedPages.add(page);
       const result = await this.#requestJson({
         path: "/orders/v2/ordersBulk",
         restaurantGuid: request.restaurantGuid,
@@ -406,14 +398,30 @@ export class ToastHttpClient {
         rateLimitKey: "ordersBulk",
       });
 
-      if (visitedUrls.has(result.url)) {
-        throw paginationIntegrityError(
-          "ordersBulk pagination encountered a repeated page URL.",
-        );
-      }
-      visitedUrls.add(result.url);
       pages.push(result.body);
 
+      // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
+      // every page number and every fetched page URL "for defense in
+      // depth" alongside the check below, but they were dead code --
+      // removed individually and in combination, 70/70 tests still passed.
+      // That is because `page` starts at 1 and only ever advances to a
+      // value `assertOrdersBulkNextUrl` has already proven equals
+      // `currentPage + 1`; by induction, every `page` this loop ever
+      // fetches is a distinct positive integer 1, 2, 3, ... in strictly
+      // increasing order, and `boundedQuery`/`pageSize` are invariant for
+      // the life of the call (enforced immediately below and by
+      // `assertOrdersBulkNextUrl`'s path/pageSize/query checks), so the
+      // constructed request URL for page N can never coincide with the URL
+      // for any other page. A repeated page number or a repeated page URL
+      // is therefore always already a `currentPage + 1` violation caught
+      // by the check below first -- tracking visited pages/URLs separately
+      // could never fire on its own. Decoupling duplicate detection from
+      // this invariant would require deliberately loosening the strict
+      // `+1` requirement (e.g. to accept a server that legitimately skips
+      // a page), which is not something this slice does; if a future
+      // change does that, duplicate detection must be reintroduced at that
+      // point, independently tested against a case that does not also
+      // violate whatever replaces this check. See T1-006-R1-F2.
       const nextUrl = linkRelations(result.headers).get("next");
       if (nextUrl === undefined) {
         return pages;
@@ -425,8 +433,6 @@ export class ToastHttpClient {
         boundedQuery,
         request.pageSize,
         page,
-        visitedPages,
-        visitedUrls,
       );
 
       page = Number(parsedNextUrl.searchParams.get("page"));
@@ -881,8 +887,6 @@ function assertOrdersBulkNextUrl(
   boundedQuery: ReadonlyMap<string, string>,
   pageSize: number,
   currentPage: number,
-  visitedPages: ReadonlySet<number>,
-  visitedUrls: ReadonlySet<string>,
 ): void {
   if (nextUrl.pathname !== "/orders/v2/ordersBulk") {
     throw paginationIntegrityError(
@@ -890,19 +894,14 @@ function assertOrdersBulkNextUrl(
     );
   }
 
-  if (visitedUrls.has(nextUrl.toString())) {
-    throw paginationIntegrityError(
-      "ordersBulk pagination encountered a repeated next Link URL.",
-    );
-  }
-
+  // T1-006-R1-F2: this single check -- the next page must equal exactly
+  // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
+  // See the comment beside its call site in `getOrdersBulkPages` for why
+  // separate `visitedPages`/`visitedUrls` tracking was removed as dead code
+  // rather than kept as apparent (but non-functional) defense in depth.
   const nextPageText = nextUrl.searchParams.get("page");
   const nextPage = nextPageText === null ? NaN : Number(nextPageText);
-  if (
-    !Number.isInteger(nextPage)
-    || nextPage !== currentPage + 1
-    || visitedPages.has(nextPage)
-  ) {
+  if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
     throw paginationIntegrityError(
       "ordersBulk pagination next Link did not advance to a new page.",
     );
