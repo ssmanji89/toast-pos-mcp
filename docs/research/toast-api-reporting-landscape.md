@@ -118,6 +118,28 @@ Use restaurant and configuration APIs to resolve names and reporting dimensions:
 
 Toast recommends refreshing restaurant/configuration context at least daily per location. Menu metadata should be checked throughout the day, with a menu refresh after a detected publish.
 
+### Standard restaurant discovery response shape — original implementation note
+
+`src/locations.ts` (T2-001) discovers Standard API locations by issuing a
+read-only `GET` through the shared Standard API transport to
+`/restaurants/v1/restaurants`, using the configured default restaurant GUID as
+the bootstrap `Toast-Restaurant-External-ID` header. The implementation assumes
+the response body has a top-level `restaurants` array whose members include:
+
+```
+{
+  "guid": "<restaurant UUID>",
+  "name": "<restaurant display name>",
+  "timeZone": "<IANA timezone>",
+  "closeoutHour": <integer 0-23>
+}
+```
+
+This records an implementation assumption for reviewability, not a claim that
+Toast's public docs use this exact schema spelling in every context. The parser
+fails closed if the body is missing those fields, if a GUID is duplicated, or
+if the bootstrap restaurant GUID is absent from the returned set.
+
 ### Orders-based reporting
 
 Primary source: orders updated webhook where configured; `/ordersBulk` for bounded retrieval and backfill.
