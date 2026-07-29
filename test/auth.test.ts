@@ -77,6 +77,35 @@ test("returns an authorization header from the cached bearer token", async () =>
   assert.equal(fetch.calls.length, 1);
 });
 
+test("wraps a rejected token fetch in a sanitized ToastAuthError without leaking the caught error's detail", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const networkFailureFetch = async (): Promise<Response> => {
+    throw new Error(
+      `network failure while sending ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+    );
+  };
+  const manager = createOAuthTokenManager(config, {
+    fetch: networkFailureFetch,
+  });
+
+  await assert.rejects(
+    manager.getAccessToken(),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastAuthError);
+      assert.equal(error.code, "token_request_network_error");
+      const rendered = [
+        error.message,
+        error.code,
+        JSON.stringify(error),
+        inspect(error, { depth: null, showHidden: true, customInspect: false }),
+        inspect(error, { depth: null }),
+      ].join(" ");
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+});
+
 test("fails closed on an unsuccessful token response without echoing credentials or bearer tokens", async () => {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
   const fetch = new RecordingFetch([
