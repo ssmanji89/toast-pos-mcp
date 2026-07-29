@@ -1775,6 +1775,267 @@ test("honors an RFC 7231 HTTP-date Retry-After for ordersBulk (T1-006-R1-S2 / T1
   assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
 });
 
+// T1-006-R2-F1: R2 proved by direct probe that all five T1-004 regression
+// protections behave correctly through getConfigurationPagesJson too, but
+// no committed test routed them through that entry point -- only getJson
+// and getOrdersBulkPages had automated coverage. #requestJson is shared by
+// all three entry points and will be touched by most of the remaining
+// slices, so a silent regression in configuration traversal could pass a
+// green gate. One regression test per T1-004 finding, routed through
+// getConfigurationPagesJson instead of getJson/getOrdersBulkPages.
+
+test("does not retry configuration page-token acquisition failures and never calls fetch (T1-006-R2-F1 / T1-004-R1-F1)", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const dataFetch = new RecordingFetch([jsonResponse({ syntheticPage: "unused" })]);
+  let acquisitionAttempts = 0;
+  const throwingTokenManager: Pick<OAuthTokenManager, "getAuthorizationHeader"> = {
+    getAuthorizationHeader: async () => {
+      acquisitionAttempts += 1;
+      throw new Error(
+        `token acquisition failure ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+      );
+    },
+  };
+
+  const client = createToastHttpClient(
+    config,
+    throwingTokenManager as OAuthTokenManager,
+    {
+      fetch: dataFetch.fetch,
+      maxAttempts: 3,
+      now: () => 0,
+      random: () => 0,
+      sleep: async () => {
+        throw new Error("must not sleep for a token acquisition failure");
+      },
+    },
+  );
+
+  await assert.rejects(
+    client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "token_acquisition_failed");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(acquisitionAttempts, 1);
+  assert.equal(dataFetch.calls.length, 0);
+});
+
+test("fails closed rather than sleeping past the rate-limit wait ceiling for configuration pages (T1-006-R2-F1 / T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "86400",
+            "Toast-Request-Id": "synthetic-request-id-429-config-huge",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "unreachable" }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not cross-contaminate configuration rate-limit state between restaurant GUIDs (T1-006-R2-F1 / T1-004-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: "location-a" },
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "105",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "location-b" }),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    [{ syntheticPage: "location-a" }],
+  );
+
+  // Location A is now recorded as exhausted with a reset 5 seconds out
+  // (now=100_000ms, Toast-RateLimit-Reset=105 -> 105_000ms). A distinct
+  // restaurant GUID sharing the same rateLimitKey ("config:discounts")
+  // must not inherit that wait: the second call, for a different
+  // restaurantGuid, must fetch immediately with zero sleeps.
+  assert.deepEqual(
+    await harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID_B,
+      rateLimitKey: "config:discounts",
+    }),
+    [{ syntheticPage: "location-b" }],
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+// T1-004-R1-F5, ported for configuration pages: one test per non-409
+// documented non-retryable status, matching the getJson/getOrdersBulkPages
+// shape above -- exactly one fetch call and retryable: false. 409 is
+// deliberately excluded from this loop and covered separately below,
+// because it is not an ordinary non-retryable status on this entry point.
+const NON_RETRYABLE_STATUSES_UNDER_TEST_CONFIG = [400, 401, 403, 404, 422] as const;
+
+for (const status of NON_RETRYABLE_STATUSES_UNDER_TEST_CONFIG) {
+  test(`does not retry a ${status} response for configuration pages (T1-006-R2-F1 / T1-004-R1-F5)`, async () => {
+    const harness = new TransportHarness({
+      responses: [
+        jsonResponse(
+          {
+            developerMessage: `${SYNTHETIC_UPSTREAM_BODY_MARKER} for configuration ${status}`,
+          },
+          {
+            status,
+            headers: { "Toast-Request-Id": `synthetic-request-id-config-${status}` },
+          },
+        ),
+        jsonResponse({ syntheticPage: "unreachable" }),
+      ],
+    });
+
+    await assert.rejects(
+      harness.client.getConfigurationPagesJson({
+        path: "/config/v2/discounts",
+        restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+        rateLimitKey: "config:discounts",
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof ToastHttpError);
+        assert.equal(error.code, "request_failed");
+        assert.equal(error.upstreamStatus, status);
+        assert.equal(error.retryable, false);
+        return true;
+      },
+    );
+
+    assert.equal(harness.dataFetch.calls.length, 1);
+    assert.deepEqual(harness.sleeps, []);
+  });
+}
+
+test("takes a second fetch before failing closed on repeated 409s during configuration traversal, per the documented scoped-restart behavior (T1-006-R2-F1 / T1-004-R1-F5)", async () => {
+  // Unlike every other non-retryable status on every entry point, a 409 on
+  // configuration-page traversal is not "terminate in exactly one fetch" --
+  // it is the documented scoped configuration-publication restart (see the
+  // 409 branch inside getConfigurationPagesJson, and the T1-005-R1-F1/F2
+  // history above). With the default maxRestarts=1, a first 409 consumes
+  // the restart budget and triggers exactly one retry fetch; only a second
+  // consecutive 409 exhausts the budget and fails closed with
+  // configuration_page_restart_exceeded. Asserting a bare one-fetch
+  // expectation here, as the loop above does for the other statuses, would
+  // be wrong for this entry point -- it would fight the correct
+  // scoped-restart contract rather than protect it. See T1-006-R2-F1.
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-request-id-config-409-first" },
+        },
+      ),
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-request-id-config-409-second" },
+        },
+      ),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "configuration_page_restart_exceeded");
+      assert.equal(error.upstreamStatus, 409);
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("honors an RFC 7231 HTTP-date Retry-After for configuration pages (T1-006-R2-F1 / T1-004-R1-F3)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 5 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-config-http-date",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "after-http-date-retry" }),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/discounts",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "config:discounts",
+  });
+
+  assert.deepEqual(pages, [{ syntheticPage: "after-http-date-retry" }]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
+});
+
 // T1-006-R1-S3: the committed secret-safety enumeration test calls getJson
 // once, so linkRelations, assertOrdersBulkNextUrl, and the response
 // url/headers fields this slice added are never exercised by it. This
