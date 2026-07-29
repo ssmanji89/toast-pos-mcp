@@ -63,7 +63,31 @@ The current scaffold provides:
 - Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
 - declaration files, source maps, an explicit package file list, and an unpublished private package boundary
 
-Credential configuration, Merchant-consent acknowledgment, OAuth, Toast HTTP requests, pagination, capabilities, and reports belong to later slices.
+OAuth, Toast HTTP requests, pagination, capabilities, and reports belong to later slices.
+
+## Runtime configuration
+
+The process loads non-persistent runtime configuration from environment variables only, validated with Zod, before it starts the MCP transport. Nothing is written to disk and nothing is cached to a durable artifact. `TOAST_CLIENT_ID` and `TOAST_CLIENT_SECRET` are never logged, printed, returned, or included in error messages, fixtures, or snapshots. The loaded configuration object never carries the OAuth client-credentials pair as a data property at all: it is held in a module-private store keyed by the config object's identity and reachable only through a single named accessor, so generic enumeration, spreading, cloning, or serialization of the configuration (`JSON.stringify`, `util.inspect`, `Object.entries`/`values`, object spread, `Object.assign`, `structuredClone`, `for...in`) can never reach it.
+
+Required variables:
+
+| Variable | Purpose |
+|---|---|
+| `TOAST_API_HOSTNAME` | Bare Toast API hostname (for example, `ws-api.toasttab.com`); no scheme, path, or port |
+| `TOAST_CLIENT_ID` | OAuth client ID issued by Toast |
+| `TOAST_CLIENT_SECRET` | OAuth client secret issued by Toast |
+| `TOAST_ACCESS_TYPE` | Documented machine-client access type; must be exactly `TOAST_MACHINE_CLIENT` |
+| `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` | Explicit operator acknowledgment that documented Merchant consent exists before AI processing of Toast Merchant Data; must be exactly `true` |
+
+Optional:
+
+| Variable | Purpose |
+|---|---|
+| `TOAST_DEFAULT_RESTAURANT_GUID` | Default restaurant GUID (UUID) for later location-scoped slices |
+
+If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
+
+OAuth token exchange, Toast HTTP transport, and use of these values against the Toast API belong to later slices; this slice only loads and validates them.
 
 ## Local development
 
@@ -91,14 +115,19 @@ npm run pack:check
 
 `npm run check` cleans generated output, performs strict source and test type checking, builds declarations and source maps, compiles and runs tests, performs the `stdio` handshake, and inspects the package with `npm pack --dry-run`. The package is marked `private` and is not publishable in this phase.
 
-The executable can be started after a build:
+The executable can be started after a build, once the required runtime configuration variables above are set:
 
 ```bash
 npm run build
+TOAST_API_HOSTNAME=ws-api.toasttab.com \
+TOAST_CLIENT_ID=your-client-id \
+TOAST_CLIENT_SECRET=your-client-secret \
+TOAST_ACCESS_TYPE=TOAST_MACHINE_CLIENT \
+TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold does not call Toast APIs and does not yet accept Toast credentials.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold validates runtime configuration and the Merchant-AI-consent acknowledgment, then does not yet call Toast APIs.
 
 ## Repository orientation
 
@@ -109,7 +138,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The
 
 ## Current work
 
-T0-001 established the reviewed public-use foundation. T1-001 adds only the local TypeScript `stdio` runtime and synthetic fixture harness. Production Toast access remains intentionally absent.
+T0-001 established the reviewed public-use foundation. T1-001 added the local TypeScript `stdio` runtime and synthetic fixture harness. T1-002 adds non-persistent runtime configuration loading, Zod validation, and the explicit Merchant-AI-consent acknowledgment gate. Production Toast access (OAuth, HTTP transport, pagination) remains intentionally absent.
 
 ## Important legal and operational note
 
