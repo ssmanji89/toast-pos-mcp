@@ -354,6 +354,126 @@ test("accepts a discovered location whose timeZone is a legitimate IANA zone ide
   assert.equal(discovery.locations[0]?.timezone, "America/Chicago");
 });
 
+test("fails closed when a discovered location's closeoutHour is negative", async () => {
+  const registry = createLocationRegistry();
+  const harness = new LocationHarness({
+    responses: [
+      jsonResponse({
+        restaurants: [
+          {
+            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+            name: "Synthetic Harbor Cafe",
+            timeZone: "America/Chicago",
+            closeoutHour: -1,
+          },
+        ],
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry,
+      toastHttpClient: harness.client,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastLocationError);
+      assert.equal(error.code, "location_response_invalid");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.deepEqual(registry.list(harness.config), []);
+});
+
+test("fails closed when a discovered location's closeoutHour is 24 or greater", async () => {
+  const registry = createLocationRegistry();
+  const harness = new LocationHarness({
+    responses: [
+      jsonResponse({
+        restaurants: [
+          {
+            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+            name: "Synthetic Harbor Cafe",
+            timeZone: "America/Chicago",
+            closeoutHour: 24,
+          },
+        ],
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry,
+      toastHttpClient: harness.client,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastLocationError);
+      assert.equal(error.code, "location_response_invalid");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.deepEqual(registry.list(harness.config), []);
+});
+
+test("accepts closeoutHour 0 as a legitimate midnight closeout, never conflated with an absent value", async () => {
+  const registry = createLocationRegistry();
+  const harness = new LocationHarness({
+    responses: [
+      jsonResponse({
+        restaurants: [
+          {
+            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+            name: "Synthetic Harbor Cafe",
+            timeZone: "America/Chicago",
+            closeoutHour: 0,
+          },
+        ],
+      }),
+    ],
+  });
+
+  const discovery = await discoverStandardLocations({
+    config: harness.config,
+    registry,
+    toastHttpClient: harness.client,
+  });
+
+  assert.equal(discovery.locations[0]?.closeoutHour, 0);
+});
+
+test("accepts closeoutHour 23 as the maximum legitimate closeout hour", async () => {
+  const registry = createLocationRegistry();
+  const harness = new LocationHarness({
+    responses: [
+      jsonResponse({
+        restaurants: [
+          {
+            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+            name: "Synthetic Harbor Cafe",
+            timeZone: "America/Chicago",
+            closeoutHour: 23,
+          },
+        ],
+      }),
+    ],
+  });
+
+  const discovery = await discoverStandardLocations({
+    config: harness.config,
+    registry,
+    toastHttpClient: harness.client,
+  });
+
+  assert.equal(discovery.locations[0]?.closeoutHour, 23);
+});
+
 test("keeps discovered location state isolated by runtime config identity as well as restaurant GUID", async () => {
   const registry = createLocationRegistry();
   const harnessA = new LocationHarness({
