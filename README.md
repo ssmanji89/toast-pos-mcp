@@ -63,7 +63,7 @@ The current scaffold provides:
 - Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
 - declaration files, source maps, an explicit package file list, and an unpublished private package boundary
 
-Toast data HTTP requests, pagination, capabilities, and reports belong to later slices.
+Toast data pagination, capabilities, and reports belong to later slices; the shared Toast HTTP transport still registers no MCP tools.
 
 ## Runtime configuration
 
@@ -89,7 +89,9 @@ If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACK
 
 The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies.
 
-Toast data HTTP requests, pagination, and capability decisions belong to later slices; this runtime still registers no Toast data tools.
+The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager, so later tool slices do not reload or reconstruct credential-bearing state. In this slice it exposes only restaurant-scoped `GET` requests for read-only Standard API data, attaches the bearer token and explicit restaurant GUID header, records Toast rate-limit headers in memory keyed by API family, restaurant GUID, and limiter key together so location isolation is structural (a rate-limited location can never block a different location), honors `Retry-After` or exhausted-quota reset state up to a configured wait ceiling, and applies bounded exponential backoff with jitter only to retryable network, 429, and 5xx-class failures. A server-derived wait (`Retry-After`, or a stored reset) longer than that ceiling fails closed with a structured, non-retryable error instead of sleeping past it. Acquiring the bearer token happens before any fetch is attempted, so a credential failure is never misclassified as a retryable network error. Structured transport errors include status and Toast request ID when available, but never upstream response bodies, credentials, bearer tokens, or caught exception details.
+
+Pagination, capability decisions, Analytics job creation, and Toast data tools belong to later slices; this runtime still registers no Toast data tools.
 
 ## Local development
 
@@ -129,7 +131,7 @@ TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold validates runtime configuration and the Merchant-AI-consent acknowledgment, then starts the MCP transport. OAuth token exchange is implemented for the later Toast transport layer but is not invoked at startup and registers no MCP tools.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold validates runtime configuration and the Merchant-AI-consent acknowledgment, constructs the OAuth token manager and shared Toast HTTP transport, then starts the MCP transport. No startup Toast data request is made, and no MCP tools are registered.
 
 ## Repository orientation
 
@@ -140,7 +142,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The
 
 ## Current work
 
-T0-001 established the reviewed public-use foundation. T1-001 added the local TypeScript `stdio` runtime and synthetic fixture harness. T1-002 adds non-persistent runtime configuration loading, Zod validation, and the explicit Merchant-AI-consent acknowledgment gate. T1-003 adds the in-memory OAuth client-credentials token lifecycle. Production Toast data access, HTTP transport, pagination, capabilities, and reports remain intentionally absent.
+T0-001 established the reviewed public-use foundation. T1-001 added the local TypeScript `stdio` runtime and synthetic fixture harness. T1-002 added non-persistent runtime configuration loading, Zod validation, and the explicit Merchant-AI-consent acknowledgment gate. T1-003 added the in-memory OAuth client-credentials token lifecycle. T1-004 adds the shared read-only Toast HTTP transport with structured errors, in-memory rate-limit state, and bounded retries. Pagination, capabilities, and reports remain intentionally absent.
 
 ## Important legal and operational note
 
