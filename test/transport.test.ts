@@ -1485,6 +1485,69 @@ test("fails closed rather than silently stopping when the Link header segment ha
   assert.equal(harness.dataFetch.calls.length, 1);
 });
 
+// T1-006-R1-F3: the path and pageSize preservation guards in
+// assertOrdersBulkNextUrl had zero regression coverage -- removing either
+// check independently left the full suite passing. Mirrors the existing
+// "changed the bounded query" coverage.
+
+test("fails closed when ordersBulk Link next changes the endpoint path (T1-006-R1-F3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulkOther?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next changes pageSize (T1-006-R1-F3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=50>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
