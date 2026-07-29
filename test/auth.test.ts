@@ -177,6 +177,83 @@ test("fails closed on malformed token payloads without caching an unusable token
   assert.equal(fetch.calls.length, 2);
 });
 
+test("rejects expiresIn values of zero, negative, absent, or non-numeric without caching a token", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const malformedExpiresInValues: unknown[] = [0, -5, undefined, "abc"];
+
+  for (const expiresIn of malformedExpiresInValues) {
+    const fetch = new RecordingFetch([tokenResponseWithExpiresIn(expiresIn)]);
+    const manager = createOAuthTokenManager(config, { fetch: fetch.fetch });
+
+    await assert.rejects(manager.getAccessToken(), ToastAuthError);
+  }
+});
+
+test("rejects expiresIn values above the documented 24-hour sanity ceiling", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const tooLargeExpiresInValues = [86_401, Number.MAX_SAFE_INTEGER];
+
+  for (const expiresIn of tooLargeExpiresInValues) {
+    const fetch = new RecordingFetch([
+      tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-too-large`, expiresIn),
+    ]);
+    const manager = createOAuthTokenManager(config, { fetch: fetch.fetch });
+
+    await assert.rejects(manager.getAccessToken(), ToastAuthError);
+  }
+});
+
+test("bounds refresh behavior deterministically when expiresIn is below, and exactly at, the refresh safety window", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const clock = new MutableClock(Date.UTC(2026, 6, 29, 12, 0, 0));
+
+  // 30s expiry is below the 60s refresh safety window: refreshAfterEpochMs
+  // lands in the past at issuance, so the token is never treated as
+  // reusable and every call re-fetches. This must stay deterministic and
+  // must never throw, negative-loop, or otherwise misbehave.
+  const belowWindowFetch = new RecordingFetch([
+    tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-below-1`, 30),
+    tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-below-2`, 30),
+  ]);
+  const belowWindowManager = createOAuthTokenManager(config, {
+    fetch: belowWindowFetch.fetch,
+    now: () => clock.now(),
+  });
+
+  assert.equal(
+    await belowWindowManager.getAccessToken(),
+    `${SYNTHETIC_ACCESS_TOKEN_MARKER}-below-1`,
+  );
+  assert.equal(
+    await belowWindowManager.getAccessToken(),
+    `${SYNTHETIC_ACCESS_TOKEN_MARKER}-below-2`,
+  );
+  assert.equal(belowWindowFetch.calls.length, 2);
+
+  // 60s expiry exactly equals the refresh safety window: refreshAfterEpochMs
+  // equals "now" at issuance, so the strict `<` comparison in
+  // getAccessToken treats the token as already due and refetches on the
+  // very next call too.
+  const atWindowFetch = new RecordingFetch([
+    tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-at-1`, 60),
+    tokenResponse(`${SYNTHETIC_ACCESS_TOKEN_MARKER}-at-2`, 60),
+  ]);
+  const atWindowManager = createOAuthTokenManager(config, {
+    fetch: atWindowFetch.fetch,
+    now: () => clock.now(),
+  });
+
+  assert.equal(
+    await atWindowManager.getAccessToken(),
+    `${SYNTHETIC_ACCESS_TOKEN_MARKER}-at-1`,
+  );
+  assert.equal(
+    await atWindowManager.getAccessToken(),
+    `${SYNTHETIC_ACCESS_TOKEN_MARKER}-at-2`,
+  );
+  assert.equal(atWindowFetch.calls.length, 2);
+});
+
 test("does not expose cached bearer tokens through manager enumeration or inspection", async () => {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
   const fetch = new RecordingFetch([
@@ -317,6 +394,24 @@ function tokenResponse(accessToken: string, expiresIn: number): Response {
       accessToken,
     },
   });
+}
+
+/**
+ * A token response whose `expiresIn` is deliberately arbitrary (including
+ * absent or non-numeric) rather than a valid positive integer, for exercising
+ * schema rejection at the expiry boundary.
+ */
+function tokenResponseWithExpiresIn(expiresIn: unknown): Response {
+  const token: Record<string, unknown> = {
+    tokenType: "Bearer",
+    accessToken: `${SYNTHETIC_ACCESS_TOKEN_MARKER}-boundary`,
+  };
+
+  if (expiresIn !== undefined) {
+    token.expiresIn = expiresIn;
+  }
+
+  return jsonResponse({ status: "SUCCESS", token });
 }
 
 function jsonResponse(
