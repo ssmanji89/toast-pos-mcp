@@ -1180,6 +1180,311 @@ test("fails closed when ordersBulk traversal exceeds the configured page bound",
   assert.equal(harness.dataFetch.calls.length, 1);
 });
 
+// T1-006-R1-F1 / T1-006-R1-S1: the prior `linkRelations` regex matched only
+// a segment that was exactly `<url>; rel="value"` — quoted, `rel`-only,
+// `rel`-first, case-sensitive. Every shape below except the two "fails
+// closed" cases at the end is ordinary RFC 8288-legal syntax that the prior
+// implementation silently dropped, indistinguishable from a genuinely
+// absent header.
+
+test("continues ordersBulk traversal when the Link header's next relation is unquoted, per RFC 8288 (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: "<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel=next",
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's rel parameter and value use mixed case (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; Rel="Next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's rel parameter and value are fully upper-cased (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; REL="NEXT"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next relation carries a trailing parameter (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"; title="Next page"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next relation parameter is not first (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; title="Next page"; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal and selects next rather than prev when the Link header lists both relations (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=0&pageSize=100>; rel="prev", <https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when two separate Link response headers are joined by the Fetch API (T1-006-R1-F1)", async () => {
+  const joinedLinkHeaders = new Headers({ "content-type": "application/json" });
+  joinedLinkHeaders.append(
+    "Link",
+    '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=0&pageSize=100>; rel="prev"',
+  );
+  joinedLinkHeaders.append(
+    "Link",
+    '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+  );
+
+  const harness = new TransportHarness({
+    responses: [
+      new Response(JSON.stringify([{ guid: "synthetic-order-page-1" }]), {
+        status: 200,
+        headers: joinedLinkHeaders,
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next target is a relative URL (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '</orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(
+    harness.dataFetch.calls[1]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100",
+  );
+});
+
+test("stops ordersBulk traversal without error when the Link header is present but empty (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: { Link: "" },
+      }),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [[{ guid: "synthetic-order-page-1" }]]);
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed rather than silently stopping when the Link header's next target is missing its closing angle bracket (T1-006-R1-F1, T1-006-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed rather than silently stopping when the Link header segment has no angle-bracketed target URI at all (T1-006-R1-F1, T1-006-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {

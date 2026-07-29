@@ -683,17 +683,183 @@ function normalizedBoundedQuery(
   return result;
 }
 
-function linkRelations(headers: Headers): ReadonlyMap<string, string> {
-  const result = new Map<string, string>();
-  const header = headers.get("link");
-  if (header === null) {
-    return result;
+/**
+ * Splits `input` on top-level occurrences of `delimiter` — occurrences
+ * outside a `"..."` quoted-string. RFC 8288 (`rel`, and any other Link
+ * parameter) permits a quoted-string value to itself contain the comma that
+ * separates link-values or the semicolon that separates link-params (for
+ * example `title="foo, bar; baz"`), so a naive `String.split` on either
+ * delimiter would incorrectly split inside such a value. Quoted-pair
+ * escapes (`\"`, `\\`, ...) are honored so an escaped quote does not
+ * prematurely end the quoted region.
+ */
+function splitOutsideQuotes(input: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+
+    if (inQuotes) {
+      if (char === "\\" && i + 1 < input.length) {
+        current += char + input[i + 1];
+        i += 1;
+        continue;
+      }
+      if (char === "\"") {
+        inQuotes = false;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === "\"") {
+      inQuotes = true;
+      current += char;
+      continue;
+    }
+
+    if (char === delimiter) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
   }
 
-  for (const segment of header.split(",")) {
-    const match = /^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u.exec(segment);
-    if (match !== null) {
-      result.set(match[2] ?? "", match[1] ?? "");
+  parts.push(current);
+  return parts;
+}
+
+interface ParsedLinkValue {
+  readonly target: string;
+  readonly params: ReadonlyMap<string, string>;
+}
+
+/**
+ * Parses one RFC 8288 link-value (`<target-uri> *( ";" link-param )`).
+ * Throws on any structural deviation — an unclosed `<...>`, no `<...>` at
+ * all, or a parameter with no `=` — rather than silently returning an
+ * incomplete result. Parameter names are returned lower-cased; parameter
+ * values are unquoted and unescaped when the RFC 8288 quoted-string form is
+ * used, and returned verbatim when the RFC 8288 unquoted-token form is
+ * used (`rel=next` is explicitly legal, not just `rel="next"`).
+ */
+function parseLinkValue(segment: string): ParsedLinkValue {
+  const trimmed = segment.trim();
+  const targetMatch = /^<([^<>]*)>/u.exec(trimmed);
+  if (targetMatch === null || (targetMatch[1] ?? "").length === 0) {
+    throw new Error("link-value is missing a well-formed <target-uri>");
+  }
+
+  const target = targetMatch[1] ?? "";
+  const rest = trimmed.slice(targetMatch[0].length).trim();
+  const params = new Map<string, string>();
+
+  if (rest.length > 0) {
+    if (!rest.startsWith(";")) {
+      throw new Error("link-value has content after <target-uri> that is not a parameter");
+    }
+
+    for (const rawParam of splitOutsideQuotes(rest.slice(1), ";")) {
+      const paramTrimmed = rawParam.trim();
+      if (paramTrimmed.length === 0) {
+        // A stray "; ;" or trailing ";" — tolerated as an empty parameter
+        // slot rather than treated as a structural failure.
+        continue;
+      }
+
+      const equalsIndex = paramTrimmed.indexOf("=");
+      if (equalsIndex === -1) {
+        throw new Error("link-param is missing '='");
+      }
+
+      const name = paramTrimmed.slice(0, equalsIndex).trim().toLowerCase();
+      let value = paramTrimmed.slice(equalsIndex + 1).trim();
+      if (value.startsWith("\"") && value.endsWith("\"") && value.length >= 2) {
+        value = value.slice(1, -1).replace(/\\(.)/gu, "$1");
+      }
+
+      if (name.length === 0 || value.length === 0) {
+        throw new Error("link-param has an empty name or value");
+      }
+
+      params.set(name, value);
+    }
+  }
+
+  return { target, params };
+}
+
+/**
+ * Parses the `Link` response header into a relation-type -> target-URI map,
+ * matching relation types and parameter names case-insensitively and
+ * accepting `rel` as either the RFC 8288 quoted-string or unquoted-token
+ * form, in any parameter position and alongside any other parameter.
+ *
+ * T1-006-R1-F1 / T1-006-R1-S1: the prior implementation used
+ * `/^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u`, which matched only a segment
+ * that was *exactly* `<url>; rel="value"` — quoted, `rel`-only, `rel`-first,
+ * case-sensitive. Every other RFC 8288-legal shape (`rel=next` unquoted,
+ * `Rel="Next"`, `REL="NEXT"`, an extra parameter before or after `rel`, two
+ * `Link` headers joined by the Fetch API) silently produced an empty
+ * relation map — structurally indistinguishable from a genuinely absent
+ * header — so an otherwise-complete traversal reported success after only
+ * page 1. Per AGENTS.md rule 11 and the completion contract in
+ * `docs/architecture/public-use-boundary.md` ("return `partial` or `denied`
+ * when completion cannot be proven"), a `Link` header that is present but
+ * does not parse as valid RFC 8288 syntax must fail closed rather than be
+ * treated as absent — thrown here as `pagination_integrity_failed` with a
+ * static message, never interpolating the raw header value.
+ */
+function linkRelations(headers: Headers): ReadonlyMap<string, string> {
+  const header = headers.get("link");
+  if (header === null) {
+    return new Map();
+  }
+  if (header.trim().length === 0) {
+    // An empty Link header is legitimately equivalent to an absent one —
+    // there is nothing to parse and nothing to fail closed on.
+    return new Map();
+  }
+
+  const result = new Map<string, string>();
+
+  for (const segment of splitOutsideQuotes(header, ",")) {
+    if (segment.trim().length === 0) {
+      throw paginationIntegrityError(
+        "ordersBulk pagination received a Link header that could not be parsed.",
+      );
+    }
+
+    let parsed: ParsedLinkValue;
+    try {
+      parsed = parseLinkValue(segment);
+    } catch {
+      throw paginationIntegrityError(
+        "ordersBulk pagination received a Link header that could not be parsed.",
+      );
+    }
+
+    const relParam = parsed.params.get("rel");
+    if (relParam === undefined) {
+      // A structurally valid link-value with no `rel` parameter at all is
+      // not this traversal's concern; it simply contributes no relation.
+      continue;
+    }
+
+    // RFC 8288 allows `rel` to hold a space-separated list of relation
+    // types sharing one target URI.
+    for (const relType of relParam.split(/\s+/u)) {
+      if (relType.length === 0) {
+        continue;
+      }
+      const relTypeLower = relType.toLowerCase();
+      if (!result.has(relTypeLower)) {
+        result.set(relTypeLower, parsed.target);
+      }
     }
   }
 
