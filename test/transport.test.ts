@@ -283,6 +283,41 @@ test("retries retryable 5xx responses with bounded exponential jitter", async ()
   assert.deepEqual(harness.sleeps, [125]);
 });
 
+test("stops retrying a permanently-failing retryable status at the attempt ceiling and throws rather than hanging (T1-004-R1-F6)", async () => {
+  // T1-004-R1-F6: removing the `attempt === this.#maxAttempts` check left
+  // every existing test passing, because the loop bound alone still
+  // terminates the loop. Removing the loop bound entirely made the suite
+  // hang rather than fail. A permanently-failing retryable status (every
+  // response is 503) with a small, explicit maxAttempts is the only shape
+  // that distinguishes "stops at the ceiling and throws" from "stops
+  // because the responses ran out" or "never stops".
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse({ marker: SYNTHETIC_UPSTREAM_BODY_MARKER }, { status: 503 }),
+      jsonResponse({ marker: SYNTHETIC_UPSTREAM_BODY_MARKER }, { status: 503 }),
+    ],
+    maxAttempts: 2,
+    random: () => 0,
+  });
+
+  await assert.rejects(
+    harness.client.getJson({
+      path: "/orders/v2/ordersBulk",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "ordersBulk",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "request_failed");
+      assert.equal(error.upstreamStatus, 503);
+      assert.equal(error.retryable, true);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
 test("waits before a later request when stored rate-limit state shows exhausted quota", async () => {
   const harness = new TransportHarness({
     responses: [
