@@ -652,6 +652,40 @@ test("fails closed when configuration page-token traversal repeats a token", asy
   assert.equal(harness.dataFetch.calls.length, 2);
 });
 
+test("treats a next page token differing only by case as progress rather than a repeat, by design (T1-005-R1-F1)", async () => {
+  // Locks in the deliberate design choice recorded beside the guard in
+  // src/transport.ts: page tokens are compared and stored by exact,
+  // case-sensitive string equality. Two next-tokens differing only in case
+  // ("SYNTHETIC-CASE-TOKEN" then "synthetic-case-token") must be accepted
+  // as genuine progress, not rejected as a repeated/non-progressing token.
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: 1 },
+        { headers: { "Toast-Next-Page-Token": "SYNTHETIC-CASE-TOKEN" } },
+      ),
+      jsonResponse(
+        { syntheticPage: 2 },
+        { headers: { "Toast-Next-Page-Token": "synthetic-case-token" } },
+      ),
+      jsonResponse({ syntheticPage: 3 }),
+    ],
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/diningOptions",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "config:diningOptions",
+  });
+
+  assert.deepEqual(pages, [
+    { syntheticPage: 1 },
+    { syntheticPage: 2 },
+    { syntheticPage: 3 },
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 3);
+});
+
 test("fails closed when configuration page-token traversal exceeds the page bound", async () => {
   const harness = new TransportHarness({
     responses: [
