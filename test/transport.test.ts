@@ -23,6 +23,8 @@ const SYNTHETIC_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000000099";
 const SYNTHETIC_RESTAURANT_GUID_B =
   "00000000-0000-4000-8000-000000000100";
+const SYNTHETIC_NEXT_URL_MARKER =
+  "synthetic-ordersbulk-next-url-marker-must-not-leak";
 
 test("sends a location-scoped Toast GET request with a bearer token and records rate-limit state", async () => {
   const harness = new TransportHarness({
@@ -1009,6 +1011,1110 @@ test("does not retry token acquisition failures and never calls fetch (T1-004-R1
   assert.equal(dataFetch.calls.length, 0);
 });
 
+test("traverses ordersBulk pages from Link next relations until next is absent", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.deepEqual(
+    harness.dataFetch.calls.map((call) => call.url),
+    [
+      "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=1&pageSize=100",
+      "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100",
+    ],
+  );
+});
+
+test("rejects ordersBulk page sizes above Toast's documented maximum", async () => {
+  const harness = new TransportHarness({
+    responses: [jsonResponse({ synthetic: "unreachable" })],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 101,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
+test("fails closed when ordersBulk Link next repeats a page number", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=1&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next skips a page number", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=3&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next changes the bounded query", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260730&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk traversal exceeds the configured page bound", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 1,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+// T1-006-R1-F1 / T1-006-R1-S1: the prior `linkRelations` regex matched only
+// a segment that was exactly `<url>; rel="value"` — quoted, `rel`-only,
+// `rel`-first, case-sensitive. Every shape below except the two "fails
+// closed" cases at the end is ordinary RFC 8288-legal syntax that the prior
+// implementation silently dropped, indistinguishable from a genuinely
+// absent header.
+
+test("continues ordersBulk traversal when the Link header's next relation is unquoted, per RFC 8288 (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: "<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel=next",
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's rel parameter and value use mixed case (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; Rel="Next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's rel parameter and value are fully upper-cased (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; REL="NEXT"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next relation carries a trailing parameter (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"; title="Next page"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next relation parameter is not first (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; title="Next page"; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal and selects next rather than prev when the Link header lists both relations (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=0&pageSize=100>; rel="prev", <https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when two separate Link response headers are joined by the Fetch API (T1-006-R1-F1)", async () => {
+  const joinedLinkHeaders = new Headers({ "content-type": "application/json" });
+  joinedLinkHeaders.append(
+    "Link",
+    '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=0&pageSize=100>; rel="prev"',
+  );
+  joinedLinkHeaders.append(
+    "Link",
+    '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+  );
+
+  const harness = new TransportHarness({
+    responses: [
+      new Response(JSON.stringify([{ guid: "synthetic-order-page-1" }]), {
+        status: 200,
+        headers: joinedLinkHeaders,
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("continues ordersBulk traversal when the Link header's next target is a relative URL (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '</orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+  assert.equal(
+    harness.dataFetch.calls[1]?.url,
+    "https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100",
+  );
+});
+
+test("stops ordersBulk traversal without error when the Link header is present but empty (T1-006-R1-F1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: { Link: "" },
+      }),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [[{ guid: "synthetic-order-page-1" }]]);
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed rather than silently stopping when the Link header's next target is missing its closing angle bracket (T1-006-R1-F1, T1-006-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=100; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed rather than silently stopping when the Link header segment has no angle-bracketed target URI at all (T1-006-R1-F1, T1-006-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+// T1-006-R1-F3: the path and pageSize preservation guards in
+// assertOrdersBulkNextUrl had zero regression coverage -- removing either
+// check independently left the full suite passing. Mirrors the existing
+// "changed the bounded query" coverage.
+
+test("fails closed when ordersBulk Link next changes the endpoint path (T1-006-R1-F3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulkOther?businessDate=20260729&page=2&pageSize=100>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when ordersBulk Link next changes pageSize (T1-006-R1-F3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: '<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&page=2&pageSize=50>; rel="next"',
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("rejects an ordersBulk maxPages value above the configured ceiling (T1-006-R1-F4)", async () => {
+  const harness = new TransportHarness({
+    responses: [jsonResponse({ synthetic: "unreachable" })],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 1_001,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
+// T1-006-R1-S2: every T1-004 regression test above calls getJson directly;
+// none call getOrdersBulkPages. The shared #requestJson internal makes
+// these protections apply identically to both entry points, but nothing
+// proved that until now -- one regression test per T1-004 finding, routed
+// through getOrdersBulkPages instead of getJson.
+
+test("does not retry ordersBulk token acquisition failures and never calls fetch (T1-006-R1-S2 / T1-004-R1-F1)", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const dataFetch = new RecordingFetch([jsonResponse([{ synthetic: "unused" }])]);
+  let acquisitionAttempts = 0;
+  const throwingTokenManager: Pick<OAuthTokenManager, "getAuthorizationHeader"> = {
+    getAuthorizationHeader: async () => {
+      acquisitionAttempts += 1;
+      throw new Error(
+        `token acquisition failure ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+      );
+    },
+  };
+
+  const client = createToastHttpClient(
+    config,
+    throwingTokenManager as OAuthTokenManager,
+    {
+      fetch: dataFetch.fetch,
+      maxAttempts: 3,
+      now: () => 0,
+      random: () => 0,
+      sleep: async () => {
+        throw new Error("must not sleep for a token acquisition failure");
+      },
+    },
+  );
+
+  await assert.rejects(
+    client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "token_acquisition_failed");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(acquisitionAttempts, 1);
+  assert.equal(dataFetch.calls.length, 0);
+});
+
+test("fails closed rather than sleeping past the rate-limit wait ceiling for ordersBulk (T1-006-R1-S2 / T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "86400",
+            "Toast-Request-Id": "synthetic-request-id-429-ordersbulk-huge",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "unreachable" }]),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not cross-contaminate ordersBulk rate-limit state between restaurant GUIDs (T1-006-R1-S2 / T1-004-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        [{ synthetic: "location-a" }],
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "105",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "location-b" }]),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    [[{ synthetic: "location-a" }]],
+  );
+
+  // Location A is now recorded as exhausted with a reset 5 seconds out. A
+  // distinct restaurant GUID sharing the same rateLimitKey ("ordersBulk")
+  // must not inherit that wait.
+  assert.deepEqual(
+    await harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID_B,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    [[{ synthetic: "location-b" }]],
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not retry a non-retryable ordersBulk status (T1-006-R1-S2 / T1-004-R1-F5)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { developerMessage: `${SYNTHETIC_UPSTREAM_BODY_MARKER} for ordersBulk 401` },
+        {
+          status: 401,
+          headers: { "Toast-Request-Id": "synthetic-request-id-401-ordersbulk" },
+        },
+      ),
+      jsonResponse([{ synthetic: "unreachable" }]),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "request_failed");
+      assert.equal(error.upstreamStatus, 401);
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("honors an RFC 7231 HTTP-date Retry-After for ordersBulk (T1-006-R1-S2 / T1-004-R1-F3)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 5 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-ordersbulk-http-date",
+          },
+        },
+      ),
+      jsonResponse([{ synthetic: "after-http-date-retry" }]),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729 },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [[{ synthetic: "after-http-date-retry" }]]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
+});
+
+// T1-006-R2-F1: R2 proved by direct probe that all five T1-004 regression
+// protections behave correctly through getConfigurationPagesJson too, but
+// no committed test routed them through that entry point -- only getJson
+// and getOrdersBulkPages had automated coverage. #requestJson is shared by
+// all three entry points and will be touched by most of the remaining
+// slices, so a silent regression in configuration traversal could pass a
+// green gate. One regression test per T1-004 finding, routed through
+// getConfigurationPagesJson instead of getJson/getOrdersBulkPages.
+
+test("does not retry configuration page-token acquisition failures and never calls fetch (T1-006-R2-F1 / T1-004-R1-F1)", async () => {
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  const dataFetch = new RecordingFetch([jsonResponse({ syntheticPage: "unused" })]);
+  let acquisitionAttempts = 0;
+  const throwingTokenManager: Pick<OAuthTokenManager, "getAuthorizationHeader"> = {
+    getAuthorizationHeader: async () => {
+      acquisitionAttempts += 1;
+      throw new Error(
+        `token acquisition failure ${SYNTHETIC_CLIENT_SECRET_MARKER}`,
+      );
+    },
+  };
+
+  const client = createToastHttpClient(
+    config,
+    throwingTokenManager as OAuthTokenManager,
+    {
+      fetch: dataFetch.fetch,
+      maxAttempts: 3,
+      now: () => 0,
+      random: () => 0,
+      sleep: async () => {
+        throw new Error("must not sleep for a token acquisition failure");
+      },
+    },
+  );
+
+  await assert.rejects(
+    client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "token_acquisition_failed");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(acquisitionAttempts, 1);
+  assert.equal(dataFetch.calls.length, 0);
+});
+
+test("fails closed rather than sleeping past the rate-limit wait ceiling for configuration pages (T1-006-R2-F1 / T1-004-R1-F2)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "86400",
+            "Toast-Request-Id": "synthetic-request-id-429-config-huge",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "unreachable" }),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "rate_limit_wait_exceeded");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("does not cross-contaminate configuration rate-limit state between restaurant GUIDs (T1-006-R2-F1 / T1-004-R1-S1)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { syntheticPage: "location-a" },
+        {
+          headers: {
+            "Toast-RateLimit-Remaining": "0",
+            "Toast-RateLimit-Reset": "105",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "location-b" }),
+    ],
+    now: 100_000,
+  });
+
+  assert.deepEqual(
+    await harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    [{ syntheticPage: "location-a" }],
+  );
+
+  // Location A is now recorded as exhausted with a reset 5 seconds out
+  // (now=100_000ms, Toast-RateLimit-Reset=105 -> 105_000ms). A distinct
+  // restaurant GUID sharing the same rateLimitKey ("config:discounts")
+  // must not inherit that wait: the second call, for a different
+  // restaurantGuid, must fetch immediately with zero sleeps.
+  assert.deepEqual(
+    await harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID_B,
+      rateLimitKey: "config:discounts",
+    }),
+    [{ syntheticPage: "location-b" }],
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, []);
+});
+
+// T1-004-R1-F5, ported for configuration pages: one test per non-409
+// documented non-retryable status, matching the getJson/getOrdersBulkPages
+// shape above -- exactly one fetch call and retryable: false. 409 is
+// deliberately excluded from this loop and covered separately below,
+// because it is not an ordinary non-retryable status on this entry point.
+const NON_RETRYABLE_STATUSES_UNDER_TEST_CONFIG = [400, 401, 403, 404, 422] as const;
+
+for (const status of NON_RETRYABLE_STATUSES_UNDER_TEST_CONFIG) {
+  test(`does not retry a ${status} response for configuration pages (T1-006-R2-F1 / T1-004-R1-F5)`, async () => {
+    const harness = new TransportHarness({
+      responses: [
+        jsonResponse(
+          {
+            developerMessage: `${SYNTHETIC_UPSTREAM_BODY_MARKER} for configuration ${status}`,
+          },
+          {
+            status,
+            headers: { "Toast-Request-Id": `synthetic-request-id-config-${status}` },
+          },
+        ),
+        jsonResponse({ syntheticPage: "unreachable" }),
+      ],
+    });
+
+    await assert.rejects(
+      harness.client.getConfigurationPagesJson({
+        path: "/config/v2/discounts",
+        restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+        rateLimitKey: "config:discounts",
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof ToastHttpError);
+        assert.equal(error.code, "request_failed");
+        assert.equal(error.upstreamStatus, status);
+        assert.equal(error.retryable, false);
+        return true;
+      },
+    );
+
+    assert.equal(harness.dataFetch.calls.length, 1);
+    assert.deepEqual(harness.sleeps, []);
+  });
+}
+
+test("takes a second fetch before failing closed on repeated 409s during configuration traversal, per the documented scoped-restart behavior (T1-006-R2-F1 / T1-004-R1-F5)", async () => {
+  // Unlike every other non-retryable status on every entry point, a 409 on
+  // configuration-page traversal is not "terminate in exactly one fetch" --
+  // it is the documented scoped configuration-publication restart (see the
+  // 409 branch inside getConfigurationPagesJson, and the T1-005-R1-F1/F2
+  // history above). With the default maxRestarts=1, a first 409 consumes
+  // the restart budget and triggers exactly one retry fetch; only a second
+  // consecutive 409 exhausts the budget and fails closed with
+  // configuration_page_restart_exceeded. Asserting a bare one-fetch
+  // expectation here, as the loop above does for the other statuses, would
+  // be wrong for this entry point -- it would fight the correct
+  // scoped-restart contract rather than protect it. See T1-006-R2-F1.
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-request-id-config-409-first" },
+        },
+      ),
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 409,
+          headers: { "Toast-Request-Id": "synthetic-request-id-config-409-second" },
+        },
+      ),
+    ],
+  });
+
+  await assert.rejects(
+    harness.client.getConfigurationPagesJson({
+      path: "/config/v2/discounts",
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      rateLimitKey: "config:discounts",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "configuration_page_restart_exceeded");
+      assert.equal(error.upstreamStatus, 409);
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 2);
+});
+
+test("honors an RFC 7231 HTTP-date Retry-After for configuration pages (T1-006-R2-F1 / T1-004-R1-F3)", async () => {
+  const now = Date.UTC(2026, 6, 29, 12, 0, 0);
+  const retryAfterDate = new Date(now + 5 * 60 * 1000).toUTCString();
+
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse(
+        { marker: SYNTHETIC_UPSTREAM_BODY_MARKER },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfterDate,
+            "Toast-Request-Id": "synthetic-request-id-429-config-http-date",
+          },
+        },
+      ),
+      jsonResponse({ syntheticPage: "after-http-date-retry" }),
+    ],
+    random: () => 0,
+    now,
+  });
+
+  const pages = await harness.client.getConfigurationPagesJson({
+    path: "/config/v2/discounts",
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    rateLimitKey: "config:discounts",
+  });
+
+  assert.deepEqual(pages, [{ syntheticPage: "after-http-date-retry" }]);
+  assert.equal(harness.dataFetch.calls.length, 2);
+  assert.deepEqual(harness.sleeps, [5 * 60 * 1000]);
+});
+
+// T1-006-R1-S3: the committed secret-safety enumeration test calls getJson
+// once, so linkRelations, assertOrdersBulkNextUrl, and the response
+// url/headers fields this slice added are never exercised by it. This
+// performs a real multi-page traversal first, then applies the eleven-idiom
+// probe to the client, the returned pages array, and a pagination error.
+
+test("does not expose bearer tokens, upstream data, or Link/next-URL values through the client, a multi-page ordersBulk result, or a pagination error (T1-006-R1-S3)", async () => {
+  const harness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: `<https://ws-api.synthetic-toast-fixture.test/orders/v2/ordersBulk?businessDate=20260729&marker=${SYNTHETIC_NEXT_URL_MARKER}&page=2&pageSize=100>; rel="next"`,
+        },
+      }),
+      jsonResponse([{ guid: "synthetic-order-page-2" }]),
+    ],
+  });
+
+  const pages = await harness.client.getOrdersBulkPages({
+    restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+    query: { businessDate: 20260729, marker: SYNTHETIC_NEXT_URL_MARKER },
+    pageSize: 100,
+    maxPages: 3,
+  });
+
+  assert.deepEqual(pages, [
+    [{ guid: "synthetic-order-page-1" }],
+    [{ guid: "synthetic-order-page-2" }],
+  ]);
+
+  const clientObserved = elevenIdiomProbe(harness.client);
+  assert.ok(!clientObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!clientObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  const pagesObserved = elevenIdiomProbe(pages);
+  assert.ok(!pagesObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!pagesObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  // A malformed Link header -- missing its closing angle bracket and its
+  // rel parameter entirely -- carries the marker in its raw (untrusted)
+  // value. The thrown pagination error must not leak it anywhere.
+  const errorHarness = new TransportHarness({
+    responses: [
+      jsonResponse([{ guid: "synthetic-order-page-1" }], {
+        headers: {
+          Link: `<${SYNTHETIC_NEXT_URL_MARKER}`,
+        },
+      }),
+    ],
+  });
+
+  let capturedError: unknown;
+  await assert.rejects(
+    errorHarness.client.getOrdersBulkPages({
+      restaurantGuid: SYNTHETIC_RESTAURANT_GUID,
+      query: { businessDate: 20260729 },
+      pageSize: 100,
+      maxPages: 3,
+    }),
+    (error: unknown) => {
+      capturedError = error;
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "pagination_integrity_failed");
+      return true;
+    },
+  );
+
+  const errorObserved = elevenIdiomProbe(capturedError);
+  assert.ok(!errorObserved.includes(SYNTHETIC_NEXT_URL_MARKER));
+  assert.ok(!errorObserved.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+  assert.ok(!errorObserved.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+
+  if (capturedError instanceof Error) {
+    assert.ok(!capturedError.message.includes(SYNTHETIC_NEXT_URL_MARKER));
+    assert.ok(!(capturedError.stack ?? "").includes(SYNTHETIC_NEXT_URL_MARKER));
+    assert.equal((capturedError as { cause?: unknown }).cause, undefined);
+  }
+});
+
 type FetchResult = Response | Error;
 
 interface HarnessOptions {
@@ -1127,4 +2233,41 @@ function jsonResponse(
       ...options.headers,
     },
   });
+}
+
+/**
+ * T1-006-R1-S3: applies the same secret-enumeration idioms as the committed
+ * "does not expose bearer tokens or credentials through client enumeration
+ * or inspection" test, generalized to any value (a client instance, a
+ * traversal result array, or a thrown error) rather than only the client.
+ */
+function elevenIdiomProbe(value: unknown): string {
+  const boxed = Object(value) as Record<string, unknown>;
+  const forInCollected: Record<string, unknown> = {};
+  for (const key in boxed) {
+    forInCollected[key] = boxed[key];
+  }
+
+  let cloned: unknown;
+  try {
+    cloned = structuredClone(value);
+  } catch {
+    cloned = undefined;
+  }
+
+  return [
+    Object.keys(boxed),
+    Object.getOwnPropertyNames(boxed),
+    Object.entries(boxed),
+    Object.values(boxed),
+    { ...boxed },
+    Object.assign({}, boxed),
+    cloned,
+    inspect(value, { depth: null, showHidden: true, customInspect: false }),
+    inspect(value, { depth: null }),
+    JSON.stringify(value),
+    forInCollected,
+  ]
+    .map((entry) => inspect(entry, { depth: null }))
+    .join(" ");
 }

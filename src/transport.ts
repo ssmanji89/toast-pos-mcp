@@ -79,6 +79,30 @@ const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
  */
 const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
 
+/**
+ * `DEFAULT_MAX_ORDERS_BULK_PAGES` and `MAX_ALLOWED_ORDERS_BULK_PAGES` are the
+ * `/ordersBulk` Link-traversal analog of `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * above. `maxPages` was previously a required, fully caller-supplied field
+ * with no default and no ceiling at all -- worst-case raw fetch count was
+ * `maxPages * maxAttempts` with `maxPages` uncapped from either direction.
+ * `/ordersBulk` has no 409-restart budget (`docs/architecture/public-use-
+ * boundary.md` states the configuration 409-restart rule does not apply to
+ * `/ordersBulk`), so the composed worst case is simpler than the
+ * configuration traversal's: with the defaults below (`maxPages=100`,
+ * `maxAttempts=3`), that is `100 * 3 = 300` raw `fetch` calls; at the
+ * ceiling (`maxPages=1000`), `1000 * 3 = 3000` -- still finite and bounded.
+ * The ceiling is an order of magnitude above the default, the same
+ * proportion `MAX_ALLOWED_CONFIGURATION_RESTARTS` uses relative to
+ * `DEFAULT_MAX_CONFIGURATION_RESTARTS`, generous enough for ordinary
+ * operation while still rejecting an implausible caller-supplied value
+ * loudly per AGENTS.md rule 11. Every page also accumulates its full JSON
+ * body in memory for the life of the call -- no streaming or page-callback
+ * interface exists yet; see T1-006-R1-F4 for the note that one should be
+ * considered before any MCP tool is built on this primitive.
+ */
+const DEFAULT_MAX_ORDERS_BULK_PAGES = 100;
+const MAX_ALLOWED_ORDERS_BULK_PAGES = 1_000;
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export type ToastApiFamily = "standard";
@@ -100,6 +124,18 @@ export interface ToastConfigurationPagesRequest {
   readonly maxRestarts?: number;
 }
 
+export interface ToastOrdersBulkPagesRequest {
+  readonly restaurantGuid: string;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly pageSize: number;
+  // Optional as of T1-006-R1-F4: previously required with no upper bound,
+  // so worst-case raw fetch count (`maxPages * maxAttempts`) was uncapped
+  // on the caller's side. Now defaults to `DEFAULT_MAX_ORDERS_BULK_PAGES`
+  // and is rejected above `MAX_ALLOWED_ORDERS_BULK_PAGES` either way. See
+  // the composed worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
+  readonly maxPages?: number;
+}
+
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
   readonly restaurantGuid: string;
@@ -115,6 +151,7 @@ export type ToastHttpErrorCode =
   | "configuration_page_bound_exceeded"
   | "configuration_page_restart_exceeded"
   | "configuration_page_token_repeated"
+  | "pagination_integrity_failed"
   | "rate_limit_wait_exceeded"
   | "request_failed"
   | "request_network_error"
@@ -154,11 +191,18 @@ export interface ToastHttpClientOptions {
   readonly maxAttempts?: number;
   readonly maxConfigurationPages?: number;
   readonly maxConfigurationRestarts?: number;
+  readonly maxOrdersBulkPages?: number;
   readonly maxRateLimitWaitMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly now?: () => number;
   readonly random?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+interface JsonResponseResult {
+  readonly body: unknown;
+  readonly headers: Headers;
+  readonly url: string;
 }
 
 export class ToastHttpClient {
@@ -168,6 +212,7 @@ export class ToastHttpClient {
   #maxAttempts: number;
   #maxConfigurationPages: number;
   #maxConfigurationRestarts: number;
+  #maxOrdersBulkPages: number;
   #maxRateLimitWaitMs: number;
   #maxRetryDelayMs: number;
   #now: () => number;
@@ -192,6 +237,8 @@ export class ToastHttpClient {
       options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGE_COUNT;
     this.#maxConfigurationRestarts =
       options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
+    this.#maxOrdersBulkPages =
+      options.maxOrdersBulkPages ?? DEFAULT_MAX_ORDERS_BULK_PAGES;
     this.#baseRetryDelayMs =
       options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
     this.#maxRetryDelayMs =
@@ -215,6 +262,16 @@ export class ToastHttpClient {
     if (this.#maxConfigurationRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
       throw new RangeError(
         `ToastHttpClient maxConfigurationRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+      );
+    }
+    if (this.#maxOrdersBulkPages < 1) {
+      throw new RangeError(
+        "ToastHttpClient maxOrdersBulkPages must be at least 1.",
+      );
+    }
+    if (this.#maxOrdersBulkPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
+      throw new RangeError(
+        `ToastHttpClient maxOrdersBulkPages must not exceed ${MAX_ALLOWED_ORDERS_BULK_PAGES}.`,
       );
     }
   }
@@ -344,10 +401,100 @@ export class ToastHttpClient {
     }
   }
 
-  async #requestJson(request: ToastGetJsonRequest): Promise<{
-    readonly body: unknown;
-    readonly headers: Headers;
-  }> {
+  async getOrdersBulkPages(
+    request: ToastOrdersBulkPagesRequest,
+  ): Promise<unknown[]> {
+    if (
+      !Number.isInteger(request.pageSize)
+      || request.pageSize < 1
+      || request.pageSize > 100
+    ) {
+      throw paginationIntegrityError(
+        "ordersBulk pageSize must be an integer between 1 and 100.",
+      );
+    }
+    // T1-006-R1-F4: `maxPages` was previously required with no default and
+    // no ceiling. It is now optional (defaulting to
+    // `DEFAULT_MAX_ORDERS_BULK_PAGES`) and rejected above
+    // `MAX_ALLOWED_ORDERS_BULK_PAGES` regardless of whether the caller
+    // supplied it explicitly or relied on the default -- see the composed
+    // worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
+    const maxPages = request.maxPages ?? this.#maxOrdersBulkPages;
+    if (!Number.isInteger(maxPages) || maxPages < 1) {
+      throw paginationIntegrityError(
+        "ordersBulk maxPages must be a positive integer.",
+      );
+    }
+    if (maxPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
+      throw paginationIntegrityError(
+        `ordersBulk maxPages must not exceed ${MAX_ALLOWED_ORDERS_BULK_PAGES}.`,
+      );
+    }
+
+    const boundedQuery = normalizedBoundedQuery(request.query);
+    const pages: unknown[] = [];
+    let page = 1;
+
+    while (true) {
+      if (pages.length >= maxPages) {
+        throw paginationIntegrityError(
+          "ordersBulk pagination exceeded the configured page bound.",
+        );
+      }
+
+      const result = await this.#requestJson({
+        path: "/orders/v2/ordersBulk",
+        restaurantGuid: request.restaurantGuid,
+        query: {
+          ...request.query,
+          page,
+          pageSize: request.pageSize,
+        },
+        rateLimitKey: "ordersBulk",
+      });
+
+      pages.push(result.body);
+
+      // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
+      // every page number and every fetched page URL "for defense in
+      // depth" alongside the check below, but they were dead code --
+      // removed individually and in combination, 70/70 tests still passed.
+      // That is because `page` starts at 1 and only ever advances to a
+      // value `assertOrdersBulkNextUrl` has already proven equals
+      // `currentPage + 1`; by induction, every `page` this loop ever
+      // fetches is a distinct positive integer 1, 2, 3, ... in strictly
+      // increasing order, and `boundedQuery`/`pageSize` are invariant for
+      // the life of the call (enforced immediately below and by
+      // `assertOrdersBulkNextUrl`'s path/pageSize/query checks), so the
+      // constructed request URL for page N can never coincide with the URL
+      // for any other page. A repeated page number or a repeated page URL
+      // is therefore always already a `currentPage + 1` violation caught
+      // by the check below first -- tracking visited pages/URLs separately
+      // could never fire on its own. Decoupling duplicate detection from
+      // this invariant would require deliberately loosening the strict
+      // `+1` requirement (e.g. to accept a server that legitimately skips
+      // a page), which is not something this slice does; if a future
+      // change does that, duplicate detection must be reintroduced at that
+      // point, independently tested against a case that does not also
+      // violate whatever replaces this check. See T1-006-R1-F2.
+      const nextUrl = linkRelations(result.headers).get("next");
+      if (nextUrl === undefined) {
+        return pages;
+      }
+
+      const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
+      assertOrdersBulkNextUrl(
+        parsedNextUrl,
+        boundedQuery,
+        request.pageSize,
+        page,
+      );
+
+      page = Number(parsedNextUrl.searchParams.get("page"));
+    }
+  }
+
+  async #requestJson(request: ToastGetJsonRequest): Promise<JsonResponseResult> {
     const apiFamily = request.apiFamily ?? "standard";
     const stateKey = rateLimitStateKey(
       apiFamily,
@@ -381,8 +528,9 @@ export class ToastHttpClient {
       }
 
       let response: Response;
+      const url = this.#buildUrl(request);
       try {
-        response = await this.#fetch(this.#buildUrl(request), {
+        response = await this.#fetch(url, {
           method: "GET",
           headers: {
             accept: "application/json",
@@ -438,6 +586,7 @@ export class ToastHttpClient {
         return {
           body: await response.json(),
           headers: response.headers,
+          url,
         };
       } catch {
         throw new ToastHttpError(
@@ -574,6 +723,274 @@ function requestIdMetadata(
 ): { readonly upstreamRequestId?: string } {
   const upstreamRequestId = response.headers.get("toast-request-id");
   return upstreamRequestId !== null ? { upstreamRequestId } : {};
+}
+
+function paginationIntegrityError(message: string): ToastHttpError {
+  return new ToastHttpError("pagination_integrity_failed", message, {
+    apiFamily: "standard",
+    retryable: false,
+  });
+}
+
+function normalizedBoundedQuery(
+  query: ToastGetJsonRequest["query"],
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && key !== "page" && key !== "pageSize") {
+      result.set(key, String(value));
+    }
+  }
+  return result;
+}
+
+/**
+ * Splits `input` on top-level occurrences of `delimiter` — occurrences
+ * outside a `"..."` quoted-string. RFC 8288 (`rel`, and any other Link
+ * parameter) permits a quoted-string value to itself contain the comma that
+ * separates link-values or the semicolon that separates link-params (for
+ * example `title="foo, bar; baz"`), so a naive `String.split` on either
+ * delimiter would incorrectly split inside such a value. Quoted-pair
+ * escapes (`\"`, `\\`, ...) are honored so an escaped quote does not
+ * prematurely end the quoted region.
+ */
+function splitOutsideQuotes(input: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+
+    if (inQuotes) {
+      if (char === "\\" && i + 1 < input.length) {
+        current += char + input[i + 1];
+        i += 1;
+        continue;
+      }
+      if (char === "\"") {
+        inQuotes = false;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === "\"") {
+      inQuotes = true;
+      current += char;
+      continue;
+    }
+
+    if (char === delimiter) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  parts.push(current);
+  return parts;
+}
+
+interface ParsedLinkValue {
+  readonly target: string;
+  readonly params: ReadonlyMap<string, string>;
+}
+
+/**
+ * Parses one RFC 8288 link-value (`<target-uri> *( ";" link-param )`).
+ * Throws on any structural deviation — an unclosed `<...>`, no `<...>` at
+ * all, or a parameter with no `=` — rather than silently returning an
+ * incomplete result. Parameter names are returned lower-cased; parameter
+ * values are unquoted and unescaped when the RFC 8288 quoted-string form is
+ * used, and returned verbatim when the RFC 8288 unquoted-token form is
+ * used (`rel=next` is explicitly legal, not just `rel="next"`).
+ */
+function parseLinkValue(segment: string): ParsedLinkValue {
+  const trimmed = segment.trim();
+  const targetMatch = /^<([^<>]*)>/u.exec(trimmed);
+  if (targetMatch === null || (targetMatch[1] ?? "").length === 0) {
+    throw new Error("link-value is missing a well-formed <target-uri>");
+  }
+
+  const target = targetMatch[1] ?? "";
+  const rest = trimmed.slice(targetMatch[0].length).trim();
+  const params = new Map<string, string>();
+
+  if (rest.length > 0) {
+    if (!rest.startsWith(";")) {
+      throw new Error("link-value has content after <target-uri> that is not a parameter");
+    }
+
+    for (const rawParam of splitOutsideQuotes(rest.slice(1), ";")) {
+      const paramTrimmed = rawParam.trim();
+      if (paramTrimmed.length === 0) {
+        // A stray "; ;" or trailing ";" — tolerated as an empty parameter
+        // slot rather than treated as a structural failure.
+        continue;
+      }
+
+      const equalsIndex = paramTrimmed.indexOf("=");
+      if (equalsIndex === -1) {
+        throw new Error("link-param is missing '='");
+      }
+
+      const name = paramTrimmed.slice(0, equalsIndex).trim().toLowerCase();
+      let value = paramTrimmed.slice(equalsIndex + 1).trim();
+      if (value.startsWith("\"") && value.endsWith("\"") && value.length >= 2) {
+        value = value.slice(1, -1).replace(/\\(.)/gu, "$1");
+      }
+
+      if (name.length === 0 || value.length === 0) {
+        throw new Error("link-param has an empty name or value");
+      }
+
+      params.set(name, value);
+    }
+  }
+
+  return { target, params };
+}
+
+/**
+ * Parses the `Link` response header into a relation-type -> target-URI map,
+ * matching relation types and parameter names case-insensitively and
+ * accepting `rel` as either the RFC 8288 quoted-string or unquoted-token
+ * form, in any parameter position and alongside any other parameter.
+ *
+ * T1-006-R1-F1 / T1-006-R1-S1: the prior implementation used
+ * `/^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u`, which matched only a segment
+ * that was *exactly* `<url>; rel="value"` — quoted, `rel`-only, `rel`-first,
+ * case-sensitive. Every other RFC 8288-legal shape (`rel=next` unquoted,
+ * `Rel="Next"`, `REL="NEXT"`, an extra parameter before or after `rel`, two
+ * `Link` headers joined by the Fetch API) silently produced an empty
+ * relation map — structurally indistinguishable from a genuinely absent
+ * header — so an otherwise-complete traversal reported success after only
+ * page 1. Per AGENTS.md rule 11 and the completion contract in
+ * `docs/architecture/public-use-boundary.md` ("return `partial` or `denied`
+ * when completion cannot be proven"), a `Link` header that is present but
+ * does not parse as valid RFC 8288 syntax must fail closed rather than be
+ * treated as absent — thrown here as `pagination_integrity_failed` with a
+ * static message, never interpolating the raw header value.
+ */
+function linkRelations(headers: Headers): ReadonlyMap<string, string> {
+  const header = headers.get("link");
+  if (header === null) {
+    return new Map();
+  }
+  if (header.trim().length === 0) {
+    // An empty Link header is legitimately equivalent to an absent one —
+    // there is nothing to parse and nothing to fail closed on.
+    return new Map();
+  }
+
+  const result = new Map<string, string>();
+
+  for (const segment of splitOutsideQuotes(header, ",")) {
+    if (segment.trim().length === 0) {
+      throw paginationIntegrityError(
+        "ordersBulk pagination received a Link header that could not be parsed.",
+      );
+    }
+
+    let parsed: ParsedLinkValue;
+    try {
+      parsed = parseLinkValue(segment);
+    } catch {
+      throw paginationIntegrityError(
+        "ordersBulk pagination received a Link header that could not be parsed.",
+      );
+    }
+
+    const relParam = parsed.params.get("rel");
+    if (relParam === undefined) {
+      // A structurally valid link-value with no `rel` parameter at all is
+      // not this traversal's concern; it simply contributes no relation.
+      continue;
+    }
+
+    // RFC 8288 allows `rel` to hold a space-separated list of relation
+    // types sharing one target URI.
+    for (const relType of relParam.split(/\s+/u)) {
+      if (relType.length === 0) {
+        continue;
+      }
+      const relTypeLower = relType.toLowerCase();
+      if (!result.has(relTypeLower)) {
+        result.set(relTypeLower, parsed.target);
+      }
+    }
+  }
+
+  return result;
+}
+
+function parsePaginationUrl(nextUrl: string, baseUrl: string): URL {
+  try {
+    return new URL(nextUrl, baseUrl);
+  } catch {
+    throw paginationIntegrityError(
+      "ordersBulk pagination received an unusable next Link URL.",
+    );
+  }
+}
+
+function assertOrdersBulkNextUrl(
+  nextUrl: URL,
+  boundedQuery: ReadonlyMap<string, string>,
+  pageSize: number,
+  currentPage: number,
+): void {
+  if (nextUrl.pathname !== "/orders/v2/ordersBulk") {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed the endpoint path.",
+    );
+  }
+
+  // T1-006-R1-F2: this single check -- the next page must equal exactly
+  // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
+  // See the comment beside its call site in `getOrdersBulkPages` for why
+  // separate `visitedPages`/`visitedUrls` tracking was removed as dead code
+  // rather than kept as apparent (but non-functional) defense in depth.
+  const nextPageText = nextUrl.searchParams.get("page");
+  const nextPage = nextPageText === null ? NaN : Number(nextPageText);
+  if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link did not advance to a new page.",
+    );
+  }
+
+  if (nextUrl.searchParams.get("pageSize") !== String(pageSize)) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed pageSize.",
+    );
+  }
+
+  const nextBoundedQuery = normalizedBoundedQuery(
+    Object.fromEntries(nextUrl.searchParams.entries()),
+  );
+  if (!sameQuery(boundedQuery, nextBoundedQuery)) {
+    throw paginationIntegrityError(
+      "ordersBulk pagination next Link changed the bounded query.",
+    );
+  }
+}
+
+function sameQuery(
+  left: ReadonlyMap<string, string>,
+  right: ReadonlyMap<string, string>,
+): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [key, value] of left) {
+    if (right.get(key) !== value) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function retryDelayFromHeaders(
