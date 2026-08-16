@@ -192,7 +192,9 @@ function createClient(
 
   return createToastHttpClient(config, tokenManager, {
     fetch: dataFetch.fetch,
-    maxAttempts: options.maxAttempts,
+    ...(options.maxAttempts === undefined
+      ? {}
+      : { maxAttempts: options.maxAttempts }),
     now: () => 0,
     random: () => 0,
     sleep: options.sleep ?? (async () => {}),
