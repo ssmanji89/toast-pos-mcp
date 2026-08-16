@@ -1,7 +1,7 @@
 # Toast API Reporting Landscape
 
 **Status:** foundation research  
-**Last reviewed:** 2026-07-24  
+**Last reviewed:** 2026-08-16  
 **Scope:** public, read-only Toast POS Reporting MCP  
 **Authority:** official Toast documentation and current Toast API Terms of Use unless explicitly labeled as ecosystem research
 
@@ -131,14 +131,20 @@ the response body has a top-level `restaurants` array whose members include:
   "guid": "<restaurant UUID>",
   "name": "<restaurant display name>",
   "timeZone": "<IANA timezone>",
-  "closeoutHour": <integer 0-23>
+  "closeoutHour": <integer 0-12>
 }
 ```
 
-This records an implementation assumption for reviewability, not a claim that
-Toast's public docs use this exact schema spelling in every context. The parser
-fails closed if the body is missing those fields, if a GUID is duplicated, or
-if the bootstrap restaurant GUID is absent from the returned set.
+The response-wrapper/schema spelling above remains an original implementation
+assumption for reviewability. The **0–12 `closeoutHour` range is not an
+assumption**: Toast's public restaurant business-date documentation explicitly
+defines it as midnight (`0`) through noon (`12`). The value is restaurant-local
+and controls `businessDate`, so the parser rejects 13–23 rather than treating it
+as an ordinary 24-hour clock.
+
+The parser fails closed if the body is missing required fields, if a GUID is
+duplicated, if `closeoutHour` is outside 0–12, or if the bootstrap restaurant
+GUID is absent from the returned set.
 
 ### Orders-based reporting
 
@@ -253,7 +259,7 @@ The client must not present a 202, expired GUID, exhausted poll budget, or faile
 
 ### Dates and business days
 
-Toast timestamps generally use ISO 8601 and represent absolute instants. Reporting must convert them to the restaurant timezone. Query-string timestamps must be correctly URL-encoded. `businessDate` changes after the restaurant's configured closeout hour, which defaults to 4:00 a.m. local time unless changed.
+Toast timestamps generally use ISO 8601 and represent absolute instants. Reporting must convert them to the restaurant timezone. Query-string timestamps must be correctly URL-encoded. `businessDate` changes after the restaurant's configured closeout hour, whose documented range is 0–12 and whose default is 4:00 a.m. local time unless changed.
 
 A report request should use one of two explicit Standard API modes:
 
@@ -496,6 +502,7 @@ Raw records should not be a default tool surface. A future bounded export resour
 - Authentication: https://doc.toasttab.com/doc/devguide/authentication.html
 - Rate limiting: https://doc.toasttab.com/doc/devguide/apiRateLimiting.html
 - Dates and timestamps: https://doc.toasttab.com/doc/devguide/api_dates_and_timestamps.html
+- Restaurant closeout and business dates: https://doc.toasttab.com/doc/devguide/apiRestaurantBusinessDate.html
 - Pagination: https://doc.toasttab.com/doc/devguide/apiResponseDataPagination.html
 - `/ordersBulk` pagination: https://doc.toasttab.com/doc/devguide/apiOrdersGetDetailedInfoAboutMultipleOrders.html
 - Responses and errors: https://doc.toasttab.com/doc/devguide/apiResponsesAndErrors.html
