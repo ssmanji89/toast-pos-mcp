@@ -1,3 +1,5 @@
+export type ToastApiFamily = "standard" | "analytics";
+
 export type ToastRequestScope =
   | {
       readonly kind: "restaurant";
@@ -8,7 +10,7 @@ export type ToastRequestScope =
     };
 
 export interface ToastRateLimitRequestContext {
-  readonly apiFamily: "standard";
+  readonly apiFamily: ToastApiFamily;
   readonly apiKey: string;
   readonly endpointKey: string;
   readonly requestScope: ToastRequestScope;
@@ -40,13 +42,17 @@ export interface ToastRateLimitSnapshot extends ToastRateLimitObservation {
 }
 
 /**
- * One in-memory coordinator per credential/runtime transport.
+ * One process-owned in-memory coordinator per Toast credential/runtime.
  *
  * Toast reports the bucket closest to exhaustion in `X-Toast-RateLimit-By`.
  * We therefore retain observations from multiple buckets instead of replacing
  * all rate-limit state with the most recent response. Before a request, every
  * bucket that can apply to that request is consulted and the latest required
  * wait is returned.
+ *
+ * GLOBAL and unknown-conservative buckets are deliberately cross-family so a
+ * future Analytics adapter can share the same credential-wide throttle with
+ * Standard traffic rather than creating a second pseudo-global limiter.
  */
 export class ToastRateLimitCoordinator {
   #buckets = new Map<string, ToastRateLimitSnapshot>();
@@ -82,7 +88,10 @@ export class ToastRateLimitCoordinator {
 
     for (const snapshot of this.applicableSnapshots(context)) {
       const candidate = effectiveWaitUntil(snapshot);
-      if (candidate !== undefined && (waitUntil === undefined || candidate > waitUntil)) {
+      if (
+        candidate !== undefined &&
+        (waitUntil === undefined || candidate > waitUntil)
+      ) {
         waitUntil = candidate;
       }
     }
@@ -115,9 +124,10 @@ export function parseToastRateLimitBy(value: string | null): ToastRateLimitBy {
   const primaryTokens = tokens.filter(
     (token) => token === "GLOBAL" || token === "API" || token === "ENDPOINT",
   );
-  const primary = primaryTokens.length === 1
-    ? (primaryTokens[0] as "GLOBAL" | "API" | "ENDPOINT")
-    : "UNKNOWN";
+  const primary =
+    primaryTokens.length === 1
+      ? (primaryTokens[0] as "GLOBAL" | "API" | "ENDPOINT")
+      : "UNKNOWN";
 
   return freezeRateLimitBy({
     primary,
@@ -163,12 +173,13 @@ export function parseRetryAfterEpochMs(
 }
 
 export function makeRateLimitContext(options: {
+  readonly apiFamily?: ToastApiFamily;
   readonly path: `/${string}`;
   readonly endpointKey: string;
   readonly requestScope: ToastRequestScope;
 }): ToastRateLimitRequestContext {
   return Object.freeze({
-    apiFamily: "standard" as const,
+    apiFamily: options.apiFamily ?? "standard",
     apiKey: apiKeyFromPath(options.path),
     endpointKey: options.endpointKey,
     requestScope: freezeRequestScope(options.requestScope),
@@ -196,7 +207,7 @@ function bucketKeyForObservation(
 
   switch (by.primary) {
     case "GLOBAL":
-      return globalBucketKey(context);
+      return globalBucketKey();
     case "API":
       return by.account
         ? apiAccountBucketKey(context)
@@ -207,10 +218,10 @@ function bucketKeyForObservation(
         : endpointScopedBucketKey(context);
     case "UNKNOWN":
       // If Toast gives rate-limit timing without a usable By scope, treating
-      // it as credential-wide is deliberately conservative. The alternative
-      // is silently weakening throttling because the client cannot identify
-      // the narrower bucket.
-      return unknownGlobalBucketKey(context);
+      // it as process/credential-wide is deliberately conservative. The
+      // alternative is silently weakening throttling because the client
+      // cannot identify the narrower bucket.
+      return unknownGlobalBucketKey();
   }
 }
 
@@ -218,8 +229,8 @@ function applicableBucketKeys(
   context: ToastRateLimitRequestContext,
 ): readonly string[] {
   return Object.freeze([
-    globalBucketKey(context),
-    unknownGlobalBucketKey(context),
+    globalBucketKey(),
+    unknownGlobalBucketKey(),
     apiAccountBucketKey(context),
     apiScopedBucketKey(context),
     endpointAccountBucketKey(context),
@@ -227,12 +238,12 @@ function applicableBucketKeys(
   ]);
 }
 
-function globalBucketKey(context: ToastRateLimitRequestContext): string {
-  return `${context.apiFamily}:GLOBAL`;
+function globalBucketKey(): string {
+  return "GLOBAL";
 }
 
-function unknownGlobalBucketKey(context: ToastRateLimitRequestContext): string {
-  return `${context.apiFamily}:UNKNOWN_GLOBAL`;
+function unknownGlobalBucketKey(): string {
+  return "UNKNOWN_GLOBAL";
 }
 
 function apiAccountBucketKey(context: ToastRateLimitRequestContext): string {
