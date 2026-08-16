@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** runtime foundation under review. No installable release or Toast API integration exists yet.
+> **Status:** implementation campaign in progress. The local Standard API runtime, OAuth lifecycle, read-only transport, and both Standard pagination families are implemented. Location discovery is being repaired against the credential-wide Partners source plus restaurant-scoped detail hydration. Reporting MCP tools and an installable release are not yet available.
 
 ## What this project is
 
@@ -53,17 +53,22 @@ Toast also uses more than one retrieval model:
 
 ## Runtime foundation
 
-The current scaffold provides:
+The current runtime provides:
 
 - Node.js 20-or-later ESM TypeScript with strict checking
 - the stable MCP TypeScript SDK v1 over local `stdio`
 - separate server construction and process startup modules
-- no registered tools, resources, prompts, Toast credentials, or Toast HTTP calls
+- non-persistent runtime configuration with a fail-closed Merchant-AI-consent acknowledgment gate
+- an in-memory OAuth client-credentials token lifecycle
+- a shared read-only Standard API HTTP transport with sanitized structured errors, bounded waits/retries, and isolated rate-limit state
+- configuration page-token traversal with scoped 409 restart handling
+- `/ordersBulk` Link-header traversal with fail-closed completeness guards
+- a two-stage Standard location context that enumerates credential-accessible restaurant connections and hydrates report-critical restaurant detail
 - an independently invented JSON fixture directory with schema validation and traversal protection
 - Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
 - declaration files, source maps, an explicit package file list, and an unpublished private package boundary
 
-Toast data pagination, capabilities, and reports belong to later slices; the shared Toast HTTP transport still registers no MCP tools.
+Reporting normalization, capability-tool wiring, Analytics jobs, and Toast reporting MCP tools belong to later slices. No Toast data tool is registered yet.
 
 ## Runtime configuration
 
@@ -83,17 +88,15 @@ Optional:
 
 | Variable | Purpose |
 |---|---|
-| `TOAST_DEFAULT_RESTAURANT_GUID` | Default restaurant GUID (UUID) for later location-scoped slices |
+| `TOAST_DEFAULT_RESTAURANT_GUID` | Bootstrap restaurant GUID used to fail closed if the configured operating context is not among the credential's active accessible locations |
 
 If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
 
 The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies.
 
-The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager, so later tool slices do not reload or reconstruct credential-bearing state. It exposes only restaurant-scoped `GET` requests for read-only Standard API data, attaches the bearer token and explicit restaurant GUID header, records Toast rate-limit headers in memory keyed by API family, restaurant GUID, and limiter key together so location isolation is structural (a rate-limited location can never block a different location), honors `Retry-After` or exhausted-quota reset state up to a configured wait ceiling, and applies bounded exponential backoff with jitter only to retryable network, 429, and 5xx-class failures. A server-derived wait (`Retry-After`, or a stored reset) longer than that ceiling fails closed with a structured, non-retryable error instead of sleeping past it. Acquiring the bearer token happens before any fetch is attempted, so a credential failure is never misclassified as a retryable network error. Structured transport errors include status and Toast request ID when available, but never upstream response bodies, credentials, bearer tokens, or caught exception details.
+The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager. Restaurant-scoped Standard API reads attach the explicit `Toast-Restaurant-External-ID` GUID and isolate rate-limit state by API family, restaurant GUID, and limiter key. The one credential-scoped discovery read is structurally allowlisted to `GET /partners/v1/restaurants`; it intentionally omits the restaurant header and keeps a separate credential-scoped rate-limit bucket inside the same config-bound client instance. Both paths use the same OAuth acquisition, bounded retries, server-wait ceiling, status classification, JSON parsing, and error-sanitization machinery. A credential failure is never misclassified as a retryable data-network error, and structured transport errors never retain upstream response bodies, credentials, bearer tokens, or caught exception details.
 
-The location discovery layer uses the configured `TOAST_DEFAULT_RESTAURANT_GUID` as an explicit bootstrap location, calls the read-only Standard restaurants endpoint through the shared transport, normalizes discovered restaurants to GUID, name, timezone, and closeout hour, and records them in memory under the runtime configuration identity plus restaurant GUID. Malformed responses, duplicate GUIDs, and a response that omits the bootstrap GUID fail closed without recording partial state.
-
-Pagination, capability decisions, Analytics job creation, and Toast data tools belong to later slices; this runtime still registers no Toast data tools.
+The location discovery layer uses Toast's credential-wide Partners accessible-restaurants source to obtain the active restaurant connections and their per-connection scope lists. It deliberately does not retain partner contact metadata or external-reference fields. Every active connection is then hydrated through `GET /restaurants/v1/restaurants/{restaurantGUID}` with a matching restaurant header and `includeArchived=false`. The retained immutable location context contains only the restaurant GUID, report name, IANA timezone, `closeoutHour` (0 through 12), ISO-4217 currency code, normalized management-group GUID when present, and the frozen connection-scope list required by capability preflight. Deleted/inactive connections are excluded. Duplicate GUIDs, a missing/deleted bootstrap location, source disagreement, malformed detail, or any mid-hydration failure fails closed without replacing a previously complete registry with partial state.
 
 ## Local development
 
@@ -133,7 +136,7 @@ TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold validates runtime configuration and the Merchant-AI-consent acknowledgment, constructs the OAuth token manager and shared Toast HTTP transport, then starts the MCP transport. No startup Toast data request is made, and no MCP tools are registered.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates runtime configuration and the Merchant-AI-consent acknowledgment, constructs the OAuth token manager and shared Toast HTTP transport, then starts the MCP transport. It intentionally makes no startup Toast data request and registers no reporting tools yet; location discovery is invoked by later reporting-tool orchestration.
 
 ## Repository orientation
 
@@ -145,7 +148,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The
 
 ## Current work
 
-T0-001 established the reviewed public-use foundation. T1-001 added the local TypeScript `stdio` runtime and synthetic fixture harness. T1-002 added non-persistent runtime configuration loading, Zod validation, and the explicit Merchant-AI-consent acknowledgment gate. T1-003 added the in-memory OAuth client-credentials token lifecycle. T1-004 added the shared read-only Toast HTTP transport with structured errors, in-memory rate-limit state, and bounded retries. T1-005 added configuration page-token traversal. T2-001 adds Standard API location discovery and GUID-bound in-memory location state. Capability decoding, report tools, Analytics job creation, and Toast data tools remain intentionally absent.
+T0-001 established the reviewed public-use foundation. T1-001 through T1-006 completed the local runtime, configuration/consent gate, OAuth lifecycle, shared Standard API transport, and both Standard pagination families. T2-001 originally introduced location state; the current repair replaces its synthetic aggregate-source assumption with production-shaped Partners discovery plus per-restaurant detail hydration and carries currency and restaurant-connection scopes forward for T3/T2-002. Capability preflight, T3 normalization/reporting tools, T4 cash/labor reports, and the T5 Analytics adapter remain to be completed.
 
 ## Important legal and operational note
 
@@ -158,6 +161,9 @@ This repository's interpretation is engineering guidance, not legal advice.
 ## Primary sources
 
 - Toast API overview: https://doc.toasttab.com/doc/devguide/apiOverview.html
+- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Partners API: https://doc.toasttab.com/openapi/partners/operation/restaurantsGet/
+- Toast Restaurants API: https://doc.toasttab.com/openapi/restaurants/operation/restaurantsGuidGet/
 - Toast reporting integration checklist: https://doc.toasttab.com/doc/cookbook/apiIntegrationChecklistTemplate.html
 - Toast pagination: https://doc.toasttab.com/doc/devguide/apiResponseDataPagination.html
 - Toast `/ordersBulk` pagination: https://doc.toasttab.com/doc/devguide/apiOrdersGetDetailedInfoAboutMultipleOrders.html
