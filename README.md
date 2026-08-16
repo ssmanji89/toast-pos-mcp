@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative for exact slice state. The MCP v2 stdio baseline is merged. Location discovery is under repair. No public release exists.
+> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative. The MCP v2 stdio baseline is merged. Location discovery is under repair. Standard credential support for its credential-wide source is an explicit release gate. No public release exists.
 
 ## What this project is
 
@@ -57,6 +57,8 @@ The current runtime uses Node.js 20-or-later ESM TypeScript, local MCP `stdio`, 
 
 The merged MCP v2 runtime uses `@modelcontextprotocol/server` in production and `@modelcontextprotocol/client` in executable tests. It uses `serveStdio(factory)` for legacy 2025 and 2026-07-28 clients. It owns asynchronous transport errors through a sanitized terminal wrapper.
 
+The branch adds a two-stage location context. It discovers credential-accessible restaurant connections and hydrates report-critical restaurant detail when the credential-wide source is available.
+
 This PR repairs location discovery through credential-wide Partners connection discovery and restaurant-scoped detail hydration. Reporting tools remain unavailable.
 
 ## Runtime configuration
@@ -85,7 +87,9 @@ The OAuth token lifecycle uses these credentials only through the named runtime-
 
 The shared Toast HTTP transport uses one validated configuration and token manager. Restaurant-scoped reads use an explicit restaurant GUID and isolated rate-limit state. The credential-scoped discovery path is structurally allowlisted to `GET /partners/v1/restaurants`, omits the restaurant header, and uses a separate credential-scoped rate-limit bucket. Both paths use the same OAuth, bounded retries, wait ceiling, parsing, and error sanitization.
 
-The location layer obtains active credential-wide restaurant connections and their scope lists from Partners. It hydrates every connection through `GET /restaurants/v1/restaurants/{restaurantGUID}` with the matching restaurant header. It retains only report-critical context. Missing/deleted bootstrap locations, duplicate GUIDs, malformed details, or incomplete hydration fail closed.
+The location layer consumes the Partners accessible-restaurants source when it is authorized. It retains only active restaurant GUID/group/scope context. It hydrates each active restaurant with `GET /restaurants/v1/restaurants/{restaurantGUID}`, a matching restaurant header, and `includeArchived=false`. Invalid or incomplete results fail closed without publishing partial state.
+
+Toast documentation conflicts on Standard credential access to `/partners/v1/restaurants`. An authorization failure returns static `location_discovery_source_unavailable`. The runtime never falls back to every management-group location. Issue #28 records the required live release proof.
 
 ## MCP stdio failure behavior
 
@@ -146,11 +150,12 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Sta
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
 - [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): historical/current threat catalog for the broader product boundary
-- [`docs/architecture/threat-model-mcp-v2-runtime.md`](docs/architecture/threat-model-mcp-v2-runtime.md): superseding MCP v2 local-runtime addendum for this migration
+- [`docs/architecture/threat-model-mcp-v2-runtime.md`](docs/architecture/threat-model-mcp-v2-runtime.md): MCP v2 local-runtime addendum
+- [`docs/architecture/standard-location-discovery-compatibility.md`](docs/architecture/standard-location-discovery-compatibility.md): Standard credential source ambiguity and live release gate
 
 ## Current work
 
-The campaign is repairing production location authority before capability preflight, provenance, bounded page folding, normalization, and reporting tools. Use `LOOP.md` and GitHub for the current state.
+The campaign repairs location authority before capability preflight, provenance, bounded page folding, normalization, and reporting tools. Standard support for the credential-wide source remains a live release gate. Use `LOOP.md` and GitHub for the current state.
 
 ## Important legal and operational note
 
@@ -163,7 +168,9 @@ This repository's interpretation is engineering guidance, not legal advice.
 ## Primary sources
 
 - Toast API overview: https://doc.toasttab.com/doc/devguide/apiOverview.html
-- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Standard API access overview: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessCredentials.html
+- Toast Partners location access: https://doc.toasttab.com/doc/devguide/apiPartnersGettingAccessibleRestaurants.html
 - Toast Partners API: https://doc.toasttab.com/openapi/partners/operation/restaurantsGet/
 - Toast Restaurants API: https://doc.toasttab.com/openapi/restaurants/operation/restaurantsGuidGet/
 - Toast reporting integration checklist: https://doc.toasttab.com/doc/cookbook/apiIntegrationChecklistTemplate.html
