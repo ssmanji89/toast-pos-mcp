@@ -72,35 +72,30 @@ const restaurantNameSchema = z
 /**
  * The Partners API response contains materially more data than reporting
  * needs, including partner-contact email and external reference fields.
- * Parsing with a narrow schema and constructing a new object is the privacy
- * boundary: those fields may exist transiently in the upstream body, but are
- * never retained in runtime location state.
+ * The narrow object schema strips unknown fields from the validated result,
+ * then normalization constructs an even smaller immutable connection model.
+ * Raw source bytes necessarily exist transiently while response.json() and
+ * validation run, but unrelated fields are never retained in runtime state.
  */
-const partnerAccessSchema = z
-  .object({
-    restaurantGuid: restaurantGuidSchema,
-    managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
-    deleted: z.boolean(),
-    scopes: z.array(connectionScopeSchema),
-  })
-  .passthrough();
+const partnerAccessSchema = z.object({
+  restaurantGuid: restaurantGuidSchema,
+  managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
+  deleted: z.boolean(),
+  scopes: z.array(connectionScopeSchema),
+});
 const partnerAccessResponseSchema = z.array(partnerAccessSchema);
 
-const restaurantDetailSchema = z
-  .object({
-    guid: restaurantGuidSchema,
-    general: z
-      .object({
-        archived: z.boolean().optional(),
-        name: restaurantNameSchema,
-        timeZone: timeZoneSchema,
-        closeoutHour: z.number().int().min(0).max(12),
-        currencyCode: currencyCodeSchema,
-        managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+const restaurantDetailSchema = z.object({
+  guid: restaurantGuidSchema,
+  general: z.object({
+    archived: z.boolean().optional(),
+    name: restaurantNameSchema,
+    timeZone: timeZoneSchema,
+    closeoutHour: z.number().int().min(0).max(12),
+    currencyCode: currencyCodeSchema,
+    managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
+  }),
+});
 
 export interface ToastLocation {
   readonly restaurantGuid: string;
