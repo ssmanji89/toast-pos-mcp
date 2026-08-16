@@ -11,14 +11,97 @@ const PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY = "partnersAccessibleRestau
  * compose with `DEFAULT_MAX_ATTEMPTS` (`#requestJson`'s own per-request retry
  * ceiling) into the true worst-case raw fetch-call count for a single
  * `getConfigurationPagesJson` traversal. Each page-token traversal attempt
- * fetches at most `maxPages` pages; a scoped 409 restart discards the partial
- * page set and starts a fresh traversal attempt, up to `maxRestarts` times.
+ * fetches at most `maxPages` pages; a scoped 409 restart (see
+ * `getConfigurationPagesJson`) discards the partial page set and starts a
+ * fresh traversal attempt, up to `maxRestarts` times, so the traversal
+ * fetches at most `maxPages * (maxRestarts + 1)` page requests. Every one of
+ * those page requests is itself retried by `#requestJson` up to
+ * `maxAttempts` times on a retryable status. With the defaults below
+ * (`maxPages=100`, `maxRestarts=1`, `maxAttempts=3`), that is
+ * `100 * (1 + 1) = 200` page-fetch attempts, composing to a true worst case
+ * of `100 * 3 * 2 = 600` raw `fetch` calls. This is finite and bounded, and
+ * in practice a single 409 or a run of retryable statuses is rare — but it
+ * had never been written down anywhere before this comment. See
+ * T1-005-R1-F5.
  */
 const DEFAULT_MAX_CONFIGURATION_PAGE_COUNT = 100;
 const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
+
+/**
+ * Ceiling on any server-derived wait — a `Retry-After` value, a
+ * `Toast-RateLimit-Reset` value fed back from a prior response, or the
+ * corresponding absolute reset time replayed by `#waitForKnownRateLimit`
+ * before a later request even attempts to fetch.
+ *
+ * `#maxRetryDelayMs` only ever bounded the client's own exponential/jitter
+ * component; `Math.max(serverDelayMs ?? 0, jitteredDelayMs)` let an
+ * unbounded server-supplied value dominate it completely. A `Retry-After:
+ * 86400` or a stored reset 24 hours out produced sleeps of 86,400,000 ms —
+ * in a locally run `stdio` server, an indefinite hang with no output.
+ *
+ * T0 research (`docs/research/toast-api-reporting-landscape.md`) documents
+ * no per-call wait anywhere near this long; the longest documented Standard
+ * API rate-limit window is the global 10,000-requests-per-15-minutes
+ * ceiling. 15 minutes (900,000 ms) is chosen as a generous ceiling that
+ * comfortably covers any plausible in-window wait this project's Standard
+ * API traffic could legitimately be asked to honor, while still rejecting
+ * the class of implausible values (a corrupted header, a hostile stand-in,
+ * or a Toast-side incident reporting a reset far outside any documented
+ * window) that would otherwise hang the process silently. Per AGENTS.md
+ * rule 11, a wait beyond this ceiling fails closed with a structured,
+ * non-retryable error instead of sleeping past it — surfacing loudly beats
+ * hanging silently. See T1-004-R1-F2.
+ */
 const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
+
+/**
+ * Ceiling on the caller-supplied 409 restart budget for configuration
+ * page-token traversal (constructor-level `maxConfigurationRestarts` or the
+ * per-call `maxRestarts` override).
+ *
+ * Unlike a `Retry-After` header or a rate-limit reset, this value is never
+ * server-derived — it is always caller-supplied — so severity is lower than
+ * `DEFAULT_MAX_RATE_LIMIT_WAIT_MS`. But it had no ceiling at all, only a
+ * `>= 0` floor: an oversized value has no fail-closed signal of its own and
+ * directly multiplies worst-case request count, because each restart
+ * re-fetches the entire page set from scratch (up to `maxPages` requests,
+ * each itself subject to `#requestJson`'s own `maxAttempts` retries — see
+ * the composed worst-case comment beside `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * and `DEFAULT_MAX_CONFIGURATION_RESTARTS` below).
+ *
+ * A scoped 409 restart exists for a transient event — a restaurant
+ * publishing configuration changes mid-traversal — that is expected to
+ * resolve within a handful of attempts; the default of 1 already covers
+ * ordinary operation. This ceiling is generous relative to that default
+ * (an order of magnitude higher) while still rejecting an implausible
+ * caller-supplied value loudly, per AGENTS.md rule 11, rather than
+ * silently admitting one that would blow up the composed worst case. See
+ * T1-005-R1-F4.
+ */
 const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
+
+/**
+ * `DEFAULT_MAX_ORDERS_BULK_PAGES` and `MAX_ALLOWED_ORDERS_BULK_PAGES` are the
+ * `/ordersBulk` Link-traversal analog of `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
+ * above. `maxPages` was previously a required, fully caller-supplied field
+ * with no default and no ceiling at all -- worst-case raw fetch count was
+ * `maxPages * maxAttempts` with `maxPages` uncapped from either direction.
+ * `/ordersBulk` has no 409-restart budget (`docs/architecture/public-use-
+ * boundary.md` states the configuration 409-restart rule does not apply to
+ * `/ordersBulk`), so the composed worst case is simpler than the
+ * configuration traversal's: with the defaults below (`maxPages=100`,
+ * `maxAttempts=3`), that is `100 * 3 = 300` raw `fetch` calls; at the
+ * ceiling (`maxPages=1000`), `1000 * 3 = 3000` -- still finite and bounded.
+ * The ceiling is an order of magnitude above the default, the same
+ * proportion `MAX_ALLOWED_CONFIGURATION_RESTARTS` uses relative to
+ * `DEFAULT_MAX_CONFIGURATION_RESTARTS`, generous enough for ordinary
+ * operation while still rejecting an implausible caller-supplied value
+ * loudly per AGENTS.md rule 11. Every page also accumulates its full JSON
+ * body in memory for the life of the call -- no streaming or page-callback
+ * interface exists yet; see T1-006-R1-F4 for the note that one should be
+ * considered before any MCP tool is built on this primitive.
+ */
 const DEFAULT_MAX_ORDERS_BULK_PAGES = 100;
 const MAX_ALLOWED_ORDERS_BULK_PAGES = 1_000;
 
@@ -34,6 +117,14 @@ export interface ToastGetJsonRequest {
   readonly apiFamily?: ToastApiFamily;
 }
 
+/**
+ * This private request shape is the only route that may omit a restaurant
+ * GUID. Both its path and limiter key are literal types. Do not generalize it
+ * into a public headerless GET helper: restaurant-scoped requests are the
+ * default Toast boundary, and the one credential-scoped discovery source is
+ * deliberately allowlisted while Toast's Standard/Partners documentation
+ * conflict remains release-gated by issue #28.
+ */
 interface ToastCredentialScopedGetJsonRequest {
   readonly path: typeof PARTNERS_ACCESSIBLE_RESTAURANTS_PATH;
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
@@ -58,6 +149,11 @@ export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly pageSize: number;
+  // Optional as of T1-006-R1-F4: previously required with no upper bound,
+  // so worst-case raw fetch count (`maxPages * maxAttempts`) was uncapped
+  // on the caller's side. Now defaults to `DEFAULT_MAX_ORDERS_BULK_PAGES`
+  // and is rejected above `MAX_ALLOWED_ORDERS_BULK_PAGES` either way. See
+  // the composed worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
   readonly maxPages?: number;
 }
 
@@ -221,15 +317,16 @@ export class ToastHttpClient {
   }
 
   /**
-   * The only credential-scoped Standard API read currently authorized by
+   * The only credential-scoped Standard-family read currently authorized by
    * the repository. The path and limiter key are hard-coded so callers
    * cannot turn this into a generic headerless Toast request primitive.
    *
-   * Standard API credentials use the Partners API to enumerate accessible
-   * restaurant connections. Unlike restaurant-scoped requests, this call
-   * intentionally omits `Toast-Restaurant-External-ID`; it otherwise reuses
-   * the exact OAuth, retry, rate-limit, status, JSON, and sanitization path
-   * used by every other Standard API read.
+   * It intentionally omits `Toast-Restaurant-External-ID`; otherwise it
+   * reuses the exact OAuth, retry, rate-limit, status, JSON, and sanitization
+   * path used by every restaurant-scoped Standard read. Whether Standard API
+   * credentials are actually authorized for this Partners endpoint is
+   * explicitly release-gated by issue #28 because Toast's current public
+   * documentation contradicts itself on that point.
    */
   async getAccessibleRestaurantsJson(): Promise<unknown> {
     return (await this.#requestJson({
@@ -289,6 +386,37 @@ export class ToastHttpClient {
           if (nextToken === null || nextToken === "") {
             return Object.freeze([...pages]);
           }
+          // Toast page tokens are treated as case-sensitive opaque values,
+          // compared and stored by exact string equality — deliberately,
+          // not by accident. Toast's pagination documentation does not
+          // state that `Toast-Next-Page-Token` is safe to compare
+          // case-insensitively, and common opaque-token encodings (base64,
+          // base64url, and similar) are legitimately case-sensitive: two
+          // tokens differing only by case can be genuinely distinct values
+          // encoding different pagination cursors, not the same cursor
+          // twice. Normalizing case before comparing/storing would risk
+          // treating two truly distinct tokens as identical and silently
+          // discarding real pages — a worse failure mode than the one this
+          // guards against.
+          //
+          // The accepted trade-off: two next-tokens differing only by case
+          // (e.g. "TOKEN-X" then "token-x") are treated as progress rather
+          // than caught as an immediate repeat. This traversal is still
+          // fail-closed either way — a genuine loop that happens to differ
+          // only by case degrades from a fast rejection after ~2 requests
+          // to a slower one bounded by `maxPages`
+          // (`configuration_page_bound_exceeded`), never an unbounded loop.
+          // See T1-005-R1-F1.
+          // `nextToken === pageToken` was previously checked here alongside
+          // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
+          // ever assigned a value immediately after that same value was
+          // added to `seenTokens` on the prior iteration (see the
+          // `seenTokens.add(nextToken); pageToken = nextToken;` pair below),
+          // so `pageToken` is always already a member of `seenTokens` by the
+          // time this check runs. `seenTokens.has(nextToken)` alone
+          // therefore already catches every case the redundant clause
+          // caught. Confirmed by removing it: zero regressions across all
+          // traversal tests. See T1-005-R1-F2.
           if (seenTokens.has(nextToken)) {
             throw new ToastHttpError(
               "configuration_page_token_repeated",
@@ -341,6 +469,12 @@ export class ToastHttpClient {
         "ordersBulk pageSize must be an integer between 1 and 100.",
       );
     }
+    // T1-006-R1-F4: `maxPages` was previously required with no default and
+    // no ceiling. It is now optional (defaulting to
+    // `DEFAULT_MAX_ORDERS_BULK_PAGES`) and rejected above
+    // `MAX_ALLOWED_ORDERS_BULK_PAGES` regardless of whether the caller
+    // supplied it explicitly or relied on the default -- see the composed
+    // worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
     const maxPages = request.maxPages ?? this.#maxOrdersBulkPages;
     if (!Number.isInteger(maxPages) || maxPages < 1) {
       throw paginationIntegrityError(
@@ -377,6 +511,28 @@ export class ToastHttpClient {
 
       pages.push(result.body);
 
+      // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
+      // every page number and every fetched page URL "for defense in
+      // depth" alongside the check below, but they were dead code --
+      // removed individually and in combination, 70/70 tests still passed.
+      // That is because `page` starts at 1 and only ever advances to a
+      // value `assertOrdersBulkNextUrl` has already proven equals
+      // `currentPage + 1`; by induction, every `page` this loop ever
+      // fetches is a distinct positive integer 1, 2, 3, ... in strictly
+      // increasing order, and `boundedQuery`/`pageSize` are invariant for
+      // the life of the call (enforced immediately below and by
+      // `assertOrdersBulkNextUrl`'s path/pageSize/query checks), so the
+      // constructed request URL for page N can never coincide with the URL
+      // for any other page. A repeated page number or a repeated page URL
+      // is therefore always already a `currentPage + 1` violation caught
+      // by the check below first -- tracking visited pages/URLs separately
+      // could never fire on its own. Decoupling duplicate detection from
+      // this invariant would require deliberately loosening the strict
+      // `+1` requirement (e.g. to accept a server that legitimately skips
+      // a page), which is not something this slice does; if a future
+      // change does that, duplicate detection must be reintroduced at that
+      // point, independently tested against a case that does not also
+      // violate whatever replaces this check. See T1-006-R1-F2.
       const nextUrl = linkRelations(result.headers).get("next");
       if (nextUrl === undefined) {
         return pages;
@@ -408,6 +564,16 @@ export class ToastHttpClient {
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       await this.#waitForKnownRateLimit(stateKey);
 
+      // Acquire the authorization header in its own try/catch, outside the
+      // fetch-transport try below. `getAuthorizationHeader()` never reaches
+      // the network when it throws (an expired/invalid credential, a token
+      // endpoint failure already classified by `auth.ts`, and so on); it is a
+      // credential/config failure, not a Toast Data API transport hiccup.
+      // Letting it fall into the network catch mischaracterized a permanent
+      // credential failure as `request_network_error` with `retryable: true`,
+      // which retried something AGENTS.md rule 11 requires to fail closed
+      // instead. Deliberately do not read or interpolate the caught value,
+      // matching the sanitization discipline in `auth.ts`.
       let authorizationHeader: string;
       try {
         authorizationHeader = await this.#tokenManager.getAuthorizationHeader();
@@ -605,6 +771,11 @@ export class ToastHttpClient {
       return;
     }
 
+    // A server-derived delay (Retry-After, or a rate-limit reset fed back
+    // from a prior response) is honored up to the ceiling, but never past
+    // it — clamping it down to the ceiling and retrying early would ignore
+    // what Toast asked for and risk repeating the exact violation that
+    // triggered the wait. See T1-004-R1-F2 and DEFAULT_MAX_RATE_LIMIT_WAIT_MS.
     if (serverDelayMs !== undefined && serverDelayMs > this.#maxRateLimitWaitMs) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
@@ -632,6 +803,9 @@ export class ToastHttpClient {
       return;
     }
 
+    // Same ceiling as #sleepBeforeRetry, applied pre-flight: a stored reset
+    // far in the future must not block an unrelated later call for its
+    // full duration. See T1-004-R1-F2.
     if (waitMs > this.#maxRateLimitWaitMs) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
@@ -678,6 +852,16 @@ function normalizedBoundedQuery(
   return result;
 }
 
+/**
+ * Splits `input` on top-level occurrences of `delimiter` — occurrences
+ * outside a `"..."` quoted-string. RFC 8288 (`rel`, and any other Link
+ * parameter) permits a quoted-string value to itself contain the comma that
+ * separates link-values or the semicolon that separates link-params (for
+ * example `title="foo, bar; baz"`), so a naive `String.split` on either
+ * delimiter would incorrectly split inside such a value. Quoted-pair
+ * escapes (`\"`, `\\`, ...) are honored so an escaped quote does not
+ * prematurely end the quoted region.
+ */
 function splitOutsideQuotes(input: string, delimiter: string): string[] {
   const parts: string[] = [];
   let current = "";
@@ -723,6 +907,15 @@ interface ParsedLinkValue {
   readonly params: ReadonlyMap<string, string>;
 }
 
+/**
+ * Parses one RFC 8288 link-value (`<target-uri> *( ";" link-param )`).
+ * Throws on any structural deviation — an unclosed `<...>`, no `<...>` at
+ * all, or a parameter with no `=` — rather than silently returning an
+ * incomplete result. Parameter names are returned lower-cased; parameter
+ * values are unquoted and unescaped when the RFC 8288 quoted-string form is
+ * used, and returned verbatim when the RFC 8288 unquoted-token form is
+ * used (`rel=next` is explicitly legal, not just `rel="next"`).
+ */
 function parseLinkValue(segment: string): ParsedLinkValue {
   const trimmed = segment.trim();
   const targetMatch = /^<([^<>]*)>/u.exec(trimmed);
@@ -742,6 +935,8 @@ function parseLinkValue(segment: string): ParsedLinkValue {
     for (const rawParam of splitOutsideQuotes(rest.slice(1), ";")) {
       const paramTrimmed = rawParam.trim();
       if (paramTrimmed.length === 0) {
+        // A stray "; ;" or trailing ";" — tolerated as an empty parameter
+        // slot rather than treated as a structural failure.
         continue;
       }
 
@@ -767,9 +962,35 @@ function parseLinkValue(segment: string): ParsedLinkValue {
   return { target, params };
 }
 
+/**
+ * Parses the `Link` response header into a relation-type -> target-URI map,
+ * matching relation types and parameter names case-insensitively and
+ * accepting `rel` as either the RFC 8288 quoted-string or unquoted-token
+ * form, in any parameter position and alongside any other parameter.
+ *
+ * T1-006-R1-F1 / T1-006-R1-S1: the prior implementation used
+ * `/^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u`, which matched only a segment
+ * that was *exactly* `<url>; rel="value"` — quoted, `rel`-only, `rel`-first,
+ * case-sensitive. Every other RFC 8288-legal shape (`rel=next` unquoted,
+ * `Rel="Next"`, `REL="NEXT"`, an extra parameter before or after `rel`, two
+ * `Link` headers joined by the Fetch API) silently produced an empty
+ * relation map — structurally indistinguishable from a genuinely absent
+ * header — so an otherwise-complete traversal reported success after only
+ * page 1. Per AGENTS.md rule 11 and the completion contract in
+ * `docs/architecture/public-use-boundary.md` ("return `partial` or `denied`
+ * when completion cannot be proven"), a `Link` header that is present but
+ * does not parse as valid RFC 8288 syntax must fail closed rather than be
+ * treated as absent — thrown here as `pagination_integrity_failed` with a
+ * static message, never interpolating the raw header value.
+ */
 function linkRelations(headers: Headers): ReadonlyMap<string, string> {
   const header = headers.get("link");
-  if (header === null || header.trim().length === 0) {
+  if (header === null) {
+    return new Map();
+  }
+  if (header.trim().length === 0) {
+    // An empty Link header is legitimately equivalent to an absent one —
+    // there is nothing to parse and nothing to fail closed on.
     return new Map();
   }
 
@@ -793,9 +1014,13 @@ function linkRelations(headers: Headers): ReadonlyMap<string, string> {
 
     const relParam = parsed.params.get("rel");
     if (relParam === undefined) {
+      // A structurally valid link-value with no `rel` parameter at all is
+      // not this traversal's concern; it simply contributes no relation.
       continue;
     }
 
+    // RFC 8288 allows `rel` to hold a space-separated list of relation
+    // types sharing one target URI.
     for (const relType of relParam.split(/\s+/u)) {
       if (relType.length === 0) {
         continue;
@@ -832,6 +1057,11 @@ function assertOrdersBulkNextUrl(
     );
   }
 
+  // T1-006-R1-F2: this single check -- the next page must equal exactly
+  // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
+  // See the comment beside its call site in `getOrdersBulkPages` for why
+  // separate `visitedPages`/`visitedUrls` tracking was removed as dead code
+  // rather than kept as apparent (but non-functional) defense in depth.
   const nextPageText = nextUrl.searchParams.get("page");
   const nextPage = nextPageText === null ? NaN : Number(nextPageText);
   if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
@@ -887,6 +1117,16 @@ function retryAfterEpochMsFromHeaders(
 ): number | undefined {
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter !== null) {
+    // RFC 7231 permits `Retry-After` as either delta-seconds or an HTTP-date.
+    // Try delta-seconds first; only a string of digits parses as a safe
+    // non-negative integer here, so an HTTP-date (which begins with a day
+    // name, e.g. "Wed, 21 Oct 2026 07:28:00 GMT") correctly falls through
+    // to the Date.parse fallback below rather than being misread. Without
+    // that fallback, an HTTP-date yielded NaN and the header was silently
+    // ignored, producing a sleep of 0 for a wait Toast asked for an hour
+    // out. The clamp in #sleepBeforeRetry / #waitForKnownRateLimit (see
+    // DEFAULT_MAX_RATE_LIMIT_WAIT_MS, T1-004-R1-F2) applies to whichever
+    // form resolves here.
     const seconds = Number.parseInt(retryAfter, 10);
     if (Number.isSafeInteger(seconds) && seconds >= 0) {
       return now + seconds * 1000;
@@ -913,6 +1153,16 @@ function numericHeader(response: Response, name: string): number | undefined {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+/**
+ * Interprets a Toast rate-limit "reset" header (currently only
+ * `toast-ratelimit-reset`) as an absolute point in time, never a relative
+ * delta — an original implementation assumption, not sourced from Toast
+ * documentation. See the "Rate-limit-reset header semantics" note in
+ * `docs/research/toast-api-reporting-landscape.md` for the full reasoning
+ * and its consequence (a genuinely relative-delta value would be
+ * misinterpreted as an already-past absolute timestamp and silently never
+ * trigger a wait). See T1-004-R1-F4.
+ */
 function epochHeader(response: Response, name: string): number | undefined {
   const parsed = numericHeader(response, name);
   if (parsed === undefined) {
@@ -922,6 +1172,16 @@ function epochHeader(response: Response, name: string): number | undefined {
   return parsed > 9_999_999_999 ? parsed : parsed * 1000;
 }
 
+/**
+ * Restaurant-scoped rate-limit keys remain structurally bound to restaurant
+ * GUID, closing T1-004-R1-S1/F7. The `:restaurant:` namespace added by this
+ * repair is intentionally disjoint from the one allowlisted credential-wide
+ * source's `:credential:` namespace below, so credential-scoped discovery
+ * can never block or inherit a restaurant bucket.
+ *
+ * Do not remove restaurant GUID from this key when adding future transports:
+ * AGENTS.md rule 6 requires location isolation for every cache/state key.
+ */
 function rateLimitStateKey(
   apiFamily: ToastApiFamily,
   restaurantGuid: string,
@@ -930,13 +1190,17 @@ function rateLimitStateKey(
   return `${apiFamily}:restaurant:${restaurantGuid}:${key}`;
 }
 
+/**
+ * Credential-scoped state is safe only because each ToastHttpClient instance
+ * is permanently bound to one RuntimeConfig/token-manager identity and this
+ * namespace cannot collide with `rateLimitStateKey`. A future generic shared
+ * limiter would need an explicit credential identity in the key instead of
+ * inheriting this instance-local assumption.
+ */
 function credentialRateLimitStateKey(
   apiFamily: ToastApiFamily,
   key: string,
 ): string {
-  // Each ToastHttpClient instance is permanently bound to one RuntimeConfig
-  // and token manager, so this key is credential-scoped without inventing a
-  // restaurant GUID. It can never collide with a restaurant-scoped key.
   return `${apiFamily}:credential:${key}`;
 }
 
