@@ -6,6 +6,13 @@ import type { ToastHttpClient } from "./transport.js";
 const STANDARD_RESTAURANTS_PATH = "/restaurants/v1/restaurants";
 const STANDARD_RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
 
+// Toast documents closeoutHour as an integer from 0 (midnight) through 12
+// (noon). This is the restaurant-local business-day cutoff consumed by later
+// reporting code, so accepting a generic 24-hour clock would trust a state the
+// restaurants API contract does not permit.
+const MIN_CLOSEOUT_HOUR = 0;
+const MAX_CLOSEOUT_HOUR = 12;
+
 // A real IANA time zone identifier is never a bare UTC offset designator
 // ("-05:00", "+05:30", "UTC-08:00", ...). Some current ICU/V8 builds accept
 // these strings in `Intl.DateTimeFormat`'s `timeZone` option anyway, because
@@ -67,7 +74,11 @@ const toastRestaurantSchema = z
     guid: restaurantGuidSchema,
     name: z.string().min(1),
     timeZone: timeZoneSchema,
-    closeoutHour: z.number().int().min(0).max(23),
+    closeoutHour: z
+      .number()
+      .int()
+      .min(MIN_CLOSEOUT_HOUR)
+      .max(MAX_CLOSEOUT_HOUR),
   })
   .passthrough();
 
