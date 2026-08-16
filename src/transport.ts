@@ -1,116 +1,49 @@
 import type { OAuthTokenManager } from "./auth.js";
 import type { RuntimeConfig } from "./config.js";
+import {
+  conservativeRateLimitBy,
+  makeRateLimitContext,
+  parseNonNegativeIntegerHeader,
+  parseRetryAfterEpochMs,
+  parseToastRateLimitBy,
+  parseToastResetEpochMs,
+  ToastRateLimitCoordinator,
+  type ToastRateLimitRequestContext,
+  type ToastRateLimitSnapshot,
+  type ToastRequestScope,
+} from "./rate-limits.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
-
-/**
- * `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT` and `DEFAULT_MAX_CONFIGURATION_RESTARTS`
- * compose with `DEFAULT_MAX_ATTEMPTS` (`#requestJson`'s own per-request retry
- * ceiling) into the true worst-case raw fetch-call count for a single
- * `getConfigurationPagesJson` traversal. Each page-token traversal attempt
- * fetches at most `maxPages` pages; a scoped 409 restart (see
- * `getConfigurationPagesJson`) discards the partial page set and starts a
- * fresh traversal attempt, up to `maxRestarts` times, so the traversal
- * fetches at most `maxPages * (maxRestarts + 1)` page requests. Every one of
- * those page requests is itself retried by `#requestJson` up to
- * `maxAttempts` times on a retryable status. With the defaults below
- * (`maxPages=100`, `maxRestarts=1`, `maxAttempts=3`), that is
- * `100 * (1 + 1) = 200` page-fetch attempts, composing to a true worst case
- * of `100 * 3 * 2 = 600` raw `fetch` calls. This is finite and bounded, and
- * in practice a single 409 or a run of retryable statuses is rare — but it
- * had never been written down anywhere before this comment. See
- * T1-005-R1-F5.
- */
-const DEFAULT_MAX_CONFIGURATION_PAGE_COUNT = 100;
-const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
 const DEFAULT_MAX_RETRY_DELAY_MS = 2_000;
-
-/**
- * Ceiling on any server-derived wait — a `Retry-After` value, a
- * `Toast-RateLimit-Reset` value fed back from a prior response, or the
- * corresponding absolute reset time replayed by `#waitForKnownRateLimit`
- * before a later request even attempts to fetch.
- *
- * `#maxRetryDelayMs` only ever bounded the client's own exponential/jitter
- * component; `Math.max(serverDelayMs ?? 0, jitteredDelayMs)` let an
- * unbounded server-supplied value dominate it completely. A `Retry-After:
- * 86400` or a stored reset 24 hours out produced sleeps of 86,400,000 ms —
- * in a locally run `stdio` server, an indefinite hang with no output.
- *
- * T0 research (`docs/research/toast-api-reporting-landscape.md`) documents
- * no per-call wait anywhere near this long; the longest documented Standard
- * API rate-limit window is the global 10,000-requests-per-15-minutes
- * ceiling. 15 minutes (900,000 ms) is chosen as a generous ceiling that
- * comfortably covers any plausible in-window wait this project's Standard
- * API traffic could legitimately be asked to honor, while still rejecting
- * the class of implausible values (a corrupted header, a hostile stand-in,
- * or a Toast-side incident reporting a reset far outside any documented
- * window) that would otherwise hang the process silently. Per AGENTS.md
- * rule 11, a wait beyond this ceiling fails closed with a structured,
- * non-retryable error instead of sleeping past it — surfacing loudly beats
- * hanging silently. See T1-004-R1-F2.
- */
 const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
-
-/**
- * Ceiling on the caller-supplied 409 restart budget for configuration
- * page-token traversal (constructor-level `maxConfigurationRestarts` or the
- * per-call `maxRestarts` override).
- *
- * Unlike a `Retry-After` header or a rate-limit reset, this value is never
- * server-derived — it is always caller-supplied — so severity is lower than
- * `DEFAULT_MAX_RATE_LIMIT_WAIT_MS`. But it had no ceiling at all, only a
- * `>= 0` floor: an oversized value has no fail-closed signal of its own and
- * directly multiplies worst-case request count, because each restart
- * re-fetches the entire page set from scratch (up to `maxPages` requests,
- * each itself subject to `#requestJson`'s own `maxAttempts` retries — see
- * the composed worst-case comment beside `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
- * and `DEFAULT_MAX_CONFIGURATION_RESTARTS` below).
- *
- * A scoped 409 restart exists for a transient event — a restaurant
- * publishing configuration changes mid-traversal — that is expected to
- * resolve within a handful of attempts; the default of 1 already covers
- * ordinary operation. This ceiling is generous relative to that default
- * (an order of magnitude higher) while still rejecting an implausible
- * caller-supplied value loudly, per AGENTS.md rule 11, rather than
- * silently admitting one that would blow up the composed worst case. See
- * T1-005-R1-F4.
- */
-const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
-
-/**
- * `DEFAULT_MAX_ORDERS_BULK_PAGES` and `MAX_ALLOWED_ORDERS_BULK_PAGES` are the
- * `/ordersBulk` Link-traversal analog of `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT`
- * above. `maxPages` was previously a required, fully caller-supplied field
- * with no default and no ceiling at all -- worst-case raw fetch count was
- * `maxPages * maxAttempts` with `maxPages` uncapped from either direction.
- * `/ordersBulk` has no 409-restart budget (`docs/architecture/public-use-
- * boundary.md` states the configuration 409-restart rule does not apply to
- * `/ordersBulk`), so the composed worst case is simpler than the
- * configuration traversal's: with the defaults below (`maxPages=100`,
- * `maxAttempts=3`), that is `100 * 3 = 300` raw `fetch` calls; at the
- * ceiling (`maxPages=1000`), `1000 * 3 = 3000` -- still finite and bounded.
- * The ceiling is an order of magnitude above the default, the same
- * proportion `MAX_ALLOWED_CONFIGURATION_RESTARTS` uses relative to
- * `DEFAULT_MAX_CONFIGURATION_RESTARTS`, generous enough for ordinary
- * operation while still rejecting an implausible caller-supplied value
- * loudly per AGENTS.md rule 11. Every page also accumulates its full JSON
- * body in memory for the life of the call -- no streaming or page-callback
- * interface exists yet; see T1-006-R1-F4 for the note that one should be
- * considered before any MCP tool is built on this primitive.
- */
-const DEFAULT_MAX_ORDERS_BULK_PAGES = 100;
+const DEFAULT_MAX_CONFIGURATION_PAGES = 100;
+const DEFAULT_MAX_CONFIGURATION_RESTARTS = 1;
+const MAX_ALLOWED_CONFIGURATION_RESTARTS = 3;
+const DEFAULT_MAX_ORDERS_BULK_PAGES = 1_000;
 const MAX_ALLOWED_ORDERS_BULK_PAGES = 1_000;
-
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const PARTNERS_ACCESSIBLE_RESTAURANTS_PATH = "/partners/v1/restaurants";
+const PARTNERS_ACCESSIBLE_RESTAURANTS_LIMITER_KEY = "partnersRestaurants";
 
 export type ToastApiFamily = "standard";
+
+export type ToastHttpErrorCode =
+  | "token_acquisition_failed"
+  | "request_network_error"
+  | "request_failed"
+  | "response_invalid_json"
+  | "rate_limit_wait_exceeded"
+  | "configuration_page_bound_exceeded"
+  | "configuration_page_token_repeated"
+  | "configuration_page_restart_exceeded"
+  | "pagination_integrity_failed";
 
 export interface ToastGetJsonRequest {
   readonly path: `/${string}`;
   readonly restaurantGuid: string;
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly query?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >;
   readonly rateLimitKey: string;
   readonly apiFamily?: ToastApiFamily;
 }
@@ -118,7 +51,9 @@ export interface ToastGetJsonRequest {
 export interface ToastConfigurationPagesRequest {
   readonly path: `/${string}`;
   readonly restaurantGuid: string;
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly query?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >;
   readonly rateLimitKey: string;
   readonly maxPages?: number;
   readonly maxRestarts?: number;
@@ -126,44 +61,46 @@ export interface ToastConfigurationPagesRequest {
 
 export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly query?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >;
   readonly pageSize: number;
-  // Optional as of T1-006-R1-F4: previously required with no upper bound,
-  // so worst-case raw fetch count (`maxPages * maxAttempts`) was uncapped
-  // on the caller's side. Now defaults to `DEFAULT_MAX_ORDERS_BULK_PAGES`
-  // and is rejected above `MAX_ALLOWED_ORDERS_BULK_PAGES` either way. See
-  // the composed worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
   readonly maxPages?: number;
 }
 
-export interface ToastRateLimitSnapshot {
-  readonly apiFamily: ToastApiFamily;
-  readonly restaurantGuid: string;
-  readonly key: string;
-  readonly limit: number | undefined;
-  readonly remaining: number | undefined;
-  readonly resetAtEpochMs: number | undefined;
-  readonly retryAfterEpochMs: number | undefined;
-  readonly updatedAtEpochMs: number;
+export interface ToastDetailedJsonResult {
+  readonly body: unknown;
+  readonly url: string;
+  readonly retrievedAtEpochMs: number;
+  readonly upstreamRequestId?: string;
 }
 
-export type ToastHttpErrorCode =
-  | "configuration_page_bound_exceeded"
-  | "configuration_page_restart_exceeded"
-  | "configuration_page_token_repeated"
-  | "pagination_integrity_failed"
-  | "rate_limit_wait_exceeded"
-  | "request_failed"
-  | "request_network_error"
-  | "response_invalid_json"
-  | "token_acquisition_failed";
+export interface ToastHttpClientOptions {
+  readonly fetch?: typeof fetch;
+  readonly now?: () => number;
+  readonly random?: () => number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly maxAttempts?: number;
+  readonly baseRetryDelayMs?: number;
+  readonly maxRetryDelayMs?: number;
+  readonly maxRateLimitWaitMs?: number;
+  readonly maxConfigurationPages?: number;
+  readonly maxConfigurationRestarts?: number;
+  readonly maxOrdersBulkPages?: number;
+  /**
+   * Optional process-owned coordinator. Passing the same instance to future
+   * Standard/Analytics clients preserves Toast GLOBAL throttling across API
+   * families instead of creating one pseudo-global limiter per adapter.
+   */
+  readonly rateLimitCoordinator?: ToastRateLimitCoordinator;
+}
 
 export class ToastHttpError extends Error {
-  readonly apiFamily: ToastApiFamily;
   readonly code: ToastHttpErrorCode;
+  readonly apiFamily: ToastApiFamily;
   readonly retryable: boolean;
-  readonly upstreamRequestId: string | undefined;
   readonly upstreamStatus: number | undefined;
+  readonly upstreamRequestId: string | undefined;
 
   constructor(
     code: ToastHttpErrorCode,
@@ -171,39 +108,41 @@ export class ToastHttpError extends Error {
     options: {
       readonly apiFamily: ToastApiFamily;
       readonly retryable: boolean;
-      readonly upstreamRequestId?: string;
       readonly upstreamStatus?: number;
+      readonly upstreamRequestId?: string;
     },
   ) {
     super(message);
     this.name = "ToastHttpError";
-    this.apiFamily = options.apiFamily;
     this.code = code;
+    this.apiFamily = options.apiFamily;
     this.retryable = options.retryable;
-    this.upstreamRequestId = options.upstreamRequestId;
     this.upstreamStatus = options.upstreamStatus;
+    this.upstreamRequestId = options.upstreamRequestId;
   }
 }
 
-export interface ToastHttpClientOptions {
-  readonly baseRetryDelayMs?: number;
-  readonly fetch?: typeof fetch;
-  readonly maxAttempts?: number;
-  readonly maxConfigurationPages?: number;
-  readonly maxConfigurationRestarts?: number;
-  readonly maxOrdersBulkPages?: number;
-  readonly maxRateLimitWaitMs?: number;
-  readonly maxRetryDelayMs?: number;
-  readonly now?: () => number;
-  readonly random?: () => number;
-  readonly sleep?: (milliseconds: number) => Promise<void>;
+interface InternalJsonResponseResult extends ToastDetailedJsonResult {
+  readonly headers: Headers;
 }
 
-interface JsonResponseResult {
-  readonly body: unknown;
-  readonly headers: Headers;
-  readonly url: string;
+interface InternalJsonRequest {
+  readonly path: `/${string}`;
+  readonly query?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >;
+  readonly rateLimitKey: string;
+  readonly requestScope: ToastRequestScope;
 }
+
+const RETRYABLE_STATUSES = new Set([
+  408,
+  429,
+  500,
+  502,
+  503,
+  504,
+]);
 
 export class ToastHttpClient {
   #baseRetryDelayMs: number;
@@ -217,7 +156,7 @@ export class ToastHttpClient {
   #maxRetryDelayMs: number;
   #now: () => number;
   #random: () => number;
-  #rateLimits = new Map<string, ToastRateLimitSnapshot>();
+  #rateLimits: ToastRateLimitCoordinator;
   #sleep: (milliseconds: number) => Promise<void>;
   #tokenManager: OAuthTokenManager;
 
@@ -234,7 +173,7 @@ export class ToastHttpClient {
     this.#sleep = options.sleep ?? defaultSleep;
     this.#maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.#maxConfigurationPages =
-      options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGE_COUNT;
+      options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGES;
     this.#maxConfigurationRestarts =
       options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
     this.#maxOrdersBulkPages =
@@ -245,6 +184,8 @@ export class ToastHttpClient {
       options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
     this.#maxRateLimitWaitMs =
       options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
+    this.#rateLimits =
+      options.rateLimitCoordinator ?? new ToastRateLimitCoordinator();
 
     if (this.#maxAttempts < 1) {
       throw new RangeError("ToastHttpClient maxAttempts must be at least 1.");
@@ -277,12 +218,57 @@ export class ToastHttpClient {
   }
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
-    return (await this.#requestJson(request)).body;
+    return (await this.getJsonDetailed(request)).body;
+  }
+
+  async getJsonDetailed(
+    request: ToastGetJsonRequest,
+  ): Promise<ToastDetailedJsonResult> {
+    return publicDetailedResult(
+      await this.#requestJson({
+        path: request.path,
+        query: request.query,
+        rateLimitKey: request.rateLimitKey,
+        requestScope: {
+          kind: "restaurant",
+          restaurantGuid: request.restaurantGuid,
+        },
+      }),
+    );
+  }
+
+  /**
+   * Credential-scoped Standard-access location discovery.
+   *
+   * This is intentionally not an arbitrary headerless GET primitive. Toast's
+   * Standard access guide authorizes Partners GET for the client's selected
+   * location set; every other Standard data path remains restaurant-scoped.
+   */
+  async getAccessibleRestaurantsJson(): Promise<unknown> {
+    return (await this.getAccessibleRestaurantsJsonDetailed()).body;
+  }
+
+  async getAccessibleRestaurantsJsonDetailed(): Promise<ToastDetailedJsonResult> {
+    return publicDetailedResult(
+      await this.#requestJson({
+        path: PARTNERS_ACCESSIBLE_RESTAURANTS_PATH,
+        rateLimitKey: PARTNERS_ACCESSIBLE_RESTAURANTS_LIMITER_KEY,
+        requestScope: { kind: "credential" },
+      }),
+    );
   }
 
   async getConfigurationPagesJson(
     request: ToastConfigurationPagesRequest,
   ): Promise<readonly unknown[]> {
+    return (await this.getConfigurationPagesDetailed(request)).map(
+      (page) => page.body,
+    );
+  }
+
+  async getConfigurationPagesDetailed(
+    request: ToastConfigurationPagesRequest,
+  ): Promise<readonly ToastDetailedJsonResult[]> {
     const maxPages = request.maxPages ?? this.#maxConfigurationPages;
     const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
     if (maxPages < 1) {
@@ -302,7 +288,7 @@ export class ToastHttpClient {
     let restartCount = 0;
 
     for (;;) {
-      const pages: unknown[] = [];
+      const pages: ToastDetailedJsonResult[] = [];
       const seenTokens = new Set<string>();
       let pageToken: string | undefined;
 
@@ -318,49 +304,20 @@ export class ToastHttpClient {
         try {
           const response = await this.#requestJson({
             path: request.path,
-            restaurantGuid: request.restaurantGuid,
             query: { ...request.query, pageToken },
             rateLimitKey: request.rateLimitKey,
-            apiFamily: "standard",
+            requestScope: {
+              kind: "restaurant",
+              restaurantGuid: request.restaurantGuid,
+            },
           });
 
-          pages.push(response.body);
+          pages.push(publicDetailedResult(response));
 
           const nextToken = response.headers.get("toast-next-page-token");
           if (nextToken === null || nextToken === "") {
             return Object.freeze([...pages]);
           }
-          // Toast page tokens are treated as case-sensitive opaque values,
-          // compared and stored by exact string equality — deliberately,
-          // not by accident. Toast's pagination documentation does not
-          // state that `Toast-Next-Page-Token` is safe to compare
-          // case-insensitively, and common opaque-token encodings (base64,
-          // base64url, and similar) are legitimately case-sensitive: two
-          // tokens differing only by case can be genuinely distinct values
-          // encoding different pagination cursors, not the same cursor
-          // twice. Normalizing case before comparing/storing would risk
-          // treating two truly distinct tokens as identical and silently
-          // discarding real pages — a worse failure mode than the one this
-          // guards against.
-          //
-          // The accepted trade-off: two next-tokens differing only by case
-          // (e.g. "TOKEN-X" then "token-x") are treated as progress rather
-          // than caught as an immediate repeat. This traversal is still
-          // fail-closed either way — a genuine loop that happens to differ
-          // only by case degrades from a fast rejection after ~2 requests
-          // to a slower one bounded by `maxPages`
-          // (`configuration_page_bound_exceeded`), never an unbounded loop.
-          // See T1-005-R1-F1.
-          // `nextToken === pageToken` was previously checked here alongside
-          // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
-          // ever assigned a value immediately after that same value was
-          // added to `seenTokens` on the prior iteration (see the
-          // `seenTokens.add(nextToken); pageToken = nextToken;` pair below),
-          // so `pageToken` is always already a member of `seenTokens` by the
-          // time this check runs. `seenTokens.has(nextToken)` alone
-          // therefore already catches every case the redundant clause
-          // caught. Confirmed by removing it: zero regressions across all
-          // traversal tests. See T1-005-R1-F2.
           if (seenTokens.has(nextToken)) {
             throw new ToastHttpError(
               "configuration_page_token_repeated",
@@ -392,6 +349,8 @@ export class ToastHttpClient {
             }
 
             restartCount += 1;
+            // `pages` and its success metadata belong to the stale page set.
+            // Breaking to the outer loop discards both atomically.
             break;
           }
 
@@ -404,21 +363,23 @@ export class ToastHttpClient {
   async getOrdersBulkPages(
     request: ToastOrdersBulkPagesRequest,
   ): Promise<unknown[]> {
+    return (await this.getOrdersBulkPagesDetailed(request)).map(
+      (page) => page.body,
+    );
+  }
+
+  async getOrdersBulkPagesDetailed(
+    request: ToastOrdersBulkPagesRequest,
+  ): Promise<readonly ToastDetailedJsonResult[]> {
     if (
-      !Number.isInteger(request.pageSize)
-      || request.pageSize < 1
-      || request.pageSize > 100
+      !Number.isInteger(request.pageSize) ||
+      request.pageSize < 1 ||
+      request.pageSize > 100
     ) {
       throw paginationIntegrityError(
         "ordersBulk pageSize must be an integer between 1 and 100.",
       );
     }
-    // T1-006-R1-F4: `maxPages` was previously required with no default and
-    // no ceiling. It is now optional (defaulting to
-    // `DEFAULT_MAX_ORDERS_BULK_PAGES`) and rejected above
-    // `MAX_ALLOWED_ORDERS_BULK_PAGES` regardless of whether the caller
-    // supplied it explicitly or relied on the default -- see the composed
-    // worst-case comment beside `DEFAULT_MAX_ORDERS_BULK_PAGES`.
     const maxPages = request.maxPages ?? this.#maxOrdersBulkPages;
     if (!Number.isInteger(maxPages) || maxPages < 1) {
       throw paginationIntegrityError(
@@ -432,7 +393,7 @@ export class ToastHttpClient {
     }
 
     const boundedQuery = normalizedBoundedQuery(request.query);
-    const pages: unknown[] = [];
+    const pages: ToastDetailedJsonResult[] = [];
     let page = 1;
 
     while (true) {
@@ -444,42 +405,23 @@ export class ToastHttpClient {
 
       const result = await this.#requestJson({
         path: "/orders/v2/ordersBulk",
-        restaurantGuid: request.restaurantGuid,
         query: {
           ...request.query,
           page,
           pageSize: request.pageSize,
         },
         rateLimitKey: "ordersBulk",
+        requestScope: {
+          kind: "restaurant",
+          restaurantGuid: request.restaurantGuid,
+        },
       });
 
-      pages.push(result.body);
+      pages.push(publicDetailedResult(result));
 
-      // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
-      // every page number and every fetched page URL "for defense in
-      // depth" alongside the check below, but they were dead code --
-      // removed individually and in combination, 70/70 tests still passed.
-      // That is because `page` starts at 1 and only ever advances to a
-      // value `assertOrdersBulkNextUrl` has already proven equals
-      // `currentPage + 1`; by induction, every `page` this loop ever
-      // fetches is a distinct positive integer 1, 2, 3, ... in strictly
-      // increasing order, and `boundedQuery`/`pageSize` are invariant for
-      // the life of the call (enforced immediately below and by
-      // `assertOrdersBulkNextUrl`'s path/pageSize/query checks), so the
-      // constructed request URL for page N can never coincide with the URL
-      // for any other page. A repeated page number or a repeated page URL
-      // is therefore always already a `currentPage + 1` violation caught
-      // by the check below first -- tracking visited pages/URLs separately
-      // could never fire on its own. Decoupling duplicate detection from
-      // this invariant would require deliberately loosening the strict
-      // `+1` requirement (e.g. to accept a server that legitimately skips
-      // a page), which is not something this slice does; if a future
-      // change does that, duplicate detection must be reintroduced at that
-      // point, independently tested against a case that does not also
-      // violate whatever replaces this check. See T1-006-R1-F2.
       const nextUrl = linkRelations(result.headers).get("next");
       if (nextUrl === undefined) {
-        return pages;
+        return Object.freeze([...pages]);
       }
 
       const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
@@ -494,28 +436,26 @@ export class ToastHttpClient {
     }
   }
 
-  async #requestJson(request: ToastGetJsonRequest): Promise<JsonResponseResult> {
-    const apiFamily = request.apiFamily ?? "standard";
-    const stateKey = rateLimitStateKey(
-      apiFamily,
-      request.restaurantGuid,
-      request.rateLimitKey,
-    );
+  getRateLimitSnapshots(): readonly ToastRateLimitSnapshot[] {
+    return this.#rateLimits.list();
+  }
+
+  getRateLimitCoordinator(): ToastRateLimitCoordinator {
+    return this.#rateLimits;
+  }
+
+  async #requestJson(request: InternalJsonRequest): Promise<InternalJsonResponseResult> {
+    const apiFamily: ToastApiFamily = "standard";
+    const rateLimitContext = makeRateLimitContext({
+      path: request.path,
+      endpointKey: request.rateLimitKey,
+      requestScope: request.requestScope,
+    });
     let lastError: ToastHttpError | undefined;
 
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
-      await this.#waitForKnownRateLimit(stateKey);
+      await this.#waitForKnownRateLimit(rateLimitContext);
 
-      // Acquire the authorization header in its own try/catch, outside the
-      // fetch-transport try below. `getAuthorizationHeader()` never reaches
-      // the network when it throws (an expired/invalid credential, a token
-      // endpoint failure already classified by `auth.ts`, and so on); it is a
-      // credential/config failure, not a Toast Data API transport hiccup.
-      // Letting it fall into the network catch mischaracterized a permanent
-      // credential failure as `request_network_error` with `retryable: true`,
-      // which retried something AGENTS.md rule 11 requires to fail closed
-      // instead. Deliberately do not read or interpolate the caught value,
-      // matching the sanitization discipline in `auth.ts`.
       let authorizationHeader: string;
       try {
         authorizationHeader = await this.#tokenManager.getAuthorizationHeader();
@@ -527,16 +467,12 @@ export class ToastHttpClient {
         );
       }
 
-      let response: Response;
       const url = this.#buildUrl(request);
+      let response: Response;
       try {
         response = await this.#fetch(url, {
           method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: authorizationHeader,
-            "toast-restaurant-external-id": request.restaurantGuid,
-          },
+          headers: requestHeaders(authorizationHeader, request.requestScope),
         });
       } catch {
         lastError = new ToastHttpError(
@@ -549,13 +485,8 @@ export class ToastHttpClient {
         continue;
       }
 
-      this.#recordRateLimit(
-        stateKey,
-        apiFamily,
-        request.restaurantGuid,
-        request.rateLimitKey,
-        response,
-      );
+      const retrievedAtEpochMs = this.#now();
+      this.#recordRateLimit(rateLimitContext, response, retrievedAtEpochMs);
 
       if (!response.ok) {
         const retryable = RETRYABLE_STATUSES.has(response.status);
@@ -576,18 +507,21 @@ export class ToastHttpClient {
 
         await this.#sleepBeforeRetry(
           attempt,
-          retryDelayFromHeaders(response, this.#now()),
+          retryDelayFromHeaders(response, retrievedAtEpochMs),
           apiFamily,
         );
         continue;
       }
 
       try {
-        return {
-          body: await response.json(),
+        const body = await response.json();
+        return Object.freeze({
+          body,
           headers: response.headers,
           url,
-        };
+          retrievedAtEpochMs,
+          ...requestIdMetadata(response),
+        });
       } catch {
         throw new ToastHttpError(
           "response_invalid_json",
@@ -602,24 +536,17 @@ export class ToastHttpClient {
       }
     }
 
-    throw lastError ?? new ToastHttpError(
-      "request_network_error",
-      "Toast data request failed before a response was received.",
-      { apiFamily, retryable: true },
+    throw (
+      lastError ??
+      new ToastHttpError(
+        "request_network_error",
+        "Toast data request failed before a response was received.",
+        { apiFamily, retryable: true },
+      )
     );
   }
 
-  getRateLimitSnapshot(
-    apiFamily: ToastApiFamily,
-    restaurantGuid: string,
-    key: string,
-  ): ToastRateLimitSnapshot | undefined {
-    return this.#rateLimits.get(
-      rateLimitStateKey(apiFamily, restaurantGuid, key),
-    );
-  }
-
-  #buildUrl(request: ToastGetJsonRequest): string {
+  #buildUrl(request: InternalJsonRequest): string {
     const url = new URL(`https://${this.#config.apiHostname}${request.path}`);
 
     for (const [key, value] of Object.entries(request.query ?? {})) {
@@ -632,26 +559,42 @@ export class ToastHttpClient {
   }
 
   #recordRateLimit(
-    stateKey: string,
-    apiFamily: ToastApiFamily,
-    restaurantGuid: string,
-    key: string,
+    context: ToastRateLimitRequestContext,
     response: Response,
+    observedAtEpochMs: number,
   ): void {
-    const now = this.#now();
-    const retryAfterEpochMs = retryAfterEpochMsFromHeaders(response, now);
-    const snapshot: ToastRateLimitSnapshot = Object.freeze({
-      apiFamily,
-      restaurantGuid,
-      key,
-      limit: numericHeader(response, "toast-ratelimit-limit"),
-      remaining: numericHeader(response, "toast-ratelimit-remaining"),
-      resetAtEpochMs: epochHeader(response, "toast-ratelimit-reset"),
-      retryAfterEpochMs,
-      updatedAtEpochMs: now,
-    });
+    const byHeader = response.headers.get("x-toast-ratelimit-by");
+    const remaining = parseNonNegativeIntegerHeader(
+      response.headers.get("x-toast-ratelimit-remaining"),
+    );
+    const resetAtEpochMs = parseToastResetEpochMs(
+      response.headers.get("x-toast-ratelimit-reset"),
+    );
+    const retryAfterEpochMs = parseRetryAfterEpochMs(
+      response.headers.get("retry-after"),
+      observedAtEpochMs,
+    );
 
-    this.#rateLimits.set(stateKey, snapshot);
+    if (
+      byHeader === null &&
+      remaining === undefined &&
+      resetAtEpochMs === undefined &&
+      retryAfterEpochMs === undefined
+    ) {
+      return;
+    }
+
+    this.#rateLimits.record({
+      context,
+      by:
+        byHeader === null
+          ? conservativeRateLimitBy()
+          : parseToastRateLimitBy(byHeader),
+      remaining,
+      resetAtEpochMs,
+      retryAfterEpochMs,
+      observedAtEpochMs,
+    });
   }
 
   async #sleepBeforeRetry(
@@ -663,12 +606,10 @@ export class ToastHttpClient {
       return;
     }
 
-    // A server-derived delay (Retry-After, or a rate-limit reset fed back
-    // from a prior response) is honored up to the ceiling, but never past
-    // it — clamping it down to the ceiling and retrying early would ignore
-    // what Toast asked for and risk repeating the exact violation that
-    // triggered the wait. See T1-004-R1-F2 and DEFAULT_MAX_RATE_LIMIT_WAIT_MS.
-    if (serverDelayMs !== undefined && serverDelayMs > this.#maxRateLimitWaitMs) {
+    if (
+      serverDelayMs !== undefined &&
+      serverDelayMs > this.#maxRateLimitWaitMs
+    ) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
         "Toast requested a retry wait longer than the configured rate-limit wait ceiling.",
@@ -684,25 +625,24 @@ export class ToastHttpClient {
     await this.#sleep(Math.max(serverDelayMs ?? 0, jitteredDelayMs));
   }
 
-  async #waitForKnownRateLimit(stateKey: string): Promise<void> {
-    const snapshot = this.#rateLimits.get(stateKey);
-    if (snapshot?.retryAfterEpochMs === undefined) {
+  async #waitForKnownRateLimit(
+    context: ToastRateLimitRequestContext,
+  ): Promise<void> {
+    const waitUntilEpochMs = this.#rateLimits.requiredWaitUntilEpochMs(context);
+    if (waitUntilEpochMs === undefined) {
       return;
     }
 
-    const waitMs = snapshot.retryAfterEpochMs - this.#now();
+    const waitMs = waitUntilEpochMs - this.#now();
     if (waitMs <= 0) {
       return;
     }
 
-    // Same ceiling as #sleepBeforeRetry, applied pre-flight: a stored reset
-    // far in the future must not block an unrelated later call for its
-    // full duration. See T1-004-R1-F2.
     if (waitMs > this.#maxRateLimitWaitMs) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
         "A stored Toast rate-limit reset is further in the future than the configured rate-limit wait ceiling.",
-        { apiFamily: snapshot.apiFamily, retryable: false },
+        { apiFamily: "standard", retryable: false },
       );
     }
 
@@ -718,11 +658,58 @@ export function createToastHttpClient(
   return new ToastHttpClient(config, tokenManager, options);
 }
 
+function publicDetailedResult(
+  result: InternalJsonResponseResult,
+): ToastDetailedJsonResult {
+  return Object.freeze({
+    body: result.body,
+    url: result.url,
+    retrievedAtEpochMs: result.retrievedAtEpochMs,
+    ...(result.upstreamRequestId !== undefined
+      ? { upstreamRequestId: result.upstreamRequestId }
+      : {}),
+  });
+}
+
+function requestHeaders(
+  authorizationHeader: string,
+  requestScope: ToastRequestScope,
+): Record<string, string> {
+  return requestScope.kind === "restaurant"
+    ? {
+        accept: "application/json",
+        authorization: authorizationHeader,
+        "toast-restaurant-external-id": requestScope.restaurantGuid,
+      }
+    : {
+        accept: "application/json",
+        authorization: authorizationHeader,
+      };
+}
+
 function requestIdMetadata(
   response: Response,
 ): { readonly upstreamRequestId?: string } {
   const upstreamRequestId = response.headers.get("toast-request-id");
   return upstreamRequestId !== null ? { upstreamRequestId } : {};
+}
+
+function retryDelayFromHeaders(
+  response: Response,
+  nowEpochMs: number,
+): number | undefined {
+  const retryAt = parseRetryAfterEpochMs(
+    response.headers.get("retry-after"),
+    nowEpochMs,
+  );
+  const resetAt = parseToastResetEpochMs(
+    response.headers.get("x-toast-ratelimit-reset"),
+  );
+  const candidates = [retryAt, resetAt]
+    .filter((value): value is number => value !== undefined)
+    .map((value) => Math.max(0, value - nowEpochMs));
+
+  return candidates.length === 0 ? undefined : Math.max(...candidates);
 }
 
 function paginationIntegrityError(message: string): ToastHttpError {
@@ -733,208 +720,19 @@ function paginationIntegrityError(message: string): ToastHttpError {
 }
 
 function normalizedBoundedQuery(
-  query: ToastGetJsonRequest["query"],
+  query:
+    | Readonly<Record<string, string | number | boolean | undefined>>
+    | undefined,
 ): ReadonlyMap<string, string> {
-  const result = new Map<string, string>();
+  const normalized = new Map<string, string>();
+
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && key !== "page" && key !== "pageSize") {
-      result.set(key, String(value));
-    }
-  }
-  return result;
-}
-
-/**
- * Splits `input` on top-level occurrences of `delimiter` — occurrences
- * outside a `"..."` quoted-string. RFC 8288 (`rel`, and any other Link
- * parameter) permits a quoted-string value to itself contain the comma that
- * separates link-values or the semicolon that separates link-params (for
- * example `title="foo, bar; baz"`), so a naive `String.split` on either
- * delimiter would incorrectly split inside such a value. Quoted-pair
- * escapes (`\"`, `\\`, ...) are honored so an escaped quote does not
- * prematurely end the quoted region.
- */
-function splitOutsideQuotes(input: string, delimiter: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < input.length; i += 1) {
-    const char = input[i];
-
-    if (inQuotes) {
-      if (char === "\\" && i + 1 < input.length) {
-        current += char + input[i + 1];
-        i += 1;
-        continue;
-      }
-      if (char === "\"") {
-        inQuotes = false;
-      }
-      current += char;
-      continue;
-    }
-
-    if (char === "\"") {
-      inQuotes = true;
-      current += char;
-      continue;
-    }
-
-    if (char === delimiter) {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  parts.push(current);
-  return parts;
-}
-
-interface ParsedLinkValue {
-  readonly target: string;
-  readonly params: ReadonlyMap<string, string>;
-}
-
-/**
- * Parses one RFC 8288 link-value (`<target-uri> *( ";" link-param )`).
- * Throws on any structural deviation — an unclosed `<...>`, no `<...>` at
- * all, or a parameter with no `=` — rather than silently returning an
- * incomplete result. Parameter names are returned lower-cased; parameter
- * values are unquoted and unescaped when the RFC 8288 quoted-string form is
- * used, and returned verbatim when the RFC 8288 unquoted-token form is
- * used (`rel=next` is explicitly legal, not just `rel="next"`).
- */
-function parseLinkValue(segment: string): ParsedLinkValue {
-  const trimmed = segment.trim();
-  const targetMatch = /^<([^<>]*)>/u.exec(trimmed);
-  if (targetMatch === null || (targetMatch[1] ?? "").length === 0) {
-    throw new Error("link-value is missing a well-formed <target-uri>");
-  }
-
-  const target = targetMatch[1] ?? "";
-  const rest = trimmed.slice(targetMatch[0].length).trim();
-  const params = new Map<string, string>();
-
-  if (rest.length > 0) {
-    if (!rest.startsWith(";")) {
-      throw new Error("link-value has content after <target-uri> that is not a parameter");
-    }
-
-    for (const rawParam of splitOutsideQuotes(rest.slice(1), ";")) {
-      const paramTrimmed = rawParam.trim();
-      if (paramTrimmed.length === 0) {
-        // A stray "; ;" or trailing ";" — tolerated as an empty parameter
-        // slot rather than treated as a structural failure.
-        continue;
-      }
-
-      const equalsIndex = paramTrimmed.indexOf("=");
-      if (equalsIndex === -1) {
-        throw new Error("link-param is missing '='");
-      }
-
-      const name = paramTrimmed.slice(0, equalsIndex).trim().toLowerCase();
-      let value = paramTrimmed.slice(equalsIndex + 1).trim();
-      if (value.startsWith("\"") && value.endsWith("\"") && value.length >= 2) {
-        value = value.slice(1, -1).replace(/\\(.)/gu, "$1");
-      }
-
-      if (name.length === 0 || value.length === 0) {
-        throw new Error("link-param has an empty name or value");
-      }
-
-      params.set(name, value);
+      normalized.set(key, String(value));
     }
   }
 
-  return { target, params };
-}
-
-/**
- * Parses the `Link` response header into a relation-type -> target-URI map,
- * matching relation types and parameter names case-insensitively and
- * accepting `rel` as either the RFC 8288 quoted-string or unquoted-token
- * form, in any parameter position and alongside any other parameter.
- *
- * T1-006-R1-F1 / T1-006-R1-S1: the prior implementation used
- * `/^\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*$/u`, which matched only a segment
- * that was *exactly* `<url>; rel="value"` — quoted, `rel`-only, `rel`-first,
- * case-sensitive. Every other RFC 8288-legal shape (`rel=next` unquoted,
- * `Rel="Next"`, `REL="NEXT"`, an extra parameter before or after `rel`, two
- * `Link` headers joined by the Fetch API) silently produced an empty
- * relation map — structurally indistinguishable from a genuinely absent
- * header — so an otherwise-complete traversal reported success after only
- * page 1. Per AGENTS.md rule 11 and the completion contract in
- * `docs/architecture/public-use-boundary.md` ("return `partial` or `denied`
- * when completion cannot be proven"), a `Link` header that is present but
- * does not parse as valid RFC 8288 syntax must fail closed rather than be
- * treated as absent — thrown here as `pagination_integrity_failed` with a
- * static message, never interpolating the raw header value.
- */
-function linkRelations(headers: Headers): ReadonlyMap<string, string> {
-  const header = headers.get("link");
-  if (header === null) {
-    return new Map();
-  }
-  if (header.trim().length === 0) {
-    // An empty Link header is legitimately equivalent to an absent one —
-    // there is nothing to parse and nothing to fail closed on.
-    return new Map();
-  }
-
-  const result = new Map<string, string>();
-
-  for (const segment of splitOutsideQuotes(header, ",")) {
-    if (segment.trim().length === 0) {
-      throw paginationIntegrityError(
-        "ordersBulk pagination received a Link header that could not be parsed.",
-      );
-    }
-
-    let parsed: ParsedLinkValue;
-    try {
-      parsed = parseLinkValue(segment);
-    } catch {
-      throw paginationIntegrityError(
-        "ordersBulk pagination received a Link header that could not be parsed.",
-      );
-    }
-
-    const relParam = parsed.params.get("rel");
-    if (relParam === undefined) {
-      // A structurally valid link-value with no `rel` parameter at all is
-      // not this traversal's concern; it simply contributes no relation.
-      continue;
-    }
-
-    // RFC 8288 allows `rel` to hold a space-separated list of relation
-    // types sharing one target URI.
-    for (const relType of relParam.split(/\s+/u)) {
-      if (relType.length === 0) {
-        continue;
-      }
-      const relTypeLower = relType.toLowerCase();
-      if (!result.has(relTypeLower)) {
-        result.set(relTypeLower, parsed.target);
-      }
-    }
-  }
-
-  return result;
-}
-
-function parsePaginationUrl(nextUrl: string, baseUrl: string): URL {
-  try {
-    return new URL(nextUrl, baseUrl);
-  } catch {
-    throw paginationIntegrityError(
-      "ordersBulk pagination received an unusable next Link URL.",
-    );
-  }
+  return normalized;
 }
 
 function assertOrdersBulkNextUrl(
@@ -945,40 +743,68 @@ function assertOrdersBulkNextUrl(
 ): void {
   if (nextUrl.pathname !== "/orders/v2/ordersBulk") {
     throw paginationIntegrityError(
-      "ordersBulk pagination next Link changed the endpoint path.",
+      "ordersBulk next link changed the endpoint path.",
     );
   }
 
-  // T1-006-R1-F2: this single check -- the next page must equal exactly
-  // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
-  // See the comment beside its call site in `getOrdersBulkPages` for why
-  // separate `visitedPages`/`visitedUrls` tracking was removed as dead code
-  // rather than kept as apparent (but non-functional) defense in depth.
-  const nextPageText = nextUrl.searchParams.get("page");
-  const nextPage = nextPageText === null ? NaN : Number(nextPageText);
-  if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
+  const pageValues = nextUrl.searchParams.getAll("page");
+  const pageSizeValues = nextUrl.searchParams.getAll("pageSize");
+  if (pageValues.length !== 1 || pageSizeValues.length !== 1) {
     throw paginationIntegrityError(
-      "ordersBulk pagination next Link did not advance to a new page.",
+      "ordersBulk next link must contain exactly one page and pageSize value.",
     );
   }
 
-  if (nextUrl.searchParams.get("pageSize") !== String(pageSize)) {
+  const nextPage = parsePositiveInteger(pageValues[0]);
+  const nextPageSize = parsePositiveInteger(pageSizeValues[0]);
+  if (nextPage !== currentPage + 1) {
     throw paginationIntegrityError(
-      "ordersBulk pagination next Link changed pageSize.",
+      "ordersBulk next link did not advance to the immediately following page.",
+    );
+  }
+  if (nextPageSize !== pageSize) {
+    throw paginationIntegrityError(
+      "ordersBulk next link changed the bounded pageSize.",
     );
   }
 
-  const nextBoundedQuery = normalizedBoundedQuery(
-    Object.fromEntries(nextUrl.searchParams.entries()),
-  );
-  if (!sameQuery(boundedQuery, nextBoundedQuery)) {
+  const actualBoundedQuery = new Map<string, string>();
+  for (const [key, value] of nextUrl.searchParams.entries()) {
+    if (key !== "page" && key !== "pageSize") {
+      if (actualBoundedQuery.has(key)) {
+        throw paginationIntegrityError(
+          "ordersBulk next link repeated a bounded query parameter.",
+        );
+      }
+      actualBoundedQuery.set(key, value);
+    }
+  }
+
+  if (!sameStringMap(actualBoundedQuery, boundedQuery)) {
     throw paginationIntegrityError(
-      "ordersBulk pagination next Link changed the bounded query.",
+      "ordersBulk next link changed the original bounded query.",
     );
   }
 }
 
-function sameQuery(
+function parsePositiveInteger(value: string | undefined): number {
+  if (value === undefined || !/^\d+$/u.test(value)) {
+    throw paginationIntegrityError(
+      "ordersBulk next link contained an invalid page value.",
+    );
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw paginationIntegrityError(
+      "ordersBulk next link contained an invalid page value.",
+    );
+  }
+
+  return parsed;
+}
+
+function sameStringMap(
   left: ReadonlyMap<string, string>,
   right: ReadonlyMap<string, string>,
 ): boolean {
@@ -993,103 +819,234 @@ function sameQuery(
   return true;
 }
 
-function retryDelayFromHeaders(
-  response: Response,
-  now: number,
-): number | undefined {
-  const retryAfterEpochMs = retryAfterEpochMsFromHeaders(response, now);
-  return retryAfterEpochMs === undefined
-    ? undefined
-    : Math.max(0, retryAfterEpochMs - now);
-}
+function linkRelations(headers: Headers): ReadonlyMap<string, string> {
+  const values = linkHeaderValues(headers);
+  if (values.length === 0) {
+    return new Map();
+  }
 
-function retryAfterEpochMsFromHeaders(
-  response: Response,
-  now: number,
-): number | undefined {
-  const retryAfter = response.headers.get("retry-after");
-  if (retryAfter !== null) {
-    // RFC 7231 permits `Retry-After` as either delta-seconds or an HTTP-date.
-    // Try delta-seconds first; only a string of digits parses as a safe
-    // non-negative integer here, so an HTTP-date (which begins with a day
-    // name, e.g. "Wed, 21 Oct 2026 07:28:00 GMT") correctly falls through
-    // to the Date.parse fallback below rather than being misread. Without
-    // that fallback, an HTTP-date yielded NaN and the header was silently
-    // ignored, producing a sleep of 0 for a wait Toast asked for an hour
-    // out. The clamp in #sleepBeforeRetry / #waitForKnownRateLimit (see
-    // DEFAULT_MAX_RATE_LIMIT_WAIT_MS, T1-004-R1-F2) applies to whichever
-    // form resolves here.
-    const seconds = Number.parseInt(retryAfter, 10);
-    if (Number.isSafeInteger(seconds) && seconds >= 0) {
-      return now + seconds * 1000;
-    }
-
-    const parsedDateEpochMs = Date.parse(retryAfter);
-    if (!Number.isNaN(parsedDateEpochMs)) {
-      return parsedDateEpochMs;
+  const relations = new Map<string, string>();
+  for (const value of values) {
+    const entries = splitLinkHeader(value);
+    for (const entry of entries) {
+      const parsed = parseLinkEntry(entry);
+      for (const relation of parsed.relations) {
+        if (relations.has(relation)) {
+          throw paginationIntegrityError(
+            "Toast Link header contained a repeated relation.",
+          );
+        }
+        relations.set(relation, parsed.target);
+      }
     }
   }
 
-  return numericHeader(response, "toast-ratelimit-remaining") === 0
-    ? epochHeader(response, "toast-ratelimit-reset")
-    : undefined;
+  return relations;
 }
 
-function numericHeader(response: Response, name: string): number | undefined {
-  const raw = response.headers.get(name);
-  if (raw === null) {
-    return undefined;
+function linkHeaderValues(headers: Headers): string[] {
+  const nodeHeaders = headers as Headers & {
+    getSetCookie?: () => string[];
+    raw?: () => Record<string, string[]>;
+  };
+  const raw = nodeHeaders.raw?.();
+  if (raw !== undefined) {
+    const values = Object.entries(raw)
+      .filter(([name]) => name.toLowerCase() === "link")
+      .flatMap(([, values]) => values);
+    if (values.length > 0) {
+      return values;
+    }
   }
 
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+  const combined = headers.get("link");
+  return combined === null ? [] : [combined];
 }
 
-/**
- * Interprets a Toast rate-limit "reset" header (currently only
- * `toast-ratelimit-reset`) as an absolute point in time, never a relative
- * delta — an original implementation assumption, not sourced from Toast
- * documentation. See the "Rate-limit-reset header semantics" note in
- * `docs/research/toast-api-reporting-landscape.md` for the full reasoning
- * and its consequence (a genuinely relative-delta value would be
- * misinterpreted as an already-past absolute timestamp and silently never
- * trigger a wait). See T1-004-R1-F4.
- */
-function epochHeader(response: Response, name: string): number | undefined {
-  const parsed = numericHeader(response, name);
-  if (parsed === undefined) {
-    return undefined;
+function splitLinkHeader(value: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  let inAngle = false;
+  let escaped = false;
+
+  for (const character of value) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && inQuotes) {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"' && !inAngle) {
+      inQuotes = !inQuotes;
+      current += character;
+      continue;
+    }
+    if (character === "<" && !inQuotes) {
+      inAngle = true;
+      current += character;
+      continue;
+    }
+    if (character === ">" && !inQuotes) {
+      inAngle = false;
+      current += character;
+      continue;
+    }
+    if (character === "," && !inQuotes && !inAngle) {
+      if (current.trim().length === 0) {
+        throw paginationIntegrityError(
+          "Toast Link header contained an empty entry.",
+        );
+      }
+      entries.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
   }
 
-  return parsed > 9_999_999_999 ? parsed : parsed * 1000;
+  if (inQuotes || inAngle || escaped || current.trim().length === 0) {
+    throw paginationIntegrityError("Toast Link header was malformed.");
+  }
+  entries.push(current.trim());
+  return entries;
 }
 
-/**
- * Sole constructor of rate-limit map keys.
- *
- * AGENTS.md rule 6 ("Location isolation is mandatory") requires every cache
- * key to be explicitly bound to a restaurant GUID. `restaurantGuid` was
- * previously used only for the outbound `toast-restaurant-external-id`
- * header and never entered the key derived here, so two distinct
- * restaurants sharing a `rateLimitKey` (for example `"ordersBulk"`) shared
- * one rate-limit bucket: location A's exhausted quota blocked location B.
- * See T1-004-R1-S1 / T1-004-R1-F7.
- *
- * `restaurantGuid` is a required, non-optional parameter — not a caller
- * convention — so a bare `apiFamily:key` state key can no longer be
- * constructed from this module at all. Every caller of this function (both
- * within this file) must supply it.
- */
-function rateLimitStateKey(
-  apiFamily: ToastApiFamily,
-  restaurantGuid: string,
-  key: string,
-): string {
-  return `${apiFamily}:${restaurantGuid}:${key}`;
+function parseLinkEntry(entry: string): {
+  readonly target: string;
+  readonly relations: readonly string[];
+} {
+  if (!entry.startsWith("<")) {
+    throw paginationIntegrityError("Toast Link header entry was malformed.");
+  }
+  const closing = entry.indexOf(">");
+  if (closing <= 1) {
+    throw paginationIntegrityError("Toast Link header entry was malformed.");
+  }
+
+  const target = entry.slice(1, closing);
+  const parameters = parseLinkParameters(entry.slice(closing + 1));
+  const relValue = parameters
+    .filter(([name]) => name.toLowerCase() === "rel")
+    .map(([, value]) => value);
+  if (relValue.length !== 1 || relValue[0] === undefined) {
+    throw paginationIntegrityError(
+      "Toast Link header entry did not contain exactly one rel parameter.",
+    );
+  }
+
+  const relations = relValue[0]
+    .trim()
+    .split(/\s+/u)
+    .filter((relation) => relation.length > 0)
+    .map((relation) => relation.toLowerCase());
+  if (relations.length === 0) {
+    throw paginationIntegrityError(
+      "Toast Link header entry contained an empty rel parameter.",
+    );
+  }
+
+  return { target, relations };
+}
+
+function parseLinkParameters(value: string): Array<[string, string]> {
+  const parameters: Array<[string, string]> = [];
+  let index = 0;
+
+  while (index < value.length) {
+    while (/\s/u.test(value[index] ?? "")) {
+      index += 1;
+    }
+    if (index >= value.length) {
+      break;
+    }
+    if (value[index] !== ";") {
+      throw paginationIntegrityError("Toast Link header parameter was malformed.");
+    }
+    index += 1;
+    while (/\s/u.test(value[index] ?? "")) {
+      index += 1;
+    }
+
+    const nameStart = index;
+    while (index < value.length && /[!#$%&'*+.^_`|~0-9A-Za-z-]/u.test(value[index] ?? "")) {
+      index += 1;
+    }
+    if (index === nameStart) {
+      throw paginationIntegrityError("Toast Link header parameter name was malformed.");
+    }
+    const name = value.slice(nameStart, index);
+    while (/\s/u.test(value[index] ?? "")) {
+      index += 1;
+    }
+    if (value[index] !== "=") {
+      throw paginationIntegrityError("Toast Link header parameter was malformed.");
+    }
+    index += 1;
+    while (/\s/u.test(value[index] ?? "")) {
+      index += 1;
+    }
+
+    let parameterValue = "";
+    if (value[index] === '"') {
+      index += 1;
+      let closed = false;
+      while (index < value.length) {
+        const character = value[index];
+        if (character === "\\") {
+          const escaped = value[index + 1];
+          if (escaped === undefined) {
+            throw paginationIntegrityError("Toast Link header quoted parameter was malformed.");
+          }
+          parameterValue += escaped;
+          index += 2;
+          continue;
+        }
+        if (character === '"') {
+          index += 1;
+          closed = true;
+          break;
+        }
+        parameterValue += character;
+        index += 1;
+      }
+      if (!closed) {
+        throw paginationIntegrityError("Toast Link header quoted parameter was malformed.");
+      }
+    } else {
+      const valueStart = index;
+      while (index < value.length && value[index] !== ";") {
+        if (value[index] === ",") {
+          break;
+        }
+        index += 1;
+      }
+      parameterValue = value.slice(valueStart, index).trim();
+      if (parameterValue.length === 0) {
+        throw paginationIntegrityError("Toast Link header parameter value was empty.");
+      }
+    }
+
+    parameters.push([name, parameterValue]);
+  }
+
+  return parameters;
+}
+
+function parsePaginationUrl(value: string, baseUrl: string): URL {
+  try {
+    return new URL(value, baseUrl);
+  } catch {
+    throw paginationIntegrityError("Toast pagination returned an unusable next URL.");
+  }
 }
 
 async function defaultSleep(milliseconds: number): Promise<void> {
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve) => {
     setTimeout(resolve, milliseconds);
   });
 }
