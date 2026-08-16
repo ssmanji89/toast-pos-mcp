@@ -12,7 +12,7 @@ const PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY = "partnersAccessibleRestau
  * ceiling) into the true worst-case raw fetch-call count for a single
  * `getConfigurationPagesJson` traversal. Each page-token traversal attempt
  * fetches at most `maxPages` pages; a scoped 409 restart (see
- * `getConfigurationPagesJson`) discards the partial page set and starts a
+ * `getConfigurationPagesDetailed`) discards the partial page set and starts a
  * fresh traversal attempt, up to `maxRestarts` times, so the traversal
  * fetches at most `maxPages * (maxRestarts + 1)` page requests. Every one of
  * those page requests is itself retried by `#requestJson` up to
@@ -157,6 +157,19 @@ export interface ToastOrdersBulkPagesRequest {
   readonly maxPages?: number;
 }
 
+/**
+ * Success-path metadata needed by deterministic report envelopes. A request
+ * ID is optional because Toast's public documentation does not establish that
+ * every successful response carries one. `retrievedAtEpochMs` is sampled only
+ * after the successful JSON body has been parsed; retry/failed-attempt timing
+ * is deliberately excluded from this result.
+ */
+export interface ToastDetailedJsonResult {
+  readonly body: unknown;
+  readonly retrievedAtEpochMs: number;
+  readonly upstreamRequestId: string | undefined;
+}
+
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
   readonly restaurantGuid: string;
@@ -238,6 +251,8 @@ export interface ToastHttpClientOptions {
 interface JsonResponseResult {
   readonly body: unknown;
   readonly headers: Headers;
+  readonly retrievedAtEpochMs: number;
+  readonly upstreamRequestId: string | undefined;
   readonly url: string;
 }
 
@@ -312,8 +327,15 @@ export class ToastHttpClient {
     }
   }
 
+  /** Backward-compatible body-only projection. */
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
-    return (await this.#requestJson(request)).body;
+    return (await this.getJsonDetailed(request)).body;
+  }
+
+  async getJsonDetailed(
+    request: ToastGetJsonRequest,
+  ): Promise<ToastDetailedJsonResult> {
+    return detailedResult(await this.#requestJson(request));
   }
 
   /**
@@ -329,16 +351,28 @@ export class ToastHttpClient {
    * documentation contradicts itself on that point.
    */
   async getAccessibleRestaurantsJson(): Promise<unknown> {
-    return (await this.#requestJson({
+    return (await this.getAccessibleRestaurantsJsonDetailed()).body;
+  }
+
+  async getAccessibleRestaurantsJsonDetailed(): Promise<ToastDetailedJsonResult> {
+    return detailedResult(await this.#requestJson({
       path: PARTNERS_ACCESSIBLE_RESTAURANTS_PATH,
       rateLimitKey: PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY,
       apiFamily: "standard",
-    })).body;
+    }));
   }
 
+  /** Backward-compatible body-only projection of retained pages. */
   async getConfigurationPagesJson(
     request: ToastConfigurationPagesRequest,
   ): Promise<readonly unknown[]> {
+    const pages = await this.getConfigurationPagesDetailed(request);
+    return Object.freeze(pages.map((page) => page.body));
+  }
+
+  async getConfigurationPagesDetailed(
+    request: ToastConfigurationPagesRequest,
+  ): Promise<readonly ToastDetailedJsonResult[]> {
     const maxPages = request.maxPages ?? this.#maxConfigurationPages;
     const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
     if (maxPages < 1) {
@@ -358,7 +392,10 @@ export class ToastHttpClient {
     let restartCount = 0;
 
     for (;;) {
-      const pages: unknown[] = [];
+      // This array is scoped to one traversal attempt. A scoped 409 breaks
+      // out to a fresh attempt, so both stale bodies and their success
+      // metadata are discarded together rather than leaking into the result.
+      const pages: ToastDetailedJsonResult[] = [];
       const seenTokens = new Set<string>();
       let pageToken: string | undefined;
 
@@ -380,7 +417,7 @@ export class ToastHttpClient {
             apiFamily: "standard",
           });
 
-          pages.push(response.body);
+          pages.push(detailedResult(response));
 
           const nextToken = response.headers.get("toast-next-page-token");
           if (nextToken === null || nextToken === "") {
@@ -457,9 +494,19 @@ export class ToastHttpClient {
     }
   }
 
+  /** Backward-compatible body-only projection of retained pages. */
   async getOrdersBulkPages(
     request: ToastOrdersBulkPagesRequest,
   ): Promise<unknown[]> {
+    const pages = await this.getOrdersBulkPagesDetailed(request);
+    // Preserve the historical mutable array wrapper even though detailed
+    // metadata/page entries are immutable.
+    return pages.map((page) => page.body);
+  }
+
+  async getOrdersBulkPagesDetailed(
+    request: ToastOrdersBulkPagesRequest,
+  ): Promise<readonly ToastDetailedJsonResult[]> {
     if (
       !Number.isInteger(request.pageSize)
       || request.pageSize < 1
@@ -488,7 +535,7 @@ export class ToastHttpClient {
     }
 
     const boundedQuery = normalizedBoundedQuery(request.query);
-    const pages: unknown[] = [];
+    const pages: ToastDetailedJsonResult[] = [];
     let page = 1;
 
     while (true) {
@@ -509,7 +556,7 @@ export class ToastHttpClient {
         rateLimitKey: "ordersBulk",
       });
 
-      pages.push(result.body);
+      pages.push(detailedResult(result));
 
       // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
       // every page number and every fetched page URL "for defense in
@@ -535,7 +582,7 @@ export class ToastHttpClient {
       // violate whatever replaces this check. See T1-006-R1-F2.
       const nextUrl = linkRelations(result.headers).get("next");
       if (nextUrl === undefined) {
-        return pages;
+        return Object.freeze([...pages]);
       }
 
       const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
@@ -654,9 +701,12 @@ export class ToastHttpClient {
       }
 
       try {
+        const body = await response.json();
         return {
-          body: await response.json(),
+          body,
           headers: response.headers,
+          retrievedAtEpochMs: this.#now(),
+          upstreamRequestId: requestIdFromResponse(response),
           url,
         };
       } catch {
@@ -826,11 +876,23 @@ export function createToastHttpClient(
   return new ToastHttpClient(config, tokenManager, options);
 }
 
+function detailedResult(result: JsonResponseResult): ToastDetailedJsonResult {
+  return Object.freeze({
+    body: result.body,
+    retrievedAtEpochMs: result.retrievedAtEpochMs,
+    upstreamRequestId: result.upstreamRequestId,
+  });
+}
+
+function requestIdFromResponse(response: Response): string | undefined {
+  return response.headers.get("toast-request-id") ?? undefined;
+}
+
 function requestIdMetadata(
   response: Response,
 ): { readonly upstreamRequestId?: string } {
-  const upstreamRequestId = response.headers.get("toast-request-id");
-  return upstreamRequestId !== null ? { upstreamRequestId } : {};
+  const upstreamRequestId = requestIdFromResponse(response);
+  return upstreamRequestId === undefined ? {} : { upstreamRequestId };
 }
 
 function paginationIntegrityError(message: string): ToastHttpError {
@@ -1059,9 +1121,9 @@ function assertOrdersBulkNextUrl(
 
   // T1-006-R1-F2: this single check -- the next page must equal exactly
   // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
-  // See the comment beside its call site in `getOrdersBulkPages` for why
-  // separate `visitedPages`/`visitedUrls` tracking was removed as dead code
-  // rather than kept as apparent (but non-functional) defense in depth.
+  // See the comment beside its call site in `getOrdersBulkPagesDetailed` for
+  // why separate `visitedPages`/`visitedUrls` tracking was removed as dead
+  // code rather than kept as apparent (but non-functional) defense in depth.
   const nextPageText = nextUrl.searchParams.get("page");
   const nextPage = nextPageText === null ? NaN : Number(nextPageText);
   if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
@@ -1174,10 +1236,10 @@ function epochHeader(response: Response, name: string): number | undefined {
 
 /**
  * Restaurant-scoped rate-limit keys remain structurally bound to restaurant
- * GUID, closing T1-004-R1-S1/F7. The `:restaurant:` namespace added by this
- * repair is intentionally disjoint from the one allowlisted credential-wide
- * source's `:credential:` namespace below, so credential-scoped discovery
- * can never block or inherit a restaurant bucket.
+ * GUID, closing T1-004-R1-S1/F7. The `:restaurant:` namespace added by the
+ * T2-001 repair is intentionally disjoint from the one allowlisted
+ * credential-wide source's `:credential:` namespace below, so
+ * credential-scoped discovery can never block or inherit a restaurant bucket.
  *
  * Do not remove restaurant GUID from this key when adding future transports:
  * AGENTS.md rule 6 requires location isolation for every cache/state key.
