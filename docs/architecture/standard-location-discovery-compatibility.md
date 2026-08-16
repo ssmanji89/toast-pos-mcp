@@ -2,7 +2,8 @@
 
 **Status:** implementation-safe; live Standard-credential compatibility unproven  
 **Last reviewed:** 2026-08-16  
-**Release gate:** GitHub issue #28
+**Release gate:** GitHub issue #28  
+**Current security model:** [`threat-model-t2-location-repair.md`](threat-model-t2-location-repair.md)
 
 ## Decision
 
@@ -71,7 +72,9 @@ A missing or unavailable location source is a capability/context denial, never a
 ## Source ownership
 
 - Runtime implementation: `src/locations.ts`, `src/transport.ts`
-- Production-shaped synthetic proof: `test/locations.test.ts`, `test/partners-transport.test.ts`
+- Production-shaped synthetic proof: `test/locations.test.ts`, `test/location-guard-matrix.test.ts`, `test/partners-transport.test.ts`
+- Current security model for this repaired boundary: [`threat-model-t2-location-repair.md`](threat-model-t2-location-repair.md)
+- Historical/general threat model: [`threat-model.md`](threat-model.md); its old T2-001 aggregate-source statements are superseded by the addendum above
 - Broader source map: `docs/research/toast-api-reporting-landscape.md`
 - Live compatibility gate: issue #28
 
