@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { RuntimeConfig } from "./config.js";
-import type { ToastHttpClient } from "./transport.js";
+import { ToastHttpError, type ToastHttpClient } from "./transport.js";
 
 const RESTAURANT_DETAIL_PATH_PREFIX = "/restaurants/v1/restaurants";
 const RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
@@ -116,6 +116,7 @@ export type ToastLocationErrorCode =
   | "location_bootstrap_guid_required"
   | "location_bootstrap_guid_inaccessible"
   | "location_detail_guid_mismatch"
+  | "location_discovery_source_unavailable"
   | "location_guid_repeated"
   | "location_management_group_mismatch"
   | "location_response_invalid";
@@ -182,6 +183,16 @@ export function createLocationRegistry(): ToastLocationRegistry {
  * No registry mutation occurs until the complete active set has been
  * validated. A failed detail request therefore leaves any previously known
  * complete registry intact rather than publishing a partial replacement.
+ *
+ * Toast's current public documentation is internally inconsistent about
+ * whether Standard API credentials can call the Partners accessible-
+ * restaurants endpoint. The API overview and Standard-credential guide say
+ * they can; the dedicated Partners location-access guide says only partner
+ * API accounts can. Until a live Standard credential resolves that conflict,
+ * an authorization failure from this credential-wide source is surfaced as
+ * `location_discovery_source_unavailable`. We deliberately do not fall back
+ * to every restaurant in a management group: Standard credentials can be
+ * configured for only a subset, so group membership is not proof of access.
  */
 export async function discoverStandardLocations(options: {
   readonly config: RuntimeConfig;
@@ -198,7 +209,20 @@ export async function discoverStandardLocations(options: {
   }
 
   const bootstrapRestaurantGuid = configuredBootstrapGuid.toLowerCase();
-  const partnerPayload = await options.toastHttpClient.getAccessibleRestaurantsJson();
+  let partnerPayload: unknown;
+  try {
+    partnerPayload = await options.toastHttpClient.getAccessibleRestaurantsJson();
+  } catch (error) {
+    if (error instanceof ToastHttpError && error.upstreamStatus === 403) {
+      throw new ToastLocationError(
+        "location_discovery_source_unavailable",
+        "The credential-wide Toast location discovery source is not authorized for this credential type.",
+      );
+    }
+
+    throw error;
+  }
+
   const connections = normalizeAccessibleRestaurantConnections(
     partnerPayload,
     bootstrapRestaurantGuid,
