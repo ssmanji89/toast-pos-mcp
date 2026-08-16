@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** runtime foundation under review. No installable release or Toast API integration exists yet.
+> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative for exact slice state; `.planning/ROADMAP.md` describes outcome/production-verification gates rather than claiming that planned or branch-only behavior is already shipped.
 
 ## What this project is
 
@@ -53,17 +53,21 @@ Toast also uses more than one retrieval model:
 
 ## Runtime foundation
 
-The current scaffold provides:
+The current merged runtime includes:
 
 - Node.js 20-or-later ESM TypeScript with strict checking
-- the stable MCP TypeScript SDK v1 over local `stdio`
+- a local MCP `stdio` process
 - separate server construction and process startup modules
-- no registered tools, resources, prompts, Toast credentials, or Toast HTTP calls
-- an independently invented JSON fixture directory with schema validation and traversal protection
+- non-persistent runtime configuration and a fail-closed Merchant-AI-consent acknowledgment gate
+- an in-memory OAuth client-credentials token lifecycle
+- a shared structurally read-only Standard API HTTP transport with bounded retry/rate-limit behavior
+- both Standard pagination families
+- location state keyed by runtime-config identity plus restaurant GUID
+- an independently invented JSON fixture directory with traversal protection
 - Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
 - declaration files, source maps, an explicit package file list, and an unpublished private package boundary
 
-Toast data pagination, capabilities, and reports belong to later slices; the shared Toast HTTP transport still registers no MCP tools.
+The repository is actively correcting production assumptions around location discovery, capability authority, transport provenance, SDK generation, and large-order-page consumption before user-facing reporting tools are registered. Consult `LOOP.md`, GitHub, and `.planning/ROADMAP.md` rather than inferring completion from this summary.
 
 ## Runtime configuration
 
@@ -83,17 +87,15 @@ Optional:
 
 | Variable | Purpose |
 |---|---|
-| `TOAST_DEFAULT_RESTAURANT_GUID` | Default restaurant GUID (UUID) for later location-scoped slices |
+| `TOAST_DEFAULT_RESTAURANT_GUID` | Bootstrap/default restaurant GUID used by location-scoped runtime work |
 
 If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
 
 The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies.
 
-The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager, so later tool slices do not reload or reconstruct credential-bearing state. It exposes only restaurant-scoped `GET` requests for read-only Standard API data, attaches the bearer token and explicit restaurant GUID header, records Toast rate-limit headers in memory keyed by API family, restaurant GUID, and limiter key together so location isolation is structural (a rate-limited location can never block a different location), honors `Retry-After` or exhausted-quota reset state up to a configured wait ceiling, and applies bounded exponential backoff with jitter only to retryable network, 429, and 5xx-class failures. A server-derived wait (`Retry-After`, or a stored reset) longer than that ceiling fails closed with a structured, non-retryable error instead of sleeping past it. Acquiring the bearer token happens before any fetch is attempted, so a credential failure is never misclassified as a retryable network error. Structured transport errors include status and Toast request ID when available, but never upstream response bodies, credentials, bearer tokens, or caught exception details.
+The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager, so later tool slices do not reload or reconstruct credential-bearing state. Restaurant-scoped Standard reads attach the bearer token and explicit restaurant GUID, maintain isolated rate-limit state, honor bounded server waits, and apply bounded exponential backoff with jitter only to retryable classes. Structured transport errors include sanitized status/request ID metadata when available but never upstream response bodies, credentials, bearer tokens, or caught exception details.
 
-The location discovery layer uses the configured `TOAST_DEFAULT_RESTAURANT_GUID` as an explicit bootstrap location, calls the read-only Standard restaurants endpoint through the shared transport, normalizes discovered restaurants to GUID, name, timezone, and closeout hour, and records them in memory under the runtime configuration identity plus restaurant GUID. Malformed responses, duplicate GUIDs, and a response that omits the bootstrap GUID fail closed without recording partial state.
-
-Pagination, capability decisions, Analytics job creation, and Toast data tools belong to later slices; this runtime still registers no Toast data tools.
+No user-facing Toast reporting MCP tool is registered on merged `main` yet. Planned reporting work must prove the complete production chain through stdio rather than only invoking calculators directly.
 
 ## Local development
 
@@ -105,7 +107,7 @@ Requirements:
 Install exact dependencies and run the complete local gate:
 
 ```bash
-npm install
+npm ci
 npm run check
 ```
 
@@ -133,19 +135,31 @@ TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. The scaffold validates runtime configuration and the Merchant-AI-consent acknowledgment, constructs the OAuth token manager and shared Toast HTTP transport, then starts the MCP transport. No startup Toast data request is made, and no MCP tools are registered.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates runtime configuration and the Merchant-AI-consent acknowledgment, constructs the OAuth token manager and shared Toast HTTP transport, then starts the MCP transport. No startup Toast data request is made, and no reporting tools are registered on merged `main` yet.
+
+## Planning and execution control plane
+
+This repository uses GSD-style outcome planning without replacing the existing serial engineering ledger:
+
+- [`LOOP.md`](LOOP.md) plus current GitHub state are authoritative for atomic slice state, exact heads, review rounds, dependencies, merges, and closures.
+- [`.planning/ROADMAP.md`](.planning/ROADMAP.md) projects those slices into phase outcomes, production-wiring requirements, empirical verification, and explicit human/external gates. It does **not** maintain a second mutable slice-state ledger.
+- [`.planning/STATE.md`](.planning/STATE.md) is a dated execution snapshot for resumption. It is expected to become stale and must never override current GitHub or `LOOP.md`.
+
+A passing test suite proves only the gate it actually ran. For behavior that will be reachable through MCP, production completion also requires the intended runtime dependency chain to be wired and exercised through the stdio/MCP boundary, plus live/external proof where the contract genuinely depends on vendor authorization or production semantics.
 
 ## Repository orientation
 
-- [`AGENTS.md`](AGENTS.md): binding product, safety, architecture, and delivery rules
-- [`LOOP.md`](LOOP.md): phase map, atomic slice ledger, review handoffs, and current state
+- [`AGENTS.md`](AGENTS.md): binding product, safety, architecture, delivery, and GSD-precedence rules
+- [`LOOP.md`](LOOP.md): canonical atomic slice ledger and review state
+- [`.planning/ROADMAP.md`](.planning/ROADMAP.md): outcome-oriented campaign and production-verification gates
+- [`.planning/STATE.md`](.planning/STATE.md): non-authoritative resume snapshot
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
 - [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): assets, trust boundaries, local-distribution and AI-provider data-flow threats, future-remote-transport requirements, and residual risk
 
 ## Current work
 
-T0-001 established the reviewed public-use foundation. T1-001 added the local TypeScript `stdio` runtime and synthetic fixture harness. T1-002 added non-persistent runtime configuration loading, Zod validation, and the explicit Merchant-AI-consent acknowledgment gate. T1-003 added the in-memory OAuth client-credentials token lifecycle. T1-004 added the shared read-only Toast HTTP transport with structured errors, in-memory rate-limit state, and bounded retries. T1-005 added configuration page-token traversal. T2-001 adds Standard API location discovery and GUID-bound in-memory location state. Capability decoding, report tools, Analytics job creation, and Toast data tools remain intentionally absent.
+The current implementation campaign is reconciling production prerequisites before T3 user-facing report tools: corrected location authority, restaurant-level capability scope intersection, successful-request provenance, bounded-memory order-page consumption, stable MCP SDK v2/runtime compatibility, and real stdio tool wiring. Exact current status belongs to `LOOP.md` and GitHub; `.planning/STATE.md` is only a snapshot.
 
 ## Important legal and operational note
 
@@ -165,4 +179,4 @@ This repository's interpretation is engineering guidance, not legal advice.
 - Toast Analytics process: https://doc.toasttab.com/doc/devguide/apiAnalyticsUnderstandingProcess.html
 - Toast Analytics rate limits: https://doc.toasttab.com/doc/devguide/apiAnalyticsRateLimiting.html
 - Toast API terms: https://pos.toasttab.com/api-terms-of-use
-- MCP TypeScript SDK v1: https://ts.sdk.modelcontextprotocol.io/
+- MCP TypeScript SDK: https://ts.sdk.modelcontextprotocol.io/
