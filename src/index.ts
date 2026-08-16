@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { createOAuthTokenManager } from "./auth.js";
 import { loadRuntimeConfig } from "./config.js";
@@ -16,10 +16,18 @@ async function main(): Promise<void> {
   const tokenManager = createOAuthTokenManager(config);
   const toastHttpClient = createToastHttpClient(config, tokenManager);
 
-  const server = createServer({ toastHttpClient });
-  const transport = new StdioServerTransport();
-
-  await server.connect(transport);
+  // MCP v2's stdio entry owns protocol-era negotiation. The same cheap server
+  // factory serves legacy 2025 clients and 2026-07-28 clients while the
+  // process-owned Toast runtime remains explicit and shared. No data request
+  // occurs until a later tool handler actually uses the transport.
+  serveStdio(() => createServer({ toastHttpClient }), {
+    legacy: "serve",
+    onerror: () => {
+      // Do not interpolate SDK/transport errors. Future failures may include
+      // credential- or upstream-shaped detail, and stderr is not a secret sink.
+      console.error("toast-pos-mcp stdio transport error");
+    },
+  });
 }
 
 void main().catch(() => {
