@@ -41,9 +41,7 @@ export type ToastHttpErrorCode =
 export interface ToastGetJsonRequest {
   readonly path: `/${string}`;
   readonly restaurantGuid: string;
-  readonly query?: Readonly<
-    Record<string, string | number | boolean | undefined>
-  >;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly rateLimitKey: string;
   readonly apiFamily?: ToastApiFamily;
 }
@@ -51,9 +49,7 @@ export interface ToastGetJsonRequest {
 export interface ToastConfigurationPagesRequest {
   readonly path: `/${string}`;
   readonly restaurantGuid: string;
-  readonly query?: Readonly<
-    Record<string, string | number | boolean | undefined>
-  >;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly rateLimitKey: string;
   readonly maxPages?: number;
   readonly maxRestarts?: number;
@@ -61,9 +57,7 @@ export interface ToastConfigurationPagesRequest {
 
 export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
-  readonly query?: Readonly<
-    Record<string, string | number | boolean | undefined>
-  >;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly pageSize: number;
   readonly maxPages?: number;
 }
@@ -128,21 +122,12 @@ interface InternalJsonResponseResult extends ToastDetailedJsonResult {
 
 interface InternalJsonRequest {
   readonly path: `/${string}`;
-  readonly query?: Readonly<
-    Record<string, string | number | boolean | undefined>
-  >;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>> | undefined;
   readonly rateLimitKey: string;
   readonly requestScope: ToastRequestScope;
 }
 
-const RETRYABLE_STATUSES = new Set([
-  408,
-  429,
-  500,
-  502,
-  503,
-  504,
-]);
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export class ToastHttpClient {
   #baseRetryDelayMs: number;
@@ -172,33 +157,22 @@ export class ToastHttpClient {
     this.#random = options.random ?? Math.random;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    this.#maxConfigurationPages =
-      options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGES;
-    this.#maxConfigurationRestarts =
-      options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
-    this.#maxOrdersBulkPages =
-      options.maxOrdersBulkPages ?? DEFAULT_MAX_ORDERS_BULK_PAGES;
-    this.#baseRetryDelayMs =
-      options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
-    this.#maxRetryDelayMs =
-      options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
-    this.#maxRateLimitWaitMs =
-      options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
-    this.#rateLimits =
-      options.rateLimitCoordinator ?? new ToastRateLimitCoordinator();
+    this.#maxConfigurationPages = options.maxConfigurationPages ?? DEFAULT_MAX_CONFIGURATION_PAGES;
+    this.#maxConfigurationRestarts = options.maxConfigurationRestarts ?? DEFAULT_MAX_CONFIGURATION_RESTARTS;
+    this.#maxOrdersBulkPages = options.maxOrdersBulkPages ?? DEFAULT_MAX_ORDERS_BULK_PAGES;
+    this.#baseRetryDelayMs = options.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
+    this.#maxRetryDelayMs = options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+    this.#maxRateLimitWaitMs = options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
+    this.#rateLimits = options.rateLimitCoordinator ?? new ToastRateLimitCoordinator();
 
     if (this.#maxAttempts < 1) {
       throw new RangeError("ToastHttpClient maxAttempts must be at least 1.");
     }
     if (this.#maxConfigurationPages < 1) {
-      throw new RangeError(
-        "ToastHttpClient maxConfigurationPages must be at least 1.",
-      );
+      throw new RangeError("ToastHttpClient maxConfigurationPages must be at least 1.");
     }
     if (this.#maxConfigurationRestarts < 0) {
-      throw new RangeError(
-        "ToastHttpClient maxConfigurationRestarts must be at least 0.",
-      );
+      throw new RangeError("ToastHttpClient maxConfigurationRestarts must be at least 0.");
     }
     if (this.#maxConfigurationRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
       throw new RangeError(
@@ -206,9 +180,7 @@ export class ToastHttpClient {
       );
     }
     if (this.#maxOrdersBulkPages < 1) {
-      throw new RangeError(
-        "ToastHttpClient maxOrdersBulkPages must be at least 1.",
-      );
+      throw new RangeError("ToastHttpClient maxOrdersBulkPages must be at least 1.");
     }
     if (this.#maxOrdersBulkPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
       throw new RangeError(
@@ -221,18 +193,13 @@ export class ToastHttpClient {
     return (await this.getJsonDetailed(request)).body;
   }
 
-  async getJsonDetailed(
-    request: ToastGetJsonRequest,
-  ): Promise<ToastDetailedJsonResult> {
+  async getJsonDetailed(request: ToastGetJsonRequest): Promise<ToastDetailedJsonResult> {
     return publicDetailedResult(
       await this.#requestJson({
         path: request.path,
         query: request.query,
         rateLimitKey: request.rateLimitKey,
-        requestScope: {
-          kind: "restaurant",
-          restaurantGuid: request.restaurantGuid,
-        },
+        requestScope: { kind: "restaurant", restaurantGuid: request.restaurantGuid },
       }),
     );
   }
@@ -261,9 +228,7 @@ export class ToastHttpClient {
   async getConfigurationPagesJson(
     request: ToastConfigurationPagesRequest,
   ): Promise<readonly unknown[]> {
-    return (await this.getConfigurationPagesDetailed(request)).map(
-      (page) => page.body,
-    );
+    return (await this.getConfigurationPagesDetailed(request)).map((page) => page.body);
   }
 
   async getConfigurationPagesDetailed(
@@ -275,9 +240,7 @@ export class ToastHttpClient {
       throw new RangeError("Toast configuration maxPages must be at least 1.");
     }
     if (maxRestarts < 0) {
-      throw new RangeError(
-        "Toast configuration maxRestarts must be at least 0.",
-      );
+      throw new RangeError("Toast configuration maxRestarts must be at least 0.");
     }
     if (maxRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
       throw new RangeError(
@@ -306,10 +269,7 @@ export class ToastHttpClient {
             path: request.path,
             query: { ...request.query, pageToken },
             rateLimitKey: request.rateLimitKey,
-            requestScope: {
-              kind: "restaurant",
-              restaurantGuid: request.restaurantGuid,
-            },
+            requestScope: { kind: "restaurant", restaurantGuid: request.restaurantGuid },
           });
 
           pages.push(publicDetailedResult(response));
@@ -329,10 +289,7 @@ export class ToastHttpClient {
           seenTokens.add(nextToken);
           pageToken = nextToken;
         } catch (error) {
-          if (
-            error instanceof ToastHttpError &&
-            error.upstreamStatus === 409
-          ) {
+          if (error instanceof ToastHttpError && error.upstreamStatus === 409) {
             if (restartCount >= maxRestarts) {
               throw new ToastHttpError(
                 "configuration_page_restart_exceeded",
@@ -349,8 +306,6 @@ export class ToastHttpClient {
             }
 
             restartCount += 1;
-            // `pages` and its success metadata belong to the stale page set.
-            // Breaking to the outer loop discards both atomically.
             break;
           }
 
@@ -360,31 +315,19 @@ export class ToastHttpClient {
     }
   }
 
-  async getOrdersBulkPages(
-    request: ToastOrdersBulkPagesRequest,
-  ): Promise<unknown[]> {
-    return (await this.getOrdersBulkPagesDetailed(request)).map(
-      (page) => page.body,
-    );
+  async getOrdersBulkPages(request: ToastOrdersBulkPagesRequest): Promise<unknown[]> {
+    return (await this.getOrdersBulkPagesDetailed(request)).map((page) => page.body);
   }
 
   async getOrdersBulkPagesDetailed(
     request: ToastOrdersBulkPagesRequest,
   ): Promise<readonly ToastDetailedJsonResult[]> {
-    if (
-      !Number.isInteger(request.pageSize) ||
-      request.pageSize < 1 ||
-      request.pageSize > 100
-    ) {
-      throw paginationIntegrityError(
-        "ordersBulk pageSize must be an integer between 1 and 100.",
-      );
+    if (!Number.isInteger(request.pageSize) || request.pageSize < 1 || request.pageSize > 100) {
+      throw paginationIntegrityError("ordersBulk pageSize must be an integer between 1 and 100.");
     }
     const maxPages = request.maxPages ?? this.#maxOrdersBulkPages;
     if (!Number.isInteger(maxPages) || maxPages < 1) {
-      throw paginationIntegrityError(
-        "ordersBulk maxPages must be a positive integer.",
-      );
+      throw paginationIntegrityError("ordersBulk maxPages must be a positive integer.");
     }
     if (maxPages > MAX_ALLOWED_ORDERS_BULK_PAGES) {
       throw paginationIntegrityError(
@@ -398,23 +341,14 @@ export class ToastHttpClient {
 
     while (true) {
       if (pages.length >= maxPages) {
-        throw paginationIntegrityError(
-          "ordersBulk pagination exceeded the configured page bound.",
-        );
+        throw paginationIntegrityError("ordersBulk pagination exceeded the configured page bound.");
       }
 
       const result = await this.#requestJson({
         path: "/orders/v2/ordersBulk",
-        query: {
-          ...request.query,
-          page,
-          pageSize: request.pageSize,
-        },
+        query: { ...request.query, page, pageSize: request.pageSize },
         rateLimitKey: "ordersBulk",
-        requestScope: {
-          kind: "restaurant",
-          restaurantGuid: request.restaurantGuid,
-        },
+        requestScope: { kind: "restaurant", restaurantGuid: request.restaurantGuid },
       });
 
       pages.push(publicDetailedResult(result));
@@ -425,23 +359,13 @@ export class ToastHttpClient {
       }
 
       const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
-      assertOrdersBulkNextUrl(
-        parsedNextUrl,
-        boundedQuery,
-        request.pageSize,
-        page,
-      );
-
+      assertOrdersBulkNextUrl(parsedNextUrl, boundedQuery, request.pageSize, page);
       page = Number(parsedNextUrl.searchParams.get("page"));
     }
   }
 
   getRateLimitSnapshots(): readonly ToastRateLimitSnapshot[] {
     return this.#rateLimits.list();
-  }
-
-  getRateLimitCoordinator(): ToastRateLimitCoordinator {
-    return this.#rateLimits;
   }
 
   async #requestJson(request: InternalJsonRequest): Promise<InternalJsonResponseResult> {
@@ -480,7 +404,6 @@ export class ToastHttpClient {
           "Toast data request failed before a response was received.",
           { apiFamily, retryable: true },
         );
-
         await this.#sleepBeforeRetry(attempt, undefined, apiFamily);
         continue;
       }
@@ -548,13 +471,11 @@ export class ToastHttpClient {
 
   #buildUrl(request: InternalJsonRequest): string {
     const url = new URL(`https://${this.#config.apiHostname}${request.path}`);
-
     for (const [key, value] of Object.entries(request.query ?? {})) {
       if (value !== undefined) {
         url.searchParams.set(key, String(value));
       }
     }
-
     return url.toString();
   }
 
@@ -570,10 +491,10 @@ export class ToastHttpClient {
     const resetAtEpochMs = parseToastResetEpochMs(
       response.headers.get("x-toast-ratelimit-reset"),
     );
-    const retryAfterEpochMs = parseRetryAfterEpochMs(
-      response.headers.get("retry-after"),
-      observedAtEpochMs,
-    );
+    const retryAfterEpochMs =
+      response.status === 429
+        ? parseRetryAfterEpochMs(response.headers.get("retry-after"), observedAtEpochMs)
+        : undefined;
 
     if (
       byHeader === null &&
@@ -586,10 +507,7 @@ export class ToastHttpClient {
 
     this.#rateLimits.record({
       context,
-      by:
-        byHeader === null
-          ? conservativeRateLimitBy()
-          : parseToastRateLimitBy(byHeader),
+      by: byHeader === null ? conservativeRateLimitBy() : parseToastRateLimitBy(byHeader),
       remaining,
       resetAtEpochMs,
       retryAfterEpochMs,
@@ -606,10 +524,7 @@ export class ToastHttpClient {
       return;
     }
 
-    if (
-      serverDelayMs !== undefined &&
-      serverDelayMs > this.#maxRateLimitWaitMs
-    ) {
+    if (serverDelayMs !== undefined && serverDelayMs > this.#maxRateLimitWaitMs) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
         "Toast requested a retry wait longer than the configured rate-limit wait ceiling.",
@@ -625,9 +540,7 @@ export class ToastHttpClient {
     await this.#sleep(Math.max(serverDelayMs ?? 0, jitteredDelayMs));
   }
 
-  async #waitForKnownRateLimit(
-    context: ToastRateLimitRequestContext,
-  ): Promise<void> {
+  async #waitForKnownRateLimit(context: ToastRateLimitRequestContext): Promise<void> {
     const waitUntilEpochMs = this.#rateLimits.requiredWaitUntilEpochMs(context);
     if (waitUntilEpochMs === undefined) {
       return;
@@ -637,7 +550,6 @@ export class ToastHttpClient {
     if (waitMs <= 0) {
       return;
     }
-
     if (waitMs > this.#maxRateLimitWaitMs) {
       throw new ToastHttpError(
         "rate_limit_wait_exceeded",
@@ -645,7 +557,6 @@ export class ToastHttpClient {
         { apiFamily: "standard", retryable: false },
       );
     }
-
     await this.#sleep(waitMs);
   }
 }
@@ -658,9 +569,7 @@ export function createToastHttpClient(
   return new ToastHttpClient(config, tokenManager, options);
 }
 
-function publicDetailedResult(
-  result: InternalJsonResponseResult,
-): ToastDetailedJsonResult {
+function publicDetailedResult(result: InternalJsonResponseResult): ToastDetailedJsonResult {
   return Object.freeze({
     body: result.body,
     url: result.url,
@@ -681,34 +590,26 @@ function requestHeaders(
         authorization: authorizationHeader,
         "toast-restaurant-external-id": requestScope.restaurantGuid,
       }
-    : {
-        accept: "application/json",
-        authorization: authorizationHeader,
-      };
+    : { accept: "application/json", authorization: authorizationHeader };
 }
 
-function requestIdMetadata(
-  response: Response,
-): { readonly upstreamRequestId?: string } {
+function requestIdMetadata(response: Response): { readonly upstreamRequestId?: string } {
   const upstreamRequestId = response.headers.get("toast-request-id");
   return upstreamRequestId !== null ? { upstreamRequestId } : {};
 }
 
-function retryDelayFromHeaders(
-  response: Response,
-  nowEpochMs: number,
-): number | undefined {
-  const retryAt = parseRetryAfterEpochMs(
-    response.headers.get("retry-after"),
-    nowEpochMs,
+function retryDelayFromHeaders(response: Response, nowEpochMs: number): number | undefined {
+  const retryAt = parseRetryAfterEpochMs(response.headers.get("retry-after"), nowEpochMs);
+  const remaining = parseNonNegativeIntegerHeader(
+    response.headers.get("x-toast-ratelimit-remaining"),
   );
-  const resetAt = parseToastResetEpochMs(
-    response.headers.get("x-toast-ratelimit-reset"),
-  );
+  const resetAt =
+    response.status === 429 || remaining === 0
+      ? parseToastResetEpochMs(response.headers.get("x-toast-ratelimit-reset"))
+      : undefined;
   const candidates = [retryAt, resetAt]
     .filter((value): value is number => value !== undefined)
     .map((value) => Math.max(0, value - nowEpochMs));
-
   return candidates.length === 0 ? undefined : Math.max(...candidates);
 }
 
@@ -720,18 +621,14 @@ function paginationIntegrityError(message: string): ToastHttpError {
 }
 
 function normalizedBoundedQuery(
-  query:
-    | Readonly<Record<string, string | number | boolean | undefined>>
-    | undefined,
+  query: Readonly<Record<string, string | number | boolean | undefined>> | undefined,
 ): ReadonlyMap<string, string> {
   const normalized = new Map<string, string>();
-
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && key !== "page" && key !== "pageSize") {
       normalized.set(key, String(value));
     }
   }
-
   return normalized;
 }
 
@@ -742,9 +639,7 @@ function assertOrdersBulkNextUrl(
   currentPage: number,
 ): void {
   if (nextUrl.pathname !== "/orders/v2/ordersBulk") {
-    throw paginationIntegrityError(
-      "ordersBulk next link changed the endpoint path.",
-    );
+    throw paginationIntegrityError("ordersBulk next link changed the endpoint path.");
   }
 
   const pageValues = nextUrl.searchParams.getAll("page");
@@ -763,9 +658,7 @@ function assertOrdersBulkNextUrl(
     );
   }
   if (nextPageSize !== pageSize) {
-    throw paginationIntegrityError(
-      "ordersBulk next link changed the bounded pageSize.",
-    );
+    throw paginationIntegrityError("ordersBulk next link changed the bounded pageSize.");
   }
 
   const actualBoundedQuery = new Map<string, string>();
@@ -779,7 +672,6 @@ function assertOrdersBulkNextUrl(
       actualBoundedQuery.set(key, value);
     }
   }
-
   if (!sameStringMap(actualBoundedQuery, boundedQuery)) {
     throw paginationIntegrityError(
       "ordersBulk next link changed the original bounded query.",
@@ -789,18 +681,12 @@ function assertOrdersBulkNextUrl(
 
 function parsePositiveInteger(value: string | undefined): number {
   if (value === undefined || !/^\d+$/u.test(value)) {
-    throw paginationIntegrityError(
-      "ordersBulk next link contained an invalid page value.",
-    );
+    throw paginationIntegrityError("ordersBulk next link contained an invalid page value.");
   }
-
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw paginationIntegrityError(
-      "ordersBulk next link contained an invalid page value.",
-    );
+    throw paginationIntegrityError("ordersBulk next link contained an invalid page value.");
   }
-
   return parsed;
 }
 
@@ -832,23 +718,17 @@ function linkRelations(headers: Headers): ReadonlyMap<string, string> {
       const parsed = parseLinkEntry(entry);
       for (const relation of parsed.relations) {
         if (relations.has(relation)) {
-          throw paginationIntegrityError(
-            "Toast Link header contained a repeated relation.",
-          );
+          throw paginationIntegrityError("Toast Link header contained a repeated relation.");
         }
         relations.set(relation, parsed.target);
       }
     }
   }
-
   return relations;
 }
 
 function linkHeaderValues(headers: Headers): string[] {
-  const nodeHeaders = headers as Headers & {
-    getSetCookie?: () => string[];
-    raw?: () => Record<string, string[]>;
-  };
+  const nodeHeaders = headers as Headers & { raw?: () => Record<string, string[]> };
   const raw = nodeHeaders.raw?.();
   if (raw !== undefined) {
     const values = Object.entries(raw)
@@ -858,7 +738,6 @@ function linkHeaderValues(headers: Headers): string[] {
       return values;
     }
   }
-
   const combined = headers.get("link");
   return combined === null ? [] : [combined];
 }
@@ -898,9 +777,7 @@ function splitLinkHeader(value: string): string[] {
     }
     if (character === "," && !inQuotes && !inAngle) {
       if (current.trim().length === 0) {
-        throw paginationIntegrityError(
-          "Toast Link header contained an empty entry.",
-        );
+        throw paginationIntegrityError("Toast Link header contained an empty entry.");
       }
       entries.push(current.trim());
       current = "";
@@ -945,11 +822,8 @@ function parseLinkEntry(entry: string): {
     .filter((relation) => relation.length > 0)
     .map((relation) => relation.toLowerCase());
   if (relations.length === 0) {
-    throw paginationIntegrityError(
-      "Toast Link header entry contained an empty rel parameter.",
-    );
+    throw paginationIntegrityError("Toast Link header entry contained an empty rel parameter.");
   }
-
   return { target, relations };
 }
 
@@ -973,7 +847,10 @@ function parseLinkParameters(value: string): Array<[string, string]> {
     }
 
     const nameStart = index;
-    while (index < value.length && /[!#$%&'*+.^_`|~0-9A-Za-z-]/u.test(value[index] ?? "")) {
+    while (
+      index < value.length &&
+      /[!#$%&'*+.^_`|~0-9A-Za-z-]/u.test(value[index] ?? "")
+    ) {
       index += 1;
     }
     if (index === nameStart) {
@@ -1030,7 +907,6 @@ function parseLinkParameters(value: string): Array<[string, string]> {
         throw paginationIntegrityError("Toast Link header parameter value was empty.");
       }
     }
-
     parameters.push([name, parameterValue]);
   }
 
