@@ -426,7 +426,7 @@ test("fails closed when a discovered location's closeoutHour is negative", async
   assert.deepEqual(registry.list(harness.config), []);
 });
 
-test("fails closed when a discovered location's closeoutHour is 24 or greater", async () => {
+test("fails closed when a discovered location's closeoutHour is 13 or greater", async () => {
   const registry = createLocationRegistry();
   const harness = new LocationHarness({
     responses: [
@@ -436,7 +436,7 @@ test("fails closed when a discovered location's closeoutHour is 24 or greater", 
             guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
             name: "Synthetic Harbor Cafe",
             timeZone: "America/Chicago",
-            closeoutHour: 24,
+            closeoutHour: 13,
           },
         ],
       }),
@@ -486,7 +486,7 @@ test("accepts closeoutHour 0 as a legitimate midnight closeout, never conflated 
   assert.equal(discovery.locations[0]?.closeoutHour, 0);
 });
 
-test("accepts closeoutHour 23 as the maximum legitimate closeout hour", async () => {
+test("accepts closeoutHour 12 as the documented maximum legitimate closeout hour", async () => {
   const registry = createLocationRegistry();
   const harness = new LocationHarness({
     responses: [
@@ -496,7 +496,7 @@ test("accepts closeoutHour 23 as the maximum legitimate closeout hour", async ()
             guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
             name: "Synthetic Harbor Cafe",
             timeZone: "America/Chicago",
-            closeoutHour: 23,
+            closeoutHour: 12,
           },
         ],
       }),
@@ -509,7 +509,7 @@ test("accepts closeoutHour 23 as the maximum legitimate closeout hour", async ()
     toastHttpClient: harness.client,
   });
 
-  assert.equal(discovery.locations[0]?.closeoutHour, 23);
+  assert.equal(discovery.locations[0]?.closeoutHour, 12);
 });
 
 test("fails closed when a discovered location's guid is not a valid UUID", async () => {
