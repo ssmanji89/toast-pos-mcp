@@ -12,10 +12,11 @@ const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/u;
 // A real IANA time zone identifier is never a bare UTC offset designator
 // ("-05:00", "+05:30", "UTC-08:00", ...). Some current ICU/V8 builds accept
 // these strings in `Intl.DateTimeFormat`'s `timeZone` option anyway, because
-// TC39's "sanctioned" single-offset time zone extension to ECMA-402 has
-// begun landing in newer engines. Rejecting this shape explicitly before
-// asking `Intl` keeps the business-date foundation independent of that
-// runtime/version difference.
+// TC39's sanctioned single-offset time-zone extension to ECMA-402 has begun
+// landing in newer engines. Node 20 rejects a value such as "-05:00", while
+// newer Node/ICU combinations can accept it. Rejecting this shape before
+// asking Intl keeps the business-date foundation independent of that runtime
+// version difference.
 const UTC_OFFSET_DESIGNATOR_PATTERN = /^(?:UTC|GMT)?[+-]\d{1,2}:?\d{2}$/iu;
 
 function isValidIanaTimeZone(candidate: string): boolean {
@@ -24,6 +25,15 @@ function isValidIanaTimeZone(candidate: string): boolean {
   }
 
   try {
+    // Delegate IANA identifier recognition to the host ICU instead of
+    // vendoring a time-zone list that will drift. Official Node binaries and
+    // the nvm-installed runtimes used by this project's validation gates ship
+    // full ICU. A custom small-icu/no-icu build can therefore over-reject a
+    // legitimate zone because its local ICU data is incomplete; that is an
+    // intentional fail-closed portability trade-off, not evidence that an
+    // unknown string should be accepted. Previously verified legacy aliases
+    // such as US/Central and Asia/Calcutta, plus Etc/GMT+5, remain valid on
+    // the supported full-ICU runtime family.
     new Intl.DateTimeFormat("en-US", { timeZone: candidate });
     return true;
   } catch {
@@ -52,6 +62,12 @@ const timeZoneSchema = z
       "must be a recognized IANA time zone identifier, not a fixed UTC offset or an unrecognized string",
   });
 const currencyCodeSchema = z.string().regex(CURRENCY_CODE_PATTERN);
+const restaurantNameSchema = z
+  .string()
+  .min(1)
+  .refine((name) => name.trim().length > 0, {
+    message: "must contain a non-whitespace restaurant name",
+  });
 
 /**
  * The Partners API response contains materially more data than reporting
@@ -76,7 +92,7 @@ const restaurantDetailSchema = z
     general: z
       .object({
         archived: z.boolean().optional(),
-        name: z.string().min(1),
+        name: restaurantNameSchema,
         timeZone: timeZoneSchema,
         closeoutHour: z.number().int().min(0).max(12),
         currencyCode: currencyCodeSchema,
