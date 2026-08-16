@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { RuntimeConfig } from "./config.js";
 import type { ToastHttpClient } from "./transport.js";
 
-const PARTNERS_ACCESSIBLE_RESTAURANTS_PATH = "/partners/v1/restaurants";
 const RESTAURANT_DETAIL_PATH_PREFIX = "/restaurants/v1/restaurants";
 const RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
 const MAX_SCOPE_LENGTH = 128;
@@ -348,9 +347,3 @@ function invalidLocationResponse(): ToastLocationError {
     "Toast location source response was not usable for location discovery.",
   );
 }
-
-// Keep the literal endpoint here as a source-contract breadcrumb even though
-// the credential-scoped request itself is structurally allowlisted inside
-// ToastHttpClient. This constant is intentionally not exported as a generic
-// headerless request surface.
-void PARTNERS_ACCESSIBLE_RESTAURANTS_PATH;
