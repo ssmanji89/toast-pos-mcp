@@ -3,19 +3,21 @@ import { z } from "zod";
 import type { RuntimeConfig } from "./config.js";
 import type { ToastHttpClient } from "./transport.js";
 
-const STANDARD_RESTAURANTS_PATH = "/restaurants/v1/restaurants";
-const STANDARD_RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
+const PARTNERS_ACCESSIBLE_RESTAURANTS_PATH = "/partners/v1/restaurants";
+const RESTAURANT_DETAIL_PATH_PREFIX = "/restaurants/v1/restaurants";
+const RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
+const MAX_SCOPE_LENGTH = 128;
+const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/u;
+const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/u;
 
 // A real IANA time zone identifier is never a bare UTC offset designator
 // ("-05:00", "+05:30", "UTC-08:00", ...). Some current ICU/V8 builds accept
 // these strings in `Intl.DateTimeFormat`'s `timeZone` option anyway, because
 // TC39's "sanctioned" single-offset time zone extension to ECMA-402 has
-// begun landing in newer engines (confirmed present on a current Node,
-// absent on the Node 20 floor this project targets today; see the
-// implementation note below). Rejecting this shape explicitly, before ever
-// asking `Intl`, keeps rule 8's business-date foundation correct regardless
-// of which ICU a given host ships, instead of depending on that variance.
-const UTC_OFFSET_DESIGNATOR_PATTERN = /^(?:UTC|GMT)?[+-]\d{1,2}:?\d{2}$/i;
+// begun landing in newer engines. Rejecting this shape explicitly before
+// asking `Intl` keeps the business-date foundation independent of that
+// runtime/version difference.
+const UTC_OFFSET_DESIGNATOR_PATTERN = /^(?:UTC|GMT)?[+-]\d{1,2}:?\d{2}$/iu;
 
 function isValidIanaTimeZone(candidate: string): boolean {
   if (UTC_OFFSET_DESIGNATOR_PATTERN.test(candidate)) {
@@ -23,14 +25,6 @@ function isValidIanaTimeZone(candidate: string): boolean {
   }
 
   try {
-    // `Intl.DateTimeFormat` throws a `RangeError` for a `timeZone` value its
-    // ICU data does not recognize as a valid identifier. This is
-    // deliberately not checked against a hardcoded zone list: the set of
-    // valid IANA zones changes over time (renames, additions, deprecations)
-    // and varies by platform ICU data, and a hardcoded list would drift out
-    // of date. Delegating recognition to the host's own ICU accepts
-    // legitimate zones broadly. See the ICU-portability implementation
-    // note below for what this means on a minimal-ICU Node build.
     new Intl.DateTimeFormat("en-US", { timeZone: candidate });
     return true;
   } catch {
@@ -38,23 +32,19 @@ function isValidIanaTimeZone(candidate: string): boolean {
   }
 }
 
-// ICU-portability note, not sourced from Toast documentation: this
-// validation depends on the host Node runtime shipping ICU time zone data.
-// The officially distributed Node binaries (nodejs.org downloads, and the
-// nvm-installed versions this project's gate is verified against per
-// LOOP.md) always ship "full-icu" by default and always recognize the
-// standard IANA zone set. A Node built from source with
-// `--with-intl=small-icu` or `--with-intl=none` is a non-default,
-// non-distributed configuration this project does not target; on such a
-// build `Intl.DateTimeFormat` either lacks the `timeZone` option's full
-// data or throws when constructed with one, which this code treats as an
-// invalid zone and fails closed (rejecting every candidate, including
-// legitimate ones) rather than silently accepting an unvalidated string.
-// Failing closed by over-rejecting is the correct direction for rule 11;
-// it never fabricates a false "valid" result. Operators are expected to run
-// a standard full-icu Node distribution, consistent with this project's
-// `engines.node` floor.
 const restaurantGuidSchema = z.string().uuid();
+const optionalManagementGroupGuidSchema = z.union([
+  z.string().uuid(),
+  z.null(),
+]);
+const connectionScopeSchema = z
+  .string()
+  .min(1)
+  .max(MAX_SCOPE_LENGTH)
+  .refine(
+    (scope) => scope === scope.trim() && SCOPE_PATTERN.test(scope),
+    { message: "must be a normalized Toast scope string" },
+  );
 const timeZoneSchema = z
   .string()
   .min(1)
@@ -62,18 +52,38 @@ const timeZoneSchema = z
     message:
       "must be a recognized IANA time zone identifier, not a fixed UTC offset or an unrecognized string",
   });
-const toastRestaurantSchema = z
+const currencyCodeSchema = z.string().regex(CURRENCY_CODE_PATTERN);
+
+/**
+ * The Partners API response contains materially more data than reporting
+ * needs, including partner-contact email and external reference fields.
+ * Parsing with a narrow schema and constructing a new object is the privacy
+ * boundary: those fields may exist transiently in the upstream body, but are
+ * never retained in runtime location state.
+ */
+const partnerAccessSchema = z
   .object({
-    guid: restaurantGuidSchema,
-    name: z.string().min(1),
-    timeZone: timeZoneSchema,
-    closeoutHour: z.number().int().min(0).max(23),
+    restaurantGuid: restaurantGuidSchema,
+    managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
+    deleted: z.boolean(),
+    scopes: z.array(connectionScopeSchema),
   })
   .passthrough();
+const partnerAccessResponseSchema = z.array(partnerAccessSchema);
 
-const toastRestaurantsResponseSchema = z
+const restaurantDetailSchema = z
   .object({
-    restaurants: z.array(toastRestaurantSchema).min(1),
+    guid: restaurantGuidSchema,
+    general: z
+      .object({
+        archived: z.boolean().optional(),
+        name: z.string().min(1),
+        timeZone: timeZoneSchema,
+        closeoutHour: z.number().int().min(0).max(12),
+        currencyCode: currencyCodeSchema,
+        managementGroupGuid: optionalManagementGroupGuidSchema.optional(),
+      })
+      .passthrough(),
   })
   .passthrough();
 
@@ -82,6 +92,14 @@ export interface ToastLocation {
   readonly name: string;
   readonly timezone: string;
   readonly closeoutHour: number;
+  readonly currencyCode: string;
+  readonly managementGroupGuid: string | undefined;
+  /**
+   * Scope names granted for this specific restaurant connection by the
+   * Partners accessible-restaurants source. T2-002 intersects these with
+   * the current JWT's provisioned scopes before a data request is eligible.
+   */
+  readonly connectionScopes: readonly string[];
 }
 
 export interface ToastLocationDiscovery {
@@ -89,10 +107,18 @@ export interface ToastLocationDiscovery {
   readonly locations: readonly ToastLocation[];
 }
 
+interface AccessibleRestaurantConnection {
+  readonly restaurantGuid: string;
+  readonly managementGroupGuid: string | undefined;
+  readonly connectionScopes: readonly string[];
+}
+
 export type ToastLocationErrorCode =
   | "location_bootstrap_guid_required"
   | "location_bootstrap_guid_inaccessible"
+  | "location_detail_guid_mismatch"
   | "location_guid_repeated"
+  | "location_management_group_mismatch"
   | "location_response_invalid";
 
 export class ToastLocationError extends Error {
@@ -117,7 +143,7 @@ class InMemoryToastLocationRegistry implements ToastLocationRegistry {
   #locationsByConfig = new WeakMap<RuntimeConfig, ReadonlyMap<string, ToastLocation>>();
 
   get(config: RuntimeConfig, restaurantGuid: string): ToastLocation | undefined {
-    return this.#locationsByConfig.get(config)?.get(restaurantGuid);
+    return this.#locationsByConfig.get(config)?.get(restaurantGuid.toLowerCase());
   }
 
   list(config: RuntimeConfig): readonly ToastLocation[] {
@@ -130,7 +156,15 @@ class InMemoryToastLocationRegistry implements ToastLocationRegistry {
     const byGuid = new Map<string, ToastLocation>();
 
     for (const location of locations) {
-      byGuid.set(location.restaurantGuid, Object.freeze({ ...location }));
+      const restaurantGuid = location.restaurantGuid.toLowerCase();
+      byGuid.set(
+        restaurantGuid,
+        Object.freeze({
+          ...location,
+          restaurantGuid,
+          connectionScopes: Object.freeze([...location.connectionScopes]),
+        }),
+      );
     }
 
     this.#locationsByConfig.set(config, byGuid);
@@ -141,73 +175,182 @@ export function createLocationRegistry(): ToastLocationRegistry {
   return new InMemoryToastLocationRegistry();
 }
 
+/**
+ * Discover the active restaurant connections the current credential can
+ * access, then hydrate report-critical context for every active restaurant
+ * through the restaurant-scoped Restaurants API.
+ *
+ * No registry mutation occurs until the complete active set has been
+ * validated. A failed detail request therefore leaves any previously known
+ * complete registry intact rather than publishing a partial replacement.
+ */
 export async function discoverStandardLocations(options: {
   readonly config: RuntimeConfig;
   readonly registry: ToastLocationRegistry;
   readonly toastHttpClient: ToastHttpClient;
 }): Promise<ToastLocationDiscovery> {
-  const bootstrapRestaurantGuid = options.config.defaultRestaurantGuid;
+  const configuredBootstrapGuid = options.config.defaultRestaurantGuid;
 
-  if (bootstrapRestaurantGuid === undefined) {
+  if (configuredBootstrapGuid === undefined) {
     throw new ToastLocationError(
       "location_bootstrap_guid_required",
       "Toast location discovery requires TOAST_DEFAULT_RESTAURANT_GUID as an explicit bootstrap restaurant GUID.",
     );
   }
 
-  const payload = await options.toastHttpClient.getJson({
-    path: STANDARD_RESTAURANTS_PATH,
-    restaurantGuid: bootstrapRestaurantGuid,
-    rateLimitKey: STANDARD_RESTAURANTS_RATE_LIMIT_KEY,
-  });
-  const locations = normalizeStandardLocations(payload, bootstrapRestaurantGuid);
+  const bootstrapRestaurantGuid = configuredBootstrapGuid.toLowerCase();
+  const partnerPayload = await options.toastHttpClient.getAccessibleRestaurantsJson();
+  const connections = normalizeAccessibleRestaurantConnections(
+    partnerPayload,
+    bootstrapRestaurantGuid,
+  );
 
-  options.registry.replace(options.config, locations);
+  const locations: ToastLocation[] = [];
+  for (const connection of connections) {
+    const detailPayload = await options.toastHttpClient.getJson({
+      path: `${RESTAURANT_DETAIL_PATH_PREFIX}/${connection.restaurantGuid}`,
+      restaurantGuid: connection.restaurantGuid,
+      query: { includeArchived: false },
+      rateLimitKey: RESTAURANTS_RATE_LIMIT_KEY,
+    });
+    locations.push(normalizeRestaurantDetail(detailPayload, connection));
+  }
+
+  const frozenLocations = Object.freeze([...locations]);
+  options.registry.replace(options.config, frozenLocations);
 
   return Object.freeze({
     bootstrapRestaurantGuid,
-    locations,
+    locations: frozenLocations,
   });
 }
 
-function normalizeStandardLocations(
+function normalizeAccessibleRestaurantConnections(
   payload: unknown,
   bootstrapRestaurantGuid: string,
-): readonly ToastLocation[] {
-  const parsed = toastRestaurantsResponseSchema.safeParse(payload);
+): readonly AccessibleRestaurantConnection[] {
+  const parsed = partnerAccessResponseSchema.safeParse(payload);
   if (!parsed.success) {
-    throw new ToastLocationError(
-      "location_response_invalid",
-      "Toast restaurants response was not usable for location discovery.",
-    );
+    throw invalidLocationResponse();
   }
 
   const seenGuids = new Set<string>();
-  const locations: ToastLocation[] = [];
+  const activeConnections: AccessibleRestaurantConnection[] = [];
+  let bootstrapWasPresentButDeleted = false;
 
-  for (const restaurant of parsed.data.restaurants) {
-    if (seenGuids.has(restaurant.guid)) {
+  for (const partnerAccess of parsed.data) {
+    const restaurantGuid = partnerAccess.restaurantGuid.toLowerCase();
+    if (seenGuids.has(restaurantGuid)) {
       throw new ToastLocationError(
         "location_guid_repeated",
-        "Toast restaurants response contained a repeated restaurant GUID.",
+        "Toast Partners accessible-restaurants response contained a repeated restaurant GUID.",
       );
     }
+    seenGuids.add(restaurantGuid);
 
-    seenGuids.add(restaurant.guid);
-    locations.push(Object.freeze({
-      restaurantGuid: restaurant.guid,
-      name: restaurant.name,
-      timezone: restaurant.timeZone,
-      closeoutHour: restaurant.closeoutHour,
+    if (partnerAccess.deleted) {
+      if (restaurantGuid === bootstrapRestaurantGuid) {
+        bootstrapWasPresentButDeleted = true;
+      }
+      continue;
+    }
+
+    activeConnections.push(Object.freeze({
+      restaurantGuid,
+      managementGroupGuid:
+        partnerAccess.managementGroupGuid?.toLowerCase() ?? undefined,
+      connectionScopes: normalizeConnectionScopes(partnerAccess.scopes),
     }));
   }
 
-  if (!seenGuids.has(bootstrapRestaurantGuid)) {
+  if (
+    bootstrapWasPresentButDeleted
+    || !activeConnections.some(
+      (connection) => connection.restaurantGuid === bootstrapRestaurantGuid,
+    )
+  ) {
     throw new ToastLocationError(
       "location_bootstrap_guid_inaccessible",
-      "Toast restaurants response did not include the bootstrap restaurant GUID.",
+      "Toast Partners accessible-restaurants response did not include the bootstrap restaurant GUID as an active accessible restaurant.",
     );
   }
 
-  return Object.freeze(locations);
+  return Object.freeze(activeConnections);
 }
+
+function normalizeRestaurantDetail(
+  payload: unknown,
+  connection: AccessibleRestaurantConnection,
+): ToastLocation {
+  const parsed = restaurantDetailSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw invalidLocationResponse();
+  }
+
+  const detailGuid = parsed.data.guid.toLowerCase();
+  if (detailGuid !== connection.restaurantGuid) {
+    throw new ToastLocationError(
+      "location_detail_guid_mismatch",
+      "Toast restaurant detail response did not match the requested restaurant GUID.",
+    );
+  }
+
+  // `includeArchived=false` should keep archived locations out of a normal
+  // success response. If an upstream implementation nevertheless returns an
+  // explicitly archived object, fail closed instead of silently treating an
+  // inactive restaurant as reportable.
+  if (parsed.data.general.archived === true) {
+    throw invalidLocationResponse();
+  }
+
+  const detailManagementGroupGuid =
+    parsed.data.general.managementGroupGuid?.toLowerCase() ?? undefined;
+  if (
+    connection.managementGroupGuid !== undefined
+    && detailManagementGroupGuid !== undefined
+    && connection.managementGroupGuid !== detailManagementGroupGuid
+  ) {
+    throw new ToastLocationError(
+      "location_management_group_mismatch",
+      "Toast restaurant detail response disagreed with the accessible-restaurant management group.",
+    );
+  }
+
+  return Object.freeze({
+    restaurantGuid: connection.restaurantGuid,
+    name: parsed.data.general.name,
+    timezone: parsed.data.general.timeZone,
+    closeoutHour: parsed.data.general.closeoutHour,
+    currencyCode: parsed.data.general.currencyCode,
+    managementGroupGuid:
+      detailManagementGroupGuid ?? connection.managementGroupGuid,
+    connectionScopes: connection.connectionScopes,
+  });
+}
+
+function normalizeConnectionScopes(scopes: readonly string[]): readonly string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  for (const scope of scopes) {
+    if (!seen.has(scope)) {
+      seen.add(scope);
+      normalized.push(scope);
+    }
+  }
+
+  return Object.freeze(normalized);
+}
+
+function invalidLocationResponse(): ToastLocationError {
+  return new ToastLocationError(
+    "location_response_invalid",
+    "Toast location source response was not usable for location discovery.",
+  );
+}
+
+// Keep the literal endpoint here as a source-contract breadcrumb even though
+// the credential-scoped request itself is structurally allowlisted inside
+// ToastHttpClient. This constant is intentionally not exported as a generic
+// headerless request surface.
+void PARTNERS_ACCESSIBLE_RESTAURANTS_PATH;
