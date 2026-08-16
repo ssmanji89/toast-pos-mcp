@@ -8,6 +8,7 @@ import {
   createLocationRegistry,
   discoverStandardLocations,
   ToastLocationError,
+  type ToastLocation,
 } from "../src/locations.js";
 import { createToastHttpClient, type ToastHttpClient } from "../src/transport.js";
 import {
@@ -15,38 +16,36 @@ import {
   SYNTHETIC_VALID_RUNTIME_ENV,
 } from "./support/synthetic-runtime-env.js";
 
-const SYNTHETIC_ACCESS_TOKEN_MARKER =
-  "synthetic-location-access-token-marker";
-const SYNTHETIC_UPSTREAM_BODY_MARKER =
-  "synthetic-location-body-marker-must-not-leak";
-const SYNTHETIC_MALFORMED_PAYLOAD_MARKER =
-  "synthetic-malformed-payload-marker-must-not-leak";
-const SYNTHETIC_DEFAULT_RESTAURANT_GUID =
-  "00000000-0000-4000-8000-000000000002";
-const SYNTHETIC_SECOND_RESTAURANT_GUID =
-  "00000000-0000-4000-8000-000000000210";
+const RESTAURANT_A = "00000000-0000-4000-8000-000000000002";
+const RESTAURANT_B = "00000000-0000-4000-8000-000000000210";
+const MGMT_A = "10000000-0000-4000-8000-000000000001";
+const MGMT_B = "10000000-0000-4000-8000-000000000002";
+const ACCESS_TOKEN_MARKER = "synthetic-location-access-token-marker";
+const CONTACT_MARKER = "private-partner-contact-marker@example.invalid";
+const MALFORMED_MARKER = "synthetic-malformed-location-marker";
 
-test("discovers accessible Standard API locations through the bootstrap restaurant GUID and records them by GUID", async () => {
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-          {
-            guid: SYNTHETIC_SECOND_RESTAURANT_GUID,
-            name: "Synthetic Ridge Counter",
-            timeZone: "America/Denver",
-            closeoutHour: 5,
-          },
-        ],
+test("discovers active Partners connections then hydrates each restaurant detail with exact request scope", async () => {
+  const harness = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read", "orders:read"], {
+        createdByEmailAddress: CONTACT_MARKER,
+        externalRestaurantRef: "must-not-survive",
       }),
-    ],
-  });
+      partnerRecord(RESTAURANT_B, MGMT_B, ["restaurants:read", "menus:read"]),
+    ]),
+    jsonResponse(restaurantInfo(RESTAURANT_A, MGMT_A, {
+      name: "Synthetic Harbor Cafe",
+      timeZone: "America/Chicago",
+      closeoutHour: 4,
+      currencyCode: "USD",
+    })),
+    jsonResponse(restaurantInfo(RESTAURANT_B, MGMT_B, {
+      name: "Synthetic Maple Counter",
+      timeZone: "America/Toronto",
+      closeoutHour: 5,
+      currencyCode: "CAD",
+    })),
+  ]);
   const registry = createLocationRegistry();
 
   const discovery = await discoverStandardLocations({
@@ -55,50 +54,275 @@ test("discovers accessible Standard API locations through the bootstrap restaura
     toastHttpClient: harness.client,
   });
 
-  assert.deepEqual(discovery.locations, [
+  assert.deepEqual(discovery.locations.map((location) => ({
+    restaurantGuid: location.restaurantGuid,
+    currencyCode: location.currencyCode,
+    connectionScopes: location.connectionScopes,
+  })), [
     {
-      restaurantGuid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-      name: "Synthetic Harbor Cafe",
-      timezone: "America/Chicago",
-      closeoutHour: 4,
+      restaurantGuid: RESTAURANT_A,
+      currencyCode: "USD",
+      connectionScopes: ["restaurants:read", "orders:read"],
     },
     {
-      restaurantGuid: SYNTHETIC_SECOND_RESTAURANT_GUID,
-      name: "Synthetic Ridge Counter",
-      timezone: "America/Denver",
-      closeoutHour: 5,
+      restaurantGuid: RESTAURANT_B,
+      currencyCode: "CAD",
+      connectionScopes: ["restaurants:read", "menus:read"],
     },
   ]);
-  assert.equal(discovery.bootstrapRestaurantGuid, SYNTHETIC_DEFAULT_RESTAURANT_GUID);
-  assert.equal(harness.dataFetch.calls.length, 1);
+  assert.equal(discovery.bootstrapRestaurantGuid, RESTAURANT_A);
+  assert.equal(discovery.accessibleRestaurantsRetrievedAtEpochMs, 1_000);
+
+  assert.equal(harness.dataFetch.calls.length, 3);
   assert.equal(
     harness.dataFetch.calls[0]?.url,
-    "https://ws-api.synthetic-toast-fixture.test/restaurants/v1/restaurants",
+    "https://ws-api.synthetic-toast-fixture.test/partners/v1/restaurants",
   );
   assert.equal(
     harness.dataFetch.calls[0]?.headers["toast-restaurant-external-id"],
-    SYNTHETIC_DEFAULT_RESTAURANT_GUID,
+    undefined,
   );
-  assert.deepEqual(
-    registry.get(harness.config, SYNTHETIC_SECOND_RESTAURANT_GUID),
-    {
-      restaurantGuid: SYNTHETIC_SECOND_RESTAURANT_GUID,
-      name: "Synthetic Ridge Counter",
-      timezone: "America/Denver",
-      closeoutHour: 5,
-    },
+  assert.equal(
+    harness.dataFetch.calls[1]?.url,
+    `https://ws-api.synthetic-toast-fixture.test/restaurants/v1/restaurants/${RESTAURANT_A}`,
   );
+  assert.equal(
+    harness.dataFetch.calls[1]?.headers["toast-restaurant-external-id"],
+    RESTAURANT_A,
+  );
+  assert.equal(
+    harness.dataFetch.calls[2]?.headers["toast-restaurant-external-id"],
+    RESTAURANT_B,
+  );
+
+  const rendered = inspect(discovery, { depth: null });
+  assert.ok(!rendered.includes(CONTACT_MARKER));
+  assert.ok(!rendered.includes("must-not-survive"));
+  assert.equal(Object.isFrozen(discovery.locations[0]), true);
+  assert.equal(Object.isFrozen(discovery.locations[0]?.connectionScopes), true);
 });
 
-test("requires the configured bootstrap restaurant GUID before location discovery can call Toast", async () => {
-  const {
-    TOAST_DEFAULT_RESTAURANT_GUID: _omitted,
-    ...envWithoutDefaultRestaurantGuid
-  } = SYNTHETIC_VALID_RUNTIME_ENV;
-  const harness = new LocationHarness({
-    env: envWithoutDefaultRestaurantGuid,
-    responses: [jsonResponse({ restaurants: [] })],
+test("does not hydrate deleted restaurants and fails closed when the bootstrap connection is deleted", async () => {
+  const deletedNonBootstrap = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read"]),
+      partnerRecord(RESTAURANT_B, MGMT_B, ["restaurants:read"], { deleted: true }),
+    ]),
+    jsonResponse(restaurantInfo(RESTAURANT_A, MGMT_A)),
+  ]);
+  const registry = createLocationRegistry();
+  const discovery = await discoverStandardLocations({
+    config: deletedNonBootstrap.config,
+    registry,
+    toastHttpClient: deletedNonBootstrap.client,
   });
+
+  assert.deepEqual(discovery.locations.map((location) => location.restaurantGuid), [
+    RESTAURANT_A,
+  ]);
+  assert.equal(deletedNonBootstrap.dataFetch.calls.length, 2);
+
+  const deletedBootstrap = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read"], { deleted: true }),
+      partnerRecord(RESTAURANT_B, MGMT_B, ["restaurants:read"]),
+    ]),
+  ]);
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: deletedBootstrap.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: deletedBootstrap.client,
+    }),
+    locationError("location_bootstrap_guid_inaccessible"),
+  );
+  assert.equal(deletedBootstrap.dataFetch.calls.length, 1);
+});
+
+test("requires the configured bootstrap GUID before any Toast request", async () => {
+  const { TOAST_DEFAULT_RESTAURANT_GUID: _omitted, ...withoutBootstrap } =
+    SYNTHETIC_VALID_RUNTIME_ENV;
+  const harness = new LocationHarness([], withoutBootstrap);
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    }),
+    locationError("location_bootstrap_guid_required"),
+  );
+  assert.equal(harness.dataFetch.calls.length, 0);
+});
+
+test("fails closed on duplicate accessible restaurant GUIDs before detail hydration", async () => {
+  const harness = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read"]),
+      partnerRecord(RESTAURANT_A, MGMT_A, ["orders:read"]),
+    ]),
+  ]);
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    }),
+    locationError("location_guid_repeated"),
+  );
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("fails closed when the active accessible set omits the bootstrap restaurant", async () => {
+  const harness = new LocationHarness([
+    jsonResponse([partnerRecord(RESTAURANT_B, MGMT_B, ["restaurants:read"])]),
+  ]);
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    }),
+    locationError("location_bootstrap_guid_inaccessible"),
+  );
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
+test("publishes registry state atomically only after every restaurant detail succeeds", async () => {
+  const registry = createLocationRegistry();
+  const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
+  registry.replace(config, [previousLocation()]);
+  const harness = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read"]),
+      partnerRecord(RESTAURANT_B, MGMT_B, ["restaurants:read"]),
+    ]),
+    jsonResponse(restaurantInfo(RESTAURANT_A, MGMT_A)),
+    new Response(JSON.stringify({ marker: MALFORMED_MARKER }), { status: 500 }),
+  ], undefined, config);
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config,
+      registry,
+      toastHttpClient: harness.client,
+    }),
+  );
+
+  assert.deepEqual(registry.list(config), [previousLocation()]);
+});
+
+test("fails closed when RestaurantInfo guid or management group disagrees with Partners connection", async () => {
+  for (const body of [
+    restaurantInfo(RESTAURANT_B, MGMT_A),
+    restaurantInfo(RESTAURANT_A, MGMT_B),
+  ]) {
+    const harness = new LocationHarness([
+      jsonResponse([partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read"])]),
+      jsonResponse(body),
+    ]);
+
+    await assert.rejects(
+      discoverStandardLocations({
+        config: harness.config,
+        registry: createLocationRegistry(),
+        toastHttpClient: harness.client,
+      }),
+      locationError("location_response_invalid"),
+    );
+  }
+});
+
+test("validates IANA time zone independently from fixed-offset support", async () => {
+  for (const timeZone of ["Not/AZone", "-05:00", "+0530", "UTC-08:00"]) {
+    await rejectsRestaurantGeneral({ timeZone });
+  }
+
+  for (const timeZone of ["America/Chicago", "US/Central", "Etc/GMT+5"]) {
+    const harness = singleLocationHarness({ timeZone });
+    const result = await discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    });
+    assert.equal(result.locations[0]?.timezone, timeZone);
+  }
+});
+
+test("enforces Toast closeoutHour 0 through 12 inclusive", async () => {
+  for (const closeoutHour of [-1, 13, 4.5]) {
+    await rejectsRestaurantGeneral({ closeoutHour });
+  }
+
+  for (const closeoutHour of [0, 12]) {
+    const harness = singleLocationHarness({ closeoutHour });
+    const result = await discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    });
+    assert.equal(result.locations[0]?.closeoutHour, closeoutHour);
+  }
+});
+
+test("requires normalized ISO-4217 alpha currency code and never defaults to USD", async () => {
+  for (const currencyCode of ["usd", "US", "USDD", "12A", ""]) {
+    await rejectsRestaurantGeneral({ currencyCode });
+  }
+  await rejectsRestaurantGeneral({ omitCurrencyCode: true });
+
+  const cad = singleLocationHarness({ currencyCode: "CAD" });
+  const result = await discoverStandardLocations({
+    config: cad.config,
+    registry: createLocationRegistry(),
+    toastHttpClient: cad.client,
+  });
+  assert.equal(result.locations[0]?.currencyCode, "CAD");
+});
+
+test("rejects invalid connection scopes and de-duplicates valid restaurant-specific scopes", async () => {
+  const invalid = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read", "bad/scope"]),
+    ]),
+  ]);
+  await assert.rejects(
+    discoverStandardLocations({
+      config: invalid.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: invalid.client,
+    }),
+    locationError("location_response_invalid"),
+  );
+
+  const valid = new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, [
+        "restaurants:read",
+        "orders:read",
+        "orders:read",
+      ]),
+    ]),
+    jsonResponse(restaurantInfo(RESTAURANT_A, MGMT_A)),
+  ]);
+  const result = await discoverStandardLocations({
+    config: valid.config,
+    registry: createLocationRegistry(),
+    toastHttpClient: valid.client,
+  });
+  assert.deepEqual(result.locations[0]?.connectionScopes, [
+    "restaurants:read",
+    "orders:read",
+  ]);
+});
+
+test("malformed source markers and credential material never appear in location errors", async () => {
+  const harness = new LocationHarness([
+    jsonResponse([{ restaurantGuid: RESTAURANT_A, scopes: [MALFORMED_MARKER] }]),
+  ]);
 
   await assert.rejects(
     discoverStandardLocations({
@@ -108,574 +332,26 @@ test("requires the configured bootstrap restaurant GUID before location discover
     }),
     (error: unknown) => {
       assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_bootstrap_guid_required");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.equal(harness.dataFetch.calls.length, 0);
-});
-
-test("fails closed when Toast returns duplicate or malformed restaurant GUIDs without recording partial state", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Duplicate Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_guid_repeated");
-      assert.equal(error.retryable, false);
       const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
-      assert.ok(!rendered.includes(SYNTHETIC_UPSTREAM_BODY_MARKER));
+      assert.ok(!rendered.includes(MALFORMED_MARKER));
       assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
-      assert.ok(!rendered.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+      assert.ok(!rendered.includes(ACCESS_TOKEN_MARKER));
       return true;
     },
   );
-
-  assert.equal(registry.get(harness.config, SYNTHETIC_DEFAULT_RESTAURANT_GUID), undefined);
 });
 
-test("fails closed when the discovered locations omit the bootstrap restaurant GUID", async () => {
+test("registry remains isolated by runtime-config identity and restaurant GUID", async () => {
   const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_SECOND_RESTAURANT_GUID,
-            name: "Synthetic Ridge Counter",
-            timeZone: "America/Denver",
-            closeoutHour: 5,
-          },
-        ],
-      }),
-    ],
+  const harnessA = singleLocationHarness({ name: "Synthetic Operator A" }, {
+    ...SYNTHETIC_VALID_RUNTIME_ENV,
+    TOAST_CLIENT_ID: "synthetic-client-id-location-a",
+    TOAST_CLIENT_SECRET: "synthetic-client-secret-location-a",
   });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_bootstrap_guid_inaccessible");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed on malformed location payloads without recording partial state", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed on malformed location payloads without leaking the raw upstream payload", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: SYNTHETIC_MALFORMED_PAYLOAD_MARKER,
-            timeZone: "America/Chicago",
-            closeoutHour: "not-a-number",
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
-      assert.ok(!rendered.includes(SYNTHETIC_MALFORMED_PAYLOAD_MARKER));
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's timeZone is not a recognized IANA zone identifier", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "this is not a timezone at all",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's timeZone is a plausible-looking but unrecognized zone name", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "Not/AZone",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's timeZone is a fixed UTC offset rather than an IANA zone identifier", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "-05:00",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("accepts a discovered location whose timeZone is a legitimate IANA zone identifier", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  const discovery = await discoverStandardLocations({
-    config: harness.config,
-    registry,
-    toastHttpClient: harness.client,
-  });
-
-  assert.equal(discovery.locations[0]?.timezone, "America/Chicago");
-});
-
-test("fails closed when a discovered location's closeoutHour is negative", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: -1,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's closeoutHour is 24 or greater", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 24,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("accepts closeoutHour 0 as a legitimate midnight closeout, never conflated with an absent value", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 0,
-          },
-        ],
-      }),
-    ],
-  });
-
-  const discovery = await discoverStandardLocations({
-    config: harness.config,
-    registry,
-    toastHttpClient: harness.client,
-  });
-
-  assert.equal(discovery.locations[0]?.closeoutHour, 0);
-});
-
-test("accepts closeoutHour 23 as the maximum legitimate closeout hour", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 23,
-          },
-        ],
-      }),
-    ],
-  });
-
-  const discovery = await discoverStandardLocations({
-    config: harness.config,
-    registry,
-    toastHttpClient: harness.client,
-  });
-
-  assert.equal(discovery.locations[0]?.closeoutHour, 23);
-});
-
-test("fails closed when a discovered location's guid is not a valid UUID", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: "not-a-valid-uuid",
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's name is an empty string", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed when a discovered location's closeoutHour is not an integer", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Harbor Cafe",
-            timeZone: "America/Chicago",
-            closeoutHour: 4.5,
-          },
-        ],
-      }),
-    ],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("fails closed as an invalid response, not merely an inaccessible bootstrap GUID, when Toast returns an empty restaurants array", async () => {
-  const registry = createLocationRegistry();
-  const harness = new LocationHarness({
-    responses: [jsonResponse({ restaurants: [] })],
-  });
-
-  await assert.rejects(
-    discoverStandardLocations({
-      config: harness.config,
-      registry,
-      toastHttpClient: harness.client,
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof ToastLocationError);
-      assert.equal(error.code, "location_response_invalid");
-      assert.equal(error.retryable, false);
-      return true;
-    },
-  );
-
-  assert.deepEqual(registry.list(harness.config), []);
-});
-
-test("keeps discovered location state isolated by runtime config identity as well as restaurant GUID", async () => {
-  const registry = createLocationRegistry();
-  const harnessA = new LocationHarness({
-    env: {
-      ...SYNTHETIC_VALID_RUNTIME_ENV,
-      TOAST_CLIENT_ID: "synthetic-client-id-location-a",
-      TOAST_CLIENT_SECRET: "synthetic-client-secret-location-a",
-    },
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Operator A",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
-  });
-  const harnessB = new LocationHarness({
-    env: {
-      ...SYNTHETIC_VALID_RUNTIME_ENV,
-      TOAST_CLIENT_ID: "synthetic-client-id-location-b",
-      TOAST_CLIENT_SECRET: "synthetic-client-secret-location-b",
-    },
-    responses: [
-      jsonResponse({
-        restaurants: [
-          {
-            guid: SYNTHETIC_DEFAULT_RESTAURANT_GUID,
-            name: "Synthetic Operator B",
-            timeZone: "America/Chicago",
-            closeoutHour: 4,
-          },
-        ],
-      }),
-    ],
+  const harnessB = singleLocationHarness({ name: "Synthetic Operator B" }, {
+    ...SYNTHETIC_VALID_RUNTIME_ENV,
+    TOAST_CLIENT_ID: "synthetic-client-id-location-b",
+    TOAST_CLIENT_SECRET: "synthetic-client-secret-location-b",
   });
 
   await discoverStandardLocations({
@@ -689,37 +365,125 @@ test("keeps discovered location state isolated by runtime config identity as wel
     toastHttpClient: harnessB.client,
   });
 
-  assert.equal(
-    registry.get(harnessA.config, SYNTHETIC_DEFAULT_RESTAURANT_GUID)?.name,
-    "Synthetic Operator A",
-  );
-  assert.equal(
-    registry.get(harnessB.config, SYNTHETIC_DEFAULT_RESTAURANT_GUID)?.name,
-    "Synthetic Operator B",
-  );
+  assert.equal(registry.get(harnessA.config, RESTAURANT_A)?.name, "Synthetic Operator A");
+  assert.equal(registry.get(harnessB.config, RESTAURANT_A)?.name, "Synthetic Operator B");
+  assert.equal(registry.get(harnessA.config, RESTAURANT_B), undefined);
 });
 
-type FetchResult = Response | Error;
-
-interface LocationHarnessOptions {
-  readonly env?: Readonly<Record<string, string>>;
-  readonly responses: FetchResult[];
+async function rejectsRestaurantGeneral(
+  overrides: RestaurantGeneralOverrides,
+): Promise<void> {
+  const harness = singleLocationHarness(overrides);
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    }),
+    locationError("location_response_invalid"),
+  );
 }
+
+function singleLocationHarness(
+  overrides: RestaurantGeneralOverrides = {},
+  env: Readonly<Record<string, string>> = SYNTHETIC_VALID_RUNTIME_ENV,
+): LocationHarness {
+  return new LocationHarness([
+    jsonResponse([
+      partnerRecord(RESTAURANT_A, MGMT_A, ["restaurants:read", "orders:read"]),
+    ]),
+    jsonResponse(restaurantInfo(RESTAURANT_A, MGMT_A, overrides)),
+  ], env);
+}
+
+function locationError(code: ToastLocationError["code"]): (error: unknown) => boolean {
+  return (error: unknown) => {
+    assert.ok(error instanceof ToastLocationError);
+    assert.equal(error.code, code);
+    assert.equal(error.retryable, false);
+    return true;
+  };
+}
+
+interface RestaurantGeneralOverrides {
+  readonly name?: string;
+  readonly timeZone?: string;
+  readonly closeoutHour?: number;
+  readonly currencyCode?: string;
+  readonly omitCurrencyCode?: boolean;
+}
+
+function partnerRecord(
+  restaurantGuid: string,
+  managementGroupGuid: string,
+  scopes: readonly string[],
+  extras: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    restaurantGuid,
+    managementGroupGuid,
+    restaurantName: "Synthetic Partner Listing Name",
+    scopes: [...scopes],
+    ...extras,
+  };
+}
+
+function restaurantInfo(
+  restaurantGuid: string,
+  managementGroupGuid: string,
+  overrides: RestaurantGeneralOverrides = {},
+): Record<string, unknown> {
+  const general: Record<string, unknown> = {
+    name: overrides.name ?? "Synthetic Harbor Cafe",
+    locationName: "Synthetic Location",
+    timeZone: overrides.timeZone ?? "America/Chicago",
+    closeoutHour: overrides.closeoutHour ?? 4,
+    managementGroupGuid,
+  };
+  if (!overrides.omitCurrencyCode) {
+    general.currencyCode = overrides.currencyCode ?? "USD";
+  }
+
+  return {
+    guid: restaurantGuid,
+    general,
+    urls: { website: "https://example.invalid" },
+  };
+}
+
+function previousLocation(): ToastLocation {
+  return Object.freeze({
+    restaurantGuid: RESTAURANT_A,
+    name: "Synthetic Previous Complete Location",
+    timezone: "America/Chicago",
+    closeoutHour: 4,
+    currencyCode: "USD",
+    managementGroupGuid: MGMT_A,
+    connectionScopes: Object.freeze(["restaurants:read"]),
+    contextRetrievedAtEpochMs: 42,
+  });
+}
+
+type FetchResult = Response | Error;
 
 class LocationHarness {
   readonly client: ToastHttpClient;
   readonly config: RuntimeConfig;
   readonly dataFetch: RecordingFetch;
 
-  constructor(options: LocationHarnessOptions) {
-    this.config = loadRuntimeConfig(options.env ?? SYNTHETIC_VALID_RUNTIME_ENV);
+  constructor(
+    responses: FetchResult[],
+    env: Readonly<Record<string, string>> = SYNTHETIC_VALID_RUNTIME_ENV,
+    config?: RuntimeConfig,
+  ) {
+    this.config = config ?? loadRuntimeConfig(env);
     const tokenFetch = new RecordingFetch([
       jsonResponse({
         status: "SUCCESS",
         token: {
           tokenType: "Bearer",
           expiresIn: 600,
-          accessToken: SYNTHETIC_ACCESS_TOKEN_MARKER,
+          accessToken: ACCESS_TOKEN_MARKER,
         },
       }),
     ]);
@@ -728,13 +492,18 @@ class LocationHarness {
       now: () => 0,
     });
 
-    this.dataFetch = new RecordingFetch(options.responses);
+    this.dataFetch = new RecordingFetch(responses);
+    let now = 0;
     this.client = createToastHttpClient(this.config, tokenManager, {
       fetch: this.dataFetch.fetch,
-      now: () => 0,
+      now: () => {
+        now += 1_000;
+        return now;
+      },
       random: () => 0,
+      maxAttempts: 1,
       sleep: async () => {
-        throw new Error("location discovery must not sleep in these fixtures");
+        throw new Error("location discovery fixtures must not sleep");
       },
     });
   }
@@ -750,7 +519,7 @@ class RecordingFetch {
   #results: FetchResult[];
 
   constructor(results: FetchResult[]) {
-    this.#results = results;
+    this.#results = [...results];
   }
 
   fetch = async (
@@ -775,18 +544,15 @@ function recordCall(input: string | URL | Request, init?: RequestInit): Recorded
   headers.forEach((value, key) => {
     headerRecord[key] = value;
   });
-
-  return {
-    url: String(input),
-    headers: headerRecord,
-  };
+  return { url: String(input), headers: headerRecord };
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status: init.status ?? 200,
     headers: {
       "content-type": "application/json",
+      ...(init.headers ?? {}),
     },
   });
 }
