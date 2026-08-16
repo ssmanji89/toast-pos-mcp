@@ -189,6 +189,41 @@ test("requires the configured bootstrap GUID before any Toast discovery request"
   assert.equal(harness.dataFetch.calls.length, 0);
 });
 
+test("translates an unauthorized credential-wide Partners source into a static fail-closed location error", async () => {
+  const harness = new LocationHarness({
+    responses: [
+      new Response(JSON.stringify({ marker: SYNTHETIC_UPSTREAM_BODY_MARKER }), {
+        status: 403,
+        headers: {
+          "content-type": "application/json",
+          "toast-request-id": "synthetic-partners-403-request-id",
+        },
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastLocationError);
+      assert.equal(error.code, "location_discovery_source_unavailable");
+      assert.equal(error.retryable, false);
+      const rendered = `${error.message} ${JSON.stringify(error)} ${inspect(error, { depth: null })}`;
+      assert.ok(!rendered.includes(SYNTHETIC_UPSTREAM_BODY_MARKER));
+      assert.ok(!rendered.includes("synthetic-partners-403-request-id"));
+      assert.ok(!rendered.includes(SYNTHETIC_CLIENT_SECRET_MARKER));
+      assert.ok(!rendered.includes(SYNTHETIC_ACCESS_TOKEN_MARKER));
+      return true;
+    },
+  );
+
+  assert.equal(harness.dataFetch.calls.length, 1);
+});
+
 test("rejects duplicate Partners restaurant GUIDs before any detail hydration", async () => {
   const harness = new LocationHarness({
     responses: [
@@ -324,6 +359,47 @@ test("validates report-critical detail fields including IANA timezone, 0-12 clos
   }
 });
 
+test("accepts previously verified IANA aliases and Etc/GMT identifiers while rejecting bare fixed offsets", async () => {
+  for (const timezone of ["US/Central", "Asia/Calcutta", "Etc/GMT+5"]) {
+    const harness = new LocationHarness({
+      responses: [
+        jsonResponse([partnerAccess(SYNTHETIC_DEFAULT_RESTAURANT_GUID)]),
+        jsonResponse(restaurantDetail(SYNTHETIC_DEFAULT_RESTAURANT_GUID, {
+          timezone,
+        })),
+      ],
+    });
+
+    const discovery = await discoverStandardLocations({
+      config: harness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: harness.client,
+    });
+    assert.equal(discovery.locations[0]?.timezone, timezone);
+  }
+
+  const offsetHarness = new LocationHarness({
+    responses: [
+      jsonResponse([partnerAccess(SYNTHETIC_DEFAULT_RESTAURANT_GUID)]),
+      jsonResponse(restaurantDetail(SYNTHETIC_DEFAULT_RESTAURANT_GUID, {
+        timezone: "-05:00",
+      })),
+    ],
+  });
+  await assert.rejects(
+    discoverStandardLocations({
+      config: offsetHarness.config,
+      registry: createLocationRegistry(),
+      toastHttpClient: offsetHarness.client,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastLocationError);
+      assert.equal(error.code, "location_response_invalid");
+      return true;
+    },
+  );
+});
+
 test("accepts both closeout boundaries and nullable management-group identity", async () => {
   for (const closeoutHour of [0, 12]) {
     const harness = new LocationHarness({
@@ -367,7 +443,7 @@ test("does not replace a previously complete registry when later detail hydratio
   });
 
   const failingHarness = new LocationHarness({
-    env: SYNTHETIC_VALID_RUNTIME_ENV,
+    config: goodHarness.config,
     responses: [
       jsonResponse([
         partnerAccess(SYNTHETIC_DEFAULT_RESTAURANT_GUID),
@@ -382,6 +458,7 @@ test("does not replace a previously complete registry when later detail hydratio
     ],
   });
 
+  assert.equal(failingHarness.config, goodHarness.config);
   await assert.rejects(
     discoverStandardLocations({
       config: goodHarness.config,
@@ -487,6 +564,7 @@ test("credential-scoped Partners rate-limit state is distinct from every restaur
 type FetchResult = Response | Error;
 
 interface LocationHarnessOptions {
+  readonly config?: RuntimeConfig;
   readonly env?: Readonly<Record<string, string>>;
   readonly responses: FetchResult[];
 }
@@ -497,7 +575,11 @@ class LocationHarness {
   readonly dataFetch: RecordingFetch;
 
   constructor(options: LocationHarnessOptions) {
-    this.config = loadRuntimeConfig(options.env ?? SYNTHETIC_VALID_RUNTIME_ENV);
+    if (options.config !== undefined && options.env !== undefined) {
+      throw new Error("LocationHarness accepts config or env, not both.");
+    }
+
+    this.config = options.config ?? loadRuntimeConfig(options.env ?? SYNTHETIC_VALID_RUNTIME_ENV);
     const tokenFetch = new RecordingFetch([
       jsonResponse({
         status: "SUCCESS",
@@ -590,7 +672,7 @@ class RecordingFetch {
   #results: FetchResult[];
 
   constructor(results: FetchResult[]) {
-    this.#results = results;
+    this.#results = [...results];
   }
 
   fetch = async (
