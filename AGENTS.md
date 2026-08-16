@@ -29,7 +29,7 @@ Local execution controls credential custody; it does not authorize AI or third-p
 ## Architecture constraints
 
 - TypeScript on Node.js 20 or later.
-- Use the currently reviewed stable MCP TypeScript SDK generation recorded by the active migration slice. The repository began on SDK v1; a migration to stable v2 must be independently reviewed and exact-head validated before user-facing report tools rely on the new runtime. Do not silently mix SDK generations.
+- The active MCP TypeScript SDK v2 migration uses `@modelcontextprotocol/server` and test-only `@modelcontextprotocol/client`. They become the local runtime baseline only after independent exact-head review and validation. Serve process stdio through the official `serveStdio(factory)` entry so legacy 2025 and supported 2026-era clients share one reviewed local transport boundary. Do not silently mix SDK generations.
 - `stdio` is the initial transport. Remote Streamable HTTP requires a separate threat model, authentication design, Toast approval review, and tenant-isolation review.
 - Local `stdio` does not bypass Merchant consent, Toast third-party-provider requirements, AI restrictions, logging review, or retention review.
 - Separate the Toast transport, authentication, pagination, Analytics report-job lifecycle, normalization, report calculation, and MCP presentation layers.
@@ -76,4 +76,4 @@ For every slice, verify whether it changes a durable product contract, architect
 - Toast Analytics process: https://doc.toasttab.com/doc/devguide/apiAnalyticsUnderstandingProcess.html
 - Toast dates and timestamps: https://doc.toasttab.com/doc/devguide/api_dates_and_timestamps.html
 - Toast API terms: https://pos.toasttab.com/api-terms-of-use
-- MCP TypeScript SDK: https://ts.sdk.modelcontextprotocol.io/
+- MCP TypeScript SDK v2: https://github.com/modelcontextprotocol/typescript-sdk
