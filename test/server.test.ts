@@ -28,13 +28,13 @@ test(
   "serves a legacy 2025 stdio client without advertising Toast tools",
   { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
   async () => {
-    const { client } = createStdioClient("legacy");
+    const connection = createStdioClient("legacy");
 
     try {
-      await connectWithTimeout(client);
-      assertEmptyServerIdentity(client);
+      await connectWithTimeout(connection);
+      assertEmptyServerIdentity(connection.client);
     } finally {
-      await client.close();
+      await connection.client.close();
     }
   },
 );
@@ -43,16 +43,16 @@ test(
   "serves a pinned 2026-07-28 stdio client without advertising Toast tools",
   { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
   async () => {
-    const { client } = createStdioClient("modern");
+    const connection = createStdioClient("modern");
 
     try {
-      await connectWithTimeout(client);
+      await connectWithTimeout(connection);
       // Pinned negotiation has no legacy fallback. Reaching the common server
       // assertions therefore proves that this executable served the modern
       // 2026-07-28 era rather than silently using the legacy handshake.
-      assertEmptyServerIdentity(client);
+      assertEmptyServerIdentity(connection.client);
     } finally {
-      await client.close();
+      await connection.client.close();
     }
   },
 );
@@ -62,7 +62,7 @@ test(
   { timeout: STDIO_CONNECT_TIMEOUT_MS * 2 + 10_000 },
   async () => {
     const first = createStdioClient("modern");
-    await connectWithTimeout(first.client);
+    await connectWithTimeout(first);
     const firstPid = first.transport.pid;
     assert.ok(firstPid !== null);
     assertEmptyServerIdentity(first.client);
@@ -70,7 +70,7 @@ test(
 
     const second = createStdioClient("modern");
     try {
-      await connectWithTimeout(second.client);
+      await connectWithTimeout(second);
       const secondPid = second.transport.pid;
       assert.ok(secondPid !== null);
       assert.notEqual(secondPid, firstPid);
@@ -115,10 +115,12 @@ test(
   },
 );
 
-function createStdioClient(era: "legacy" | "modern"): {
+interface TestConnection {
   readonly client: Client;
   readonly transport: StdioClientTransport;
-} {
+}
+
+function createStdioClient(era: "legacy" | "modern"): TestConnection {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [DIST_INDEX_PATH],
@@ -146,27 +148,12 @@ function createStdioClient(era: "legacy" | "modern"): {
   return { client, transport };
 }
 
-async function connectWithTimeout(client: Client): Promise<void> {
-  const transport = (client as unknown as { transport?: StdioClientTransport }).transport;
-  void transport;
-  // The SDK owns the actual transport after connect; the explicit timeout
-  // bounds a broken child-process handshake regardless of protocol era.
-  const created = createTransportForClient(client);
+async function connectWithTimeout(connection: TestConnection): Promise<void> {
   await withTimeout(
-    client.connect(created),
+    connection.client.connect(connection.transport),
     STDIO_CONNECT_TIMEOUT_MS,
     "Timed out connecting to the stdio MCP server",
   );
-}
-
-const transportsByClient = new WeakMap<Client, StdioClientTransport>();
-
-function createTransportForClient(client: Client): StdioClientTransport {
-  const existing = transportsByClient.get(client);
-  if (existing !== undefined) {
-    return existing;
-  }
-  throw new Error("Test client transport was not registered");
 }
 
 function assertEmptyServerIdentity(client: Client): void {
