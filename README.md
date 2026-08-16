@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** implementation campaign in progress. The local Standard API runtime, OAuth lifecycle, read-only transport, and both Standard pagination families are implemented. Location discovery is being repaired against the credential-wide Partners source plus restaurant-scoped detail hydration. Reporting MCP tools and an installable release are not yet available.
+> **Status:** implementation campaign in progress. The local Standard API runtime, OAuth lifecycle, read-only transport, and both Standard pagination families are implemented. Location discovery is being repaired around credential-wide connection discovery plus restaurant-scoped detail hydration; Standard-credential compatibility of the credential-wide source remains explicitly release-gated because Toast's current documentation conflicts. Reporting MCP tools and an installable release are not yet available.
 
 ## What this project is
 
@@ -63,7 +63,7 @@ The current runtime provides:
 - a shared read-only Standard API HTTP transport with sanitized structured errors, bounded waits/retries, and isolated rate-limit state
 - configuration page-token traversal with scoped 409 restart handling
 - `/ordersBulk` Link-header traversal with fail-closed completeness guards
-- a two-stage Standard location context that enumerates credential-accessible restaurant connections and hydrates report-critical restaurant detail
+- a two-stage Standard location context that enumerates credential-accessible restaurant connections and hydrates report-critical restaurant detail when the credential-wide source is available
 - an independently invented JSON fixture directory with schema validation and traversal protection
 - Node's built-in test runner, including a real MCP client-to-child-process `stdio` handshake
 - declaration files, source maps, an explicit package file list, and an unpublished private package boundary
@@ -96,7 +96,9 @@ The OAuth token lifecycle uses these credentials only through the named runtime-
 
 The shared Toast HTTP transport is constructed at startup from that same validated configuration and token manager. Restaurant-scoped Standard API reads attach the explicit `Toast-Restaurant-External-ID` GUID and isolate rate-limit state by API family, restaurant GUID, and limiter key. The one credential-scoped discovery read is structurally allowlisted to `GET /partners/v1/restaurants`; it intentionally omits the restaurant header and keeps a separate credential-scoped rate-limit bucket inside the same config-bound client instance. Both paths use the same OAuth acquisition, bounded retries, server-wait ceiling, status classification, JSON parsing, and error-sanitization machinery. A credential failure is never misclassified as a retryable data-network error, and structured transport errors never retain upstream response bodies, credentials, bearer tokens, or caught exception details.
 
-The location discovery layer uses Toast's credential-wide Partners accessible-restaurants source to obtain the active restaurant connections and their per-connection scope lists. It deliberately does not retain partner contact metadata or external-reference fields. Every active connection is then hydrated through `GET /restaurants/v1/restaurants/{restaurantGUID}` with a matching restaurant header and `includeArchived=false`. The retained immutable location context contains only the restaurant GUID, report name, IANA timezone, `closeoutHour` (0 through 12), ISO-4217 currency code, normalized management-group GUID when present, and the frozen connection-scope list required by capability preflight. Deleted/inactive connections are excluded. Duplicate GUIDs, a missing/deleted bootstrap location, source disagreement, malformed detail, or any mid-hydration failure fails closed without replacing a previously complete registry with partial state.
+The location discovery layer consumes the Partners accessible-restaurants source when that credential-wide source is authorized, retains only active restaurant GUID/group/scope context, and hydrates every active restaurant through `GET /restaurants/v1/restaurants/{restaurantGUID}` with a matching restaurant header and `includeArchived=false`. The retained immutable location context contains only the restaurant GUID, report name, IANA timezone, `closeoutHour` (0 through 12), ISO-4217 currency code, normalized management-group GUID when present, and the frozen connection-scope list required by capability preflight. Deleted/inactive connections are excluded. Duplicate GUIDs, a missing/deleted bootstrap location, source disagreement, malformed detail, or any mid-hydration failure fails closed without replacing a previously complete registry with partial state.
+
+Toast's current official documentation conflicts on whether Standard API credentials are authorized for `/partners/v1/restaurants`. Therefore an authorization failure at that credential-wide source becomes the static, fail-closed `location_discovery_source_unavailable` error; the runtime does **not** fall back to every restaurant in the management group, because Standard credentials can be configured for only a subset. The exact source conflict, runtime decision, and release-blocking live proof are recorded in [`docs/architecture/standard-location-discovery-compatibility.md`](docs/architecture/standard-location-discovery-compatibility.md) and issue #28. Standard production compatibility is not claimed until that gate is satisfied.
 
 ## Local development
 
@@ -144,11 +146,12 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Sta
 - [`LOOP.md`](LOOP.md): phase map, atomic slice ledger, review handoffs, and current state
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
+- [`docs/architecture/standard-location-discovery-compatibility.md`](docs/architecture/standard-location-discovery-compatibility.md): Standard credential source ambiguity, fail-closed behavior, and live release gate
 - [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): assets, trust boundaries, local-distribution and AI-provider data-flow threats, future-remote-transport requirements, and residual risk
 
 ## Current work
 
-T0-001 established the reviewed public-use foundation. T1-001 through T1-006 completed the local runtime, configuration/consent gate, OAuth lifecycle, shared Standard API transport, and both Standard pagination families. T2-001 originally introduced location state; the current repair replaces its synthetic aggregate-source assumption with production-shaped Partners discovery plus per-restaurant detail hydration and carries currency and restaurant-connection scopes forward for T3/T2-002. Capability preflight, T3 normalization/reporting tools, T4 cash/labor reports, and the T5 Analytics adapter remain to be completed.
+T0-001 established the reviewed public-use foundation. T1-001 through T1-006 completed the local runtime, configuration/consent gate, OAuth lifecycle, shared Standard API transport, and both Standard pagination families. T2-001 originally introduced location state; the current repair replaces its synthetic aggregate-source assumption with production-shaped credential-wide discovery plus per-restaurant detail hydration and carries currency and restaurant-connection scopes forward for T3/T2-002. Standard compatibility of the credential-wide source remains a live release gate. Capability preflight, T3 normalization/reporting tools, T4 cash/labor reports, and the T5 Analytics adapter remain to be completed.
 
 ## Important legal and operational note
 
@@ -161,7 +164,9 @@ This repository's interpretation is engineering guidance, not legal advice.
 ## Primary sources
 
 - Toast API overview: https://doc.toasttab.com/doc/devguide/apiOverview.html
-- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Standard API access overview: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessCredentials.html
+- Toast Partners location access: https://doc.toasttab.com/doc/devguide/apiPartnersGettingAccessibleRestaurants.html
 - Toast Partners API: https://doc.toasttab.com/openapi/partners/operation/restaurantsGet/
 - Toast Restaurants API: https://doc.toasttab.com/openapi/restaurants/operation/restaurantsGuidGet/
 - Toast reporting integration checklist: https://doc.toasttab.com/doc/cookbook/apiIntegrationChecklistTemplate.html
