@@ -54,7 +54,7 @@ Guest and delivery scopes expose personal information that is not necessary for 
 
 Toast uses OAuth 2 client credentials. Authentication posts `clientId`, `clientSecret`, and `userAccessType: TOAST_MACHINE_CLIENT` to the Toast authentication endpoint. The response determines token lifetime; the client must cache according to the returned expiry rather than assuming a fixed duration.
 
-Every operational API request is location-specific and must carry an explicit restaurant GUID, commonly represented by the `Toast-Restaurant-External-ID` header or a restaurant GUID parameter depending on the API. Standard API credentials can be configured for selected locations.
+Operational Standard API requests are location-specific and use an explicit restaurant GUID, commonly represented by the `Toast-Restaurant-External-ID` header or a restaurant GUID parameter depending on the API. Standard API credentials can be configured for selected locations. The credential-wide Partners accessible-restaurants read is the deliberate exception used to discover which restaurant connections the credential can access; that call does not fabricate a restaurant header.
 
 Analytics requests operate on a management-group restaurant set. The request body can include or exclude restaurant GUIDs according to the endpoint contract. The client must preserve the exact normalized member set in job state and result metadata.
 
@@ -69,30 +69,21 @@ Analytics requests operate on a management-group restaurant set. The request bod
 
 ### Token response shape — original implementation note, not sourced from Toast documentation
 
-None of the primary sources reviewed for this document describe the shape of the
-authentication endpoint's response body, only the request body and the general
-caching/refresh obligation above. `src/auth.ts` (T1-003) assumes the following
-response shape and encodes that assumption as a Zod schema, so the assumption
-is explicit, fails closed if wrong, and is independently checkable by a
-reviewer rather than left implicit in the parsing code:
+> **Known stale subsection:** T2-002 review finding `T2-002-R2-F2` owns reconciliation of this note with the current official authentication reference. Do not treat the opaque-token wording below as the current capability source contract until that finding is closed.
 
-```
+The T1-003 implementation originally assumed the following response shape and encoded that assumption as a Zod schema so a mismatch failed closed rather than becoming implicit parser behavior:
+
+```json
 {
   "token": {
     "tokenType": "Bearer",
-    "expiresIn": <positive integer seconds, capped at 86400 by this project>,
+    "expiresIn": 600,
     "accessToken": "<opaque bearer token string>"
   }
 }
 ```
 
-`tokenType` is asserted to be the literal string `"Bearer"`; any other value, or
-a response missing the `token` wrapper object entirely, is treated as an
-unusable response and fails closed. The response may include additional fields
-(for example, a `status` field or a `scope` field) that this project does not
-depend on and does not validate one way or the other. This note records an
-original implementation assumption for reviewability; it is not, and must not
-be treated as, Toast's own documentation of the endpoint.
+`tokenType` is asserted to be the literal string `"Bearer"`; any other value, or a response missing the `token` wrapper object entirely, is treated as unusable. T2-002 is responsible for replacing the stale token-shape/capability assumptions here with the current sourced contract.
 
 ## Reporting source map
 
@@ -100,7 +91,7 @@ be treated as, Toast's own documentation of the endpoint.
 
 Use restaurant and configuration APIs to resolve names and reporting dimensions:
 
-- restaurant name, timezone, and `closeoutHour`
+- restaurant name, timezone, `closeoutHour`, and currency
 - dining options
 - revenue centers
 - sales categories
@@ -118,27 +109,37 @@ Use restaurant and configuration APIs to resolve names and reporting dimensions:
 
 Toast recommends refreshing restaurant/configuration context at least daily per location. Menu metadata should be checked throughout the day, with a menu refresh after a detected publish.
 
-### Standard restaurant discovery response shape — original implementation note
+### Standard location discovery source contract — re-verified 2026-08-16
 
-`src/locations.ts` (T2-001) discovers Standard API locations by issuing a
-read-only `GET` through the shared Standard API transport to
-`/restaurants/v1/restaurants`, using the configured default restaurant GUID as
-the bootstrap `Toast-Restaurant-External-ID` header. The implementation assumes
-the response body has a top-level `restaurants` array whose members include:
+The original T2-001 implementation assumed that `GET /restaurants/v1/restaurants`, sent with one bootstrap `Toast-Restaurant-External-ID`, returned a credential-wide wrapper such as `{ "restaurants": [...] }`. Current official Toast sources do not define that aggregate behavior. The production location context is therefore two-stage:
 
-```
-{
-  "guid": "<restaurant UUID>",
-  "name": "<restaurant display name>",
-  "timeZone": "<IANA timezone>",
-  "closeoutHour": <integer 0-23>
-}
-```
+1. `GET /partners/v1/restaurants` enumerates the restaurant connections available to the credential. Standard API guidance explicitly directs Standard API users to the Partners API to retrieve their selected location GUIDs. This credential-wide read does **not** send a fabricated restaurant header.
+2. For each active accessible restaurant, `GET /restaurants/v1/restaurants/{restaurantGUID}?includeArchived=false` hydrates report-critical restaurant detail and sends a matching `Toast-Restaurant-External-ID` header.
 
-This records an implementation assumption for reviewability, not a claim that
-Toast's public docs use this exact schema spelling in every context. The parser
-fails closed if the body is missing those fields, if a GUID is duplicated, or
-if the bootstrap restaurant GUID is absent from the returned set.
+The Partners response includes substantially more data than reporting needs. The retained runtime connection context is deliberately minimized to:
+
+- normalized `restaurantGuid`
+- normalized `managementGroupGuid` when present
+- the frozen open-string `connectionScopes` list granted for that restaurant connection
+
+Partner contact email, external references, timestamps, names, and other partner metadata are not retained. `deleted:true` connections are excluded from active reporting context. If the configured bootstrap GUID is absent or appears only as deleted/inactive, discovery fails closed.
+
+The Restaurants detail response supplies the report context retained for each active location:
+
+- restaurant GUID, which must match the requested connection
+- display name
+- IANA timezone
+- `closeoutHour`, integer **0 through 12 inclusive**
+- `currencyCode`, ISO-4217 alpha shape
+- management-group GUID when present
+
+If both Partners and Restaurants sources provide a management-group GUID, disagreement fails closed rather than silently choosing one. A detail response marked archived despite `includeArchived=false` is also rejected.
+
+Discovery is atomic with respect to the in-memory registry: the complete active connection set is parsed first, every restaurant detail is hydrated and validated, and only then is the registry replaced. A failure on restaurant N must not publish restaurants 1..N-1 as an apparently complete location set or overwrite a previously complete registry.
+
+The credential-scoped Partners transport remains structurally allowlisted rather than exposing a generic headerless request helper. It reuses the same config-bound OAuth manager, bounded retry/wait logic, status classification, JSON parsing, error sanitization, and rate-limit machinery as restaurant reads, with a separate credential-scoped rate-limit key so it cannot collide with any restaurant bucket.
+
+This source contract supersedes the prior synthetic aggregate-wrapper assumption and the prior `closeoutHour` 0–23 range.
 
 ### Orders-based reporting
 
@@ -324,35 +325,7 @@ The transport must read Toast rate-limit headers, coordinate all tools through a
 
 ### Rate-limit-reset header semantics — original implementation note, not sourced from Toast documentation
 
-None of the primary sources reviewed for this document describe whether a
-Toast rate-limit "reset" response header (for example `Toast-RateLimit-Reset`)
-carries an absolute epoch timestamp or a relative delta (seconds until reset).
-`src/transport.ts` (T1-004) assumes the header is always an **absolute**
-point in time, encoded as either epoch seconds or epoch milliseconds:
-
-```
-epochHeader(value):
-  if value > 9,999,999,999:
-    treat value as already epoch milliseconds
-  else:
-    treat value as epoch seconds and multiply by 1000
-```
-
-This assumption is explicit and independently checkable by a reviewer rather
-than left implicit in the parsing code, matching the precedent set for the
-authentication response shape above. It has a known failure mode if wrong:
-if Toast ever sends this header as a relative delta (seconds until reset,
-the way `Retry-After` delta-seconds works) rather than an absolute
-timestamp, a small value such as `42` would be misread as epoch-seconds
-`42` — a moment in 1970, already in the past — and the derived wait would
-silently resolve to zero rather than the intended 42-second delay. The
-transport does not currently distinguish these two cases; it always treats
-the header as absolute. A future reviewer with access to a live rate-limited
-response, or an updated Toast document describing this header precisely,
-should confirm or correct this assumption before it is relied upon for a
-long-lived wait. This note records an original implementation assumption
-for reviewability; it is not, and must not be treated as, Toast's own
-documentation of the header.
+None of the primary sources reviewed for this document describe whether a Toast rate-limit `reset` response header (for example `Toast-RateLimit-Reset`) carries an absolute epoch timestamp or a relative delta. `src/transport.ts` assumes the header is always an absolute point in time, encoded as either epoch seconds or epoch milliseconds. If Toast ever sends it as a relative delta, a small value would be misread as an already-past 1970 timestamp and the intended wait would collapse to zero. A future reviewer with a live rate-limited response or updated Toast documentation must confirm or correct that assumption before treating it as production-proven semantics.
 
 ### Errors and completeness
 
@@ -360,7 +333,7 @@ Toast commonly returns JSON error objects containing HTTP status, service code, 
 
 - 202: Analytics report is still being prepared
 - 401: token invalid or expired
-- 403: scope or location access denied
+- 403: authorization failure; the exact cause is not safely inferred from status alone
 - 404: Analytics request GUID invalid or expired, according to the endpoint message
 - 409: configuration publication conflict during page-token pagination, or unusable Analytics report request depending on endpoint
 - 429: rate limit exceeded
@@ -488,6 +461,8 @@ Raw records should not be a default tool surface. A future bounded export resour
 - Integration types: https://doc.toasttab.com/doc/devguide/apiIntegrationTypes.html
 - Standard API overview: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
 - Standard API scopes: https://doc.toasttab.com/doc/devguide/devApiAccessScopes.html
+- Partners accessible restaurants: https://doc.toasttab.com/openapi/partners/operation/restaurantsGet/
+- Restaurant detail: https://doc.toasttab.com/openapi/restaurants/operation/restaurantsGuidGet/
 - Analytics access: https://doc.toasttab.com/doc/devguide/apiAnalyticsAccessOverview.html
 - Analytics API overview: https://doc.toasttab.com/doc/devguide/apiAnalyticsOverview.html
 - Analytics process: https://doc.toasttab.com/doc/devguide/apiAnalyticsUnderstandingProcess.html
