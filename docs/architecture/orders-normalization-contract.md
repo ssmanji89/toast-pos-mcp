@@ -20,22 +20,48 @@ It emits immutable Standard-API records containing only data needed by planned r
 
 Toast documents two materially different `/ordersBulk` query modes:
 
-- `business_date`: `businessDate=yyyyMMdd`, recommended for reconciliation with Toast Web and based on the restaurant's local business-day cutoff;
+- `business_date`: `businessDate=yyyyMMdd`, selecting orders created on that restaurant business day;
 - `modified_window`: `startDate` inclusive and `endDate` exclusive, selecting by order modification time.
 
 The normalizer records the caller-selected mode verbatim and validates it. It does not infer one mode from timestamps and does not rewrite Toast's `Order.businessDate` from UTC time. A scheduled order's `promisedDate` and `approvalStatus` remain explicit so the report layer can distinguish future fulfillment from completed/past sales using an injected/report-time clock rather than normalization-time wall clock.
 
 Source timestamps and modified-window bounds must use Toast's zoned ISO-8601 form: date plus `T` time plus either `Z` or an explicit numeric UTC offset. Numeric offsets with or without the colon are accepted because current Toast examples use both forms. Human-readable locale strings and zone-less local date-times are rejected even when JavaScript's `Date.parse` happens to accept them.
 
-## Currency and arithmetic boundary
+## Currency and arithmetic boundaries
 
-Toast documents Orders monetary values at two decimal places. The location context supplies the ISO-4217 `currencyCode`; there is no USD fallback.
+The location context supplies the ISO-4217 `currencyCode`; there is no USD fallback.
 
-Every retained currency amount is converted to integer minor units at normalization time. A source value that cannot round-trip at two decimal places or would overflow a JavaScript safe integer after multiplication by 100 fails closed. The normalizer never silently rounds a higher-precision source value.
+### Rounded settlement/display totals
+
+Toast documents ordinary Orders currency totals as two-decimal amounts. The following retained values therefore cross the normalization boundary as integer minor units:
+
+- check `amount`, `taxAmount`, and `totalAmount`;
+- selection `price`, `preDiscountPrice`, and aggregate `tax`;
+- payment amount/tip/refund totals;
+- service-charge amount and refund totals;
+- applied-discount amounts.
+
+A source value in one of those fields that cannot round-trip at two decimal places, or would overflow a JavaScript safe integer after multiplication by 100, fails closed. The normalizer never silently rounds a higher-precision value.
 
 Quantities and percentages are **not** currency. A weighted quantity such as `0.5` remains a number and is never converted to minor units.
 
-T3 calculations must sum integer minor units. They must not re-price selections or reconstruct Toast tax/pricing algorithms from configuration when Toast already returned the amount.
+T3 calculations must sum integer minor units for these rounded totals. They must not re-price selections or reconstruct Toast tax/pricing algorithms from configuration when Toast already returned the amount.
+
+### Applied-tax source components
+
+The earlier blanket assumption that *every* monetary-looking Orders field is two-decimal currency is false for `AppliedTaxRate.taxAmount`. Current Toast response examples include source tax components such as `0.075` and `0.625` whose enclosing selection/check aggregate tax is rounded to two decimals. Toast's sales-report guidance also instructs consumers to sum tax amounts per tax rate for drilldown.
+
+For that reason, each normalized applied-tax record retains:
+
+- tax-rate configuration reference only, not source name/display/jurisdiction free text;
+- source `rate` as an exact canonical decimal when present;
+- source `taxAmount` as an exact canonical decimal;
+- open-string tax `type`;
+- `facilitatorCollectAndRemitTax` when present.
+
+The decimal model is JSON-safe `{ coefficient: string, scale: number }`. Conversion begins from JavaScript's shortest round-tripping base-10 rendering of the already-parsed JSON number. Later addition aligns scales and uses `BigInt` internally, then returns another string-coefficient decimal. No public normalized object contains a `BigInt`, and no report formula may sum these components with binary floating-point arithmetic.
+
+No fixed tax-component decimal scale is invented because Toast does not document one. Negative component values are preserved when the source API supplies them; the schema is a finite double with no non-negative constraint. A later report formula must decide how a negative adjustment contributes to its named metric rather than normalization silently changing the sign.
 
 ## Report dimensions retained before the privacy boundary
 
@@ -44,9 +70,11 @@ The source model keeps structured dimensions that downstream reports cannot reco
 - `Order.numberOfGuests` as a non-negative integer when Toast returns it, for guest counts and guest-normalized metrics;
 - order-level dining option, revenue center, restaurant service, and source;
 - selection-level dining option plus item, item group, option group, and sales category references;
+- check `taxExempt` state;
+- selection/service-charge applied-tax source components;
 - unresolved configuration references by GUID and/or multi-location ID.
 
-Only identifiers survive. Human-readable free-text values from selections, check tabs, customers, or delivery fields are intentionally excluded.
+Only identifiers survive. Human-readable free-text values from selections, check tabs, customers, delivery fields, and tax display/jurisdiction fields are intentionally excluded.
 
 ## Lifecycle state retained
 
@@ -58,7 +86,7 @@ The model preserves enough explicit state for later formulas to make their exclu
 - selection `deferred` and open-string `selectionType`;
 - recursive modifiers at arbitrary nesting depth without recursive call-stack dependence;
 - payment status/type, paid business date, refund amount, and tip refund separately;
-- service-charge amount, category, gratuity flag, and refund details;
+- service-charge amount, category, gratuity flag, tax components, and refund details;
 - check/selection discounts needed for report explanation;
 - unresolved configuration references by GUID and/or multi-location ID.
 
@@ -78,6 +106,7 @@ Raw Orders responses can contain guest and payment-card-linked material that thi
 - check tab names or selection display/special-request text;
 - card first-six/last-four, card type/entry mode, card payment IDs, tender transaction IDs, network transaction identifiers, or arbitrary payment metadata;
 - house-account/customer identifiers;
+- tax names, display names, or jurisdiction free text;
 - arbitrary upstream response bodies, headers, URLs, or raw `Response` objects.
 
 The source object exists transiently at JSON parsing/validation time, but unknown fields are never copied into normalized runtime state. Tests inject distinctive markers into these surfaces and require that they are absent from serialization and deep traversal of the normalized result.
@@ -108,7 +137,7 @@ The executable integration test must spawn built `dist/index.js`; an in-memory c
 
 ## Primary Toast sources
 
-- Orders API reference, including `Order`, `Check`, `Selection`, `Payment`, `Refund`, and `AppliedServiceCharge`
+- Orders API reference, including `Order`, `Check`, `Selection`, `Payment`, `Refund`, `AppliedTaxRate`, and `AppliedServiceCharge`
 - Get multiple orders (`/ordersBulk`) reference
 - Toast guide: Calculating net sales using the orders API
 - Toast guide: Building a sales report
