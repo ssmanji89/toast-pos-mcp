@@ -41,8 +41,11 @@ export interface ProvisionedScopeProvider {
  * - Partners `connectionScopes` says which scopes are granted for the chosen
  *   restaurant connection.
  *
- * Eligibility is their intersection. This object is stateless and stores no
- * observed 403 outcome because a generic Toast 403 is not scope-specific.
+ * `eligibleScopes` is their intersection after removing this product's
+ * explicit Standard API scope exclusions. The raw authority evidence remains
+ * available separately in `provisionedScopes` and `connectionScopes`.
+ * This object is stateless and stores no observed 403 outcome because a
+ * generic Toast 403 is not scope-specific.
  */
 export interface CapabilityContext {
   readonly restaurantGuid: string;
@@ -111,7 +114,11 @@ export async function createCapabilityContext(
   );
   const connectionScopeSet = new Set(connectionScopes);
   const eligibleScopes = freezeScopes(
-    provisionedScopes.filter((scope) => connectionScopeSet.has(scope)),
+    provisionedScopes.filter(
+      (scope) =>
+        connectionScopeSet.has(scope)
+        && !excludedScopeSet.has(scope.toLowerCase()),
+    ),
   );
 
   return Object.freeze({
