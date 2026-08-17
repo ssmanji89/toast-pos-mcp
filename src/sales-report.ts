@@ -30,6 +30,7 @@ export interface SalesSummaryBucket {
   readonly taxAmountMinor: number;
   readonly discountAmountMinor: number;
   readonly serviceChargeAmountMinor: number;
+  readonly selectionExclusionAmountMinor: number;
   readonly deferredSelectionAmountMinor: number;
   readonly houseAccountBalancePaymentAmountMinor: number;
   readonly fundraisingContributionAmountMinor: number;
@@ -93,6 +94,7 @@ interface MutableBucket {
   taxAmountMinor: number;
   discountAmountMinor: number;
   serviceChargeAmountMinor: number;
+  selectionExclusionAmountMinor: number;
   deferredSelectionAmountMinor: number;
   houseAccountBalancePaymentAmountMinor: number;
   fundraisingContributionAmountMinor: number;
@@ -118,6 +120,7 @@ interface SalesFoldState {
 
 const SALES_WARNINGS = Object.freeze([
   "Future orders are reported separately using promisedDate compared with report generation time.",
+  "deferredSelectionAmountMinor and houseAccountBalancePaymentAmountMinor are diagnostic categories that can overlap; selectionExclusionAmountMinor is their deduplicated union used in netSalesMinor.",
   "Net sales reconcile refundAmount embedded on Orders payments; use toast_payment_summary for the complete paid/refunded/voided business-date payment lifecycle.",
 ]);
 
@@ -195,11 +198,7 @@ export async function buildSalesSummaryReport(
             );
           }
           foldState.seenOrderGuids.add(order.guid);
-          aggregateOrder(
-            foldState,
-            order,
-            generatedAtEpochMs,
-          );
+          aggregateOrder(foldState, order, generatedAtEpochMs);
         }
 
         return foldState;
@@ -310,23 +309,29 @@ function aggregateOrder(
         0,
       );
 
-    // Toast's net-sales guide says to inspect `check.selections`. Do not walk
-    // nested modifiers for these deductions: Selection.price is already the
-    // final net item price after modifier prices, so recursively subtracting
-    // modifier prices would double-count the exclusion.
+    let selectionExclusionAmountMinor = 0;
     let deferredSelectionAmountMinor = 0;
     let houseAccountBalancePaymentAmountMinor = 0;
     for (const selection of check.selections) {
       if (selection.voided) {
         continue;
       }
-      if (selection.deferred) {
+      const deferred = selection.deferred;
+      const houseAccount =
+        selection.selectionType === "HOUSE_ACCOUNT_PAY_BALANCE";
+      if (deferred || houseAccount) {
+        selectionExclusionAmountMinor = addMinorUnits(
+          selectionExclusionAmountMinor,
+          selection.priceMinor,
+        );
+      }
+      if (deferred) {
         deferredSelectionAmountMinor = addMinorUnits(
           deferredSelectionAmountMinor,
           selection.priceMinor,
         );
       }
-      if (selection.selectionType === "HOUSE_ACCOUNT_PAY_BALANCE") {
+      if (houseAccount) {
         houseAccountBalancePaymentAmountMinor = addMinorUnits(
           houseAccountBalancePaymentAmountMinor,
           selection.priceMinor,
@@ -351,9 +356,12 @@ function aggregateOrder(
       bucket.netSalesMinor,
       check.amountMinor,
       -fundraisingContributionAmountMinor,
-      -deferredSelectionAmountMinor,
-      -houseAccountBalancePaymentAmountMinor,
+      -selectionExclusionAmountMinor,
       -embeddedRefundAmountMinor,
+    );
+    bucket.selectionExclusionAmountMinor = addMinorUnits(
+      bucket.selectionExclusionAmountMinor,
+      selectionExclusionAmountMinor,
     );
     bucket.deferredSelectionAmountMinor = addMinorUnits(
       bucket.deferredSelectionAmountMinor,
@@ -393,7 +401,12 @@ function discountsForCheck(
   const stack = [...selections];
   while (stack.length > 0) {
     const selection = stack.pop();
-    if (selection === undefined || selection.voided || selection.deferred) {
+    if (
+      selection === undefined
+      || selection.voided
+      || selection.deferred
+      || selection.selectionType === "HOUSE_ACCOUNT_PAY_BALANCE"
+    ) {
       continue;
     }
     total = addMinorUnits(
@@ -452,6 +465,7 @@ function emptyBucket(): MutableBucket {
     taxAmountMinor: 0,
     discountAmountMinor: 0,
     serviceChargeAmountMinor: 0,
+    selectionExclusionAmountMinor: 0,
     deferredSelectionAmountMinor: 0,
     houseAccountBalancePaymentAmountMinor: 0,
     fundraisingContributionAmountMinor: 0,
@@ -491,6 +505,10 @@ function addBuckets(
     serviceChargeAmountMinor: addMinorUnits(
       left.serviceChargeAmountMinor,
       right.serviceChargeAmountMinor,
+    ),
+    selectionExclusionAmountMinor: addMinorUnits(
+      left.selectionExclusionAmountMinor,
+      right.selectionExclusionAmountMinor,
     ),
     deferredSelectionAmountMinor: addMinorUnits(
       left.deferredSelectionAmountMinor,
