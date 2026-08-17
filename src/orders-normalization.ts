@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  exactDecimalFromNumber,
+  type ExactDecimal,
+} from "./exact-decimal.js";
 import type { ToastLocation } from "./locations.js";
 import type { ToastDetailedJsonResult } from "./transport.js";
 
@@ -27,6 +31,22 @@ const sourceReferenceSchema = z
   .object({
     guid: z.union([z.string().min(1), z.null()]).optional(),
     multiLocationId: z.union([z.string().min(1), z.null()]).optional(),
+  })
+  .passthrough();
+
+/**
+ * AppliedTaxRate component amounts are deliberately not parsed as two-decimal
+ * settlement currency. Toast's own current Orders examples include sub-cent
+ * values such as 0.075 and 0.625 for individual tax-rate components whose
+ * enclosing selection/check tax totals are rounded currency values.
+ */
+const sourceAppliedTaxSchema = z
+  .object({
+    taxRate: sourceReferenceSchema,
+    rate: z.number().finite().optional().nullable(),
+    taxAmount: z.number().finite(),
+    type: openEnumSchema.optional().nullable(),
+    facilitatorCollectAndRemitTax: z.boolean().optional().nullable(),
   })
   .passthrough();
 
@@ -65,6 +85,7 @@ const sourceAppliedServiceChargeSchema = z
     chargeType: openEnumSchema.optional().nullable(),
     gratuity: z.boolean(),
     serviceChargeCategory: openEnumSchema.optional().nullable(),
+    appliedTaxes: z.array(sourceAppliedTaxSchema).default([]),
     refundDetails: sourceRefundDetailsSchema.optional().nullable(),
   })
   .passthrough();
@@ -111,6 +132,7 @@ const sourceSelectionSchema = z
     voidDate: sourceDateTimeSchema.optional(),
     voidBusinessDate: businessDateSchema.optional(),
     appliedDiscounts: z.array(sourceAppliedDiscountSchema).default([]),
+    appliedTaxes: z.array(sourceAppliedTaxSchema).default([]),
     refundDetails: sourceRefundDetailsSchema.optional().nullable(),
     modifiers: z.array(z.unknown()).default([]),
   })
@@ -122,6 +144,7 @@ const sourceCheckSchema = z
     amount: sourceMoneySchema,
     taxAmount: sourceMoneySchema,
     totalAmount: sourceMoneySchema,
+    taxExempt: z.boolean(),
     deleted: z.boolean(),
     voided: z.boolean(),
     voidDate: sourceDateTimeSchema.optional(),
@@ -160,6 +183,7 @@ type SourceOrder = z.infer<typeof sourceOrderSchema>;
 type SourceCheck = z.infer<typeof sourceCheckSchema>;
 type SourceSelection = z.infer<typeof sourceSelectionSchema>;
 type SourcePayment = z.infer<typeof sourcePaymentSchema>;
+type SourceAppliedTax = z.infer<typeof sourceAppliedTaxSchema>;
 type SourceAppliedServiceCharge = z.infer<
   typeof sourceAppliedServiceChargeSchema
 >;
@@ -187,6 +211,17 @@ export interface NormalizedReference {
   readonly multiLocationId: string | undefined;
 }
 
+export interface NormalizedAppliedTax {
+  /** Tax-rate configuration identity; no source name/display/jurisdiction text. */
+  readonly taxRate: NormalizedReference | undefined;
+  /** Source tax-rate scalar, preserved exactly after JSON numeric parsing. */
+  readonly rate: ExactDecimal | undefined;
+  /** Source component amount; may legitimately have sub-cent precision. */
+  readonly taxAmount: ExactDecimal;
+  readonly type: string | undefined;
+  readonly facilitatorCollectAndRemitTax: boolean | undefined;
+}
+
 export interface NormalizedAppliedDiscount {
   readonly guid: string;
   readonly discountAmountMinor: number;
@@ -209,6 +244,7 @@ export interface NormalizedServiceCharge {
   readonly gratuity: boolean;
   /** Missing/null is normalized to Toast's documented regular category. */
   readonly serviceChargeCategory: string;
+  readonly appliedTaxes: readonly NormalizedAppliedTax[];
   readonly refundDetails: NormalizedRefundDetails | undefined;
 }
 
@@ -247,7 +283,10 @@ export interface NormalizedSelection {
   readonly selectionType: string | undefined;
   readonly priceMinor: number;
   readonly preDiscountPriceMinor: number;
+  /** Rounded aggregate selection tax returned by Toast. */
   readonly taxMinor: number | undefined;
+  /** Per-rate source components retained separately at source precision. */
+  readonly appliedTaxes: readonly NormalizedAppliedTax[];
   readonly deferred: boolean;
   readonly voided: boolean;
   readonly voidDate: string | undefined;
@@ -262,6 +301,7 @@ export interface NormalizedCheck {
   readonly amountMinor: number;
   readonly taxAmountMinor: number;
   readonly totalAmountMinor: number;
+  readonly taxExempt: boolean;
   readonly deleted: boolean;
   readonly voided: boolean;
   readonly voidDate: string | undefined;
@@ -460,6 +500,7 @@ function normalizeCheck(
     amountMinor: moneyToMinorUnits(source.amount),
     taxAmountMinor: moneyToMinorUnits(source.taxAmount),
     totalAmountMinor: moneyToMinorUnits(source.totalAmount),
+    taxExempt: source.taxExempt,
     deleted: source.deleted,
     voided: source.voided,
     voidDate: source.voidDate,
@@ -551,6 +592,7 @@ function freezeSelection(
     preDiscountPriceMinor: moneyToMinorUnits(source.preDiscountPrice),
     taxMinor:
       source.tax === undefined ? undefined : moneyToMinorUnits(source.tax),
+    appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes),
     deferred: source.deferred,
     voided: source.voided,
     voidDate: source.voidDate,
@@ -604,8 +646,24 @@ function normalizeServiceCharge(
     chargeType: source.chargeType ?? undefined,
     gratuity: source.gratuity,
     serviceChargeCategory: source.serviceChargeCategory ?? "SERVICE_CHARGE",
+    appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes),
     refundDetails: normalizeRefundDetails(source.refundDetails),
   });
+}
+
+function normalizeAppliedTaxes(
+  sourceTaxes: readonly SourceAppliedTax[],
+): readonly NormalizedAppliedTax[] {
+  const normalized = sourceTaxes.map((source) => Object.freeze({
+    taxRate: normalizeReference(source.taxRate),
+    rate:
+      source.rate == null ? undefined : exactDecimalFromNumber(source.rate),
+    taxAmount: exactDecimalFromNumber(source.taxAmount),
+    type: source.type ?? undefined,
+    facilitatorCollectAndRemitTax:
+      source.facilitatorCollectAndRemitTax ?? undefined,
+  }));
+  return Object.freeze(normalized);
 }
 
 function normalizeAppliedDiscount(
@@ -691,10 +749,6 @@ function moneyToMinorUnits(value: number): number {
     throw moneyPrecisionInvalid();
   }
 
-  // Toast documents Orders currency values at two decimal places. Comparing
-  // the value with its two-decimal round-trip accepts normal JSON numbers
-  // such as 10.1 despite IEEE-754 representation, while rejecting source
-  // values that carry unsupported precision instead of silently rounding it.
   const twoDecimalRoundTrip = Number(value.toFixed(2));
   if (twoDecimalRoundTrip !== value) {
     throw moneyPrecisionInvalid();
