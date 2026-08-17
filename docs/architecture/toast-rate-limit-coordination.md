@@ -1,7 +1,7 @@
 # Toast Rate-Limit Coordination Contract
 
-**Status:** pre-T3 production transport contract  
-**Last reviewed:** 2026-08-16  
+**Status:** pre-T3 production transport contract
+**Last reviewed:** 2026-08-16
 **Source authority:** current Toast rate-limiting developer guide
 
 ## Why this supersedes the old model
@@ -67,9 +67,9 @@ The wrapper mirrors successfully parsed current remaining/reset/limit values int
 
 `X-Toast-RateLimit-Reset` is interpreted as an absolute epoch, never as a relative delay. Epoch seconds are the normal documented form; epoch milliseconds are tolerated defensively without changing the absolute-time interpretation.
 
-`Retry-After` accepts strict non-negative integer seconds, plus the historical HTTP-date compatibility already supported by the transport. Strings such as `10junk` are not accepted as ten seconds.
+`Retry-After` accepts a complete non-negative integer delta-seconds value or an HTTP date. Numeric prefixes with trailing junk such as `10junk` are invalid and fall back only to the ordinary client-side retry delay; they are never interpreted as ten seconds.
 
-If a known hierarchical wait exceeds the same configured wait ceiling used by `ToastHttpClient`, the wrapper does not sleep beyond the ceiling and does not send the request early. It feeds a static synthetic 429 through the existing transport path so the established `rate_limit_wait_exceeded` fail-closed behavior remains the sole public error contract.
+If a known hierarchical wait exceeds the configured wait ceiling, the wrapper does not sleep and does not issue the upstream request. It throws the dedicated internal `ToastRateLimitPreflightError`, which the base transport preserves through its injected-fetch catch as the public non-retryable `rate_limit_wait_exceeded` contract. Arbitrary custom-fetch exceptions are still normalized to `request_network_error`; the bypass is deliberately limited to that exact internal subclass. The result is invariant for every supported `maxAttempts` value, including `1`.
 
 ## Concurrency and process boundary
 
@@ -99,7 +99,8 @@ Focused synthetic proof covers:
 - concurrent calls serialized through the first response observation;
 - a scoped wait releasing the turn so another restaurant reaches upstream while it sleeps;
 - absolute reset semantics;
-- over-ceiling fail-closed behavior with no second upstream request.
+- over-ceiling fail-closed behavior with `maxAttempts: 1` and the default, with no upstream request;
+- strict numeric `Retry-After`, HTTP-date compatibility, and malformed numeric-prefix rejection.
 
 Before CLEAN, the complete existing T1 transport and pagination matrix must also pass under Node 20 and Node 22 with authentic locked dependencies.
 
