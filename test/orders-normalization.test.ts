@@ -68,6 +68,7 @@ test("normalizes production-shaped Orders data into immutable minor-unit records
   assert.equal(check.amountMinor, 1010);
   assert.equal(check.taxAmountMinor, 85);
   assert.equal(check.totalAmountMinor, 1095);
+  assert.equal(check.taxExempt, false);
   assert.equal(check.paymentStatus, "FUTURE_CHECK_STATUS");
 
   const selection = check.selections[0];
@@ -325,6 +326,7 @@ function validOrder(): MutableFixture {
       amount: 10.1,
       taxAmount: 0.85,
       totalAmount: 10.95,
+      taxExempt: false,
       deleted: false,
       voided: false,
       paymentStatus: "FUTURE_CHECK_STATUS",
