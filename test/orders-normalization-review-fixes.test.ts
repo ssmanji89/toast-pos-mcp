@@ -12,7 +12,6 @@ const RESTAURANT_GUID = "00000000-0000-4000-8000-000000000401";
 const ORDER_GUID = "00000000-0000-4000-8000-000000000402";
 const CHECK_GUID = "00000000-0000-4000-8000-000000000403";
 const SELECTION_GUID = "00000000-0000-4000-8000-000000000404";
-const DINING_OPTION_GUID = "00000000-0000-4000-8000-000000000405";
 
 const LOCATION: ToastLocation = Object.freeze({
   restaurantGuid: RESTAURANT_GUID,
@@ -152,6 +151,7 @@ function baseOrder(guid = ORDER_GUID): Record<string, any> {
       amount: 10,
       taxAmount: 0.8,
       totalAmount: 10.8,
+      taxExempt: false,
       deleted: false,
       voided: false,
       paymentStatus: "CLOSED",
