@@ -18,10 +18,12 @@ export interface ToastRateLimitObservation {
 }
 
 /**
- * Current Toast rate-limit headers are `X-Toast-RateLimit-*`. The unprefixed
- * aliases remain readable only as a compatibility bridge for repository
- * fixtures and historical responses. Whenever the current header is present,
- * it wins even when its value is `0`; a legacy alias can never override it.
+ * Hierarchical coordination is an all-current-header contract. Once
+ * `X-Toast-RateLimit-By` identifies the scope of an observation, Remaining
+ * and Reset must come from the same current `X-Toast-*` generation. Historical
+ * aliases remain available only to the compatibility snapshot helpers below;
+ * they can never fill a missing current companion and create production wait
+ * state from mixed header generations.
  */
 export function readToastRateLimitObservation(
   response: Response,
@@ -33,15 +35,13 @@ export function readToastRateLimitObservation(
   return Object.freeze({
     primary: parsedBy.primary,
     account: parsedBy.account,
-    remaining: nonNegativeIntegerHeader(
+    remaining: currentNonNegativeIntegerHeader(
       response,
       "x-toast-ratelimit-remaining",
-      "toast-ratelimit-remaining",
     ),
-    resetAtEpochMs: absoluteEpochHeader(
+    resetAtEpochMs: currentAbsoluteEpochHeader(
       response,
       "x-toast-ratelimit-reset",
-      "toast-ratelimit-reset",
     ),
     retryAfterEpochMs: retryAfterEpochMs(response, nowEpochMs),
   });
@@ -122,9 +122,14 @@ export class ToastRateLimitCoordinator {
     const waitUntil = observation.retryAfterEpochMs
       ?? (observation.remaining === 0 ? observation.resetAtEpochMs : undefined);
 
-    if (waitUntil === undefined || observation.remaining !== 0 && observation.retryAfterEpochMs === undefined) {
+    if (
+      waitUntil === undefined
+      || (observation.remaining !== 0
+        && observation.retryAfterEpochMs === undefined)
+    ) {
       // A fresh observation for this exact constraint says it is not
-      // exhausted. Remove any stale locally retained wait immediately.
+      // exhausted, or lacks enough current-header information to establish a
+      // wait. Remove any stale locally retained wait rather than guessing.
       this.#waitUntilByConstraint.delete(key);
       return;
     }
@@ -227,6 +232,21 @@ function currentHeader(response: Response, name: string): string | null {
   return response.headers.get(name);
 }
 
+function currentNonNegativeIntegerHeader(
+  response: Response,
+  name: string,
+): number | undefined {
+  return parseNonNegativeInteger(currentHeader(response, name));
+}
+
+function currentAbsoluteEpochHeader(
+  response: Response,
+  name: string,
+): number | undefined {
+  const parsed = currentNonNegativeIntegerHeader(response, name);
+  return parsed === undefined ? undefined : absoluteEpochMilliseconds(parsed);
+}
+
 function currentOrLegacyHeader(
   response: Response,
   currentName: string,
@@ -241,7 +261,12 @@ function nonNegativeIntegerHeader(
   currentName: string,
   legacyName: string,
 ): number | undefined {
-  const raw = currentOrLegacyHeader(response, currentName, legacyName);
+  return parseNonNegativeInteger(
+    currentOrLegacyHeader(response, currentName, legacyName),
+  );
+}
+
+function parseNonNegativeInteger(raw: string | null): number | undefined {
   if (raw === null || !/^\d+$/u.test(raw.trim())) {
     return undefined;
   }
@@ -261,10 +286,11 @@ function absoluteEpochHeader(
   legacyName: string,
 ): number | undefined {
   const parsed = nonNegativeIntegerHeader(response, currentName, legacyName);
-  if (parsed === undefined) {
-    return undefined;
-  }
-  return parsed > 9_999_999_999 ? parsed : parsed * 1000;
+  return parsed === undefined ? undefined : absoluteEpochMilliseconds(parsed);
+}
+
+function absoluteEpochMilliseconds(value: number): number {
+  return value > 9_999_999_999 ? value : value * 1000;
 }
 
 function retryAfterEpochMs(
