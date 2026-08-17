@@ -5,14 +5,16 @@ import type { ToastDetailedJsonResult } from "./transport.js";
 
 const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/u;
 const BUSINESS_DATE_PATTERN = /^\d{8}$/u;
+const ISO_DATE_TIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/u;
 
 const guidSchema = z.string().uuid();
 const openEnumSchema = z.string().min(1);
 const sourceDateTimeSchema = z
   .string()
   .min(1)
-  .refine((value) => !Number.isNaN(Date.parse(value)), {
-    message: "must be a parseable date-time",
+  .refine(isValidSourceDateTime, {
+    message: "must be a zoned ISO-8601 date-time",
   });
 const businessDateSchema = z
   .number()
@@ -97,6 +99,7 @@ const sourceSelectionSchema = z
     itemGroup: sourceReferenceSchema.optional().nullable(),
     optionGroup: sourceReferenceSchema.optional().nullable(),
     salesCategory: sourceReferenceSchema.optional().nullable(),
+    diningOption: sourceReferenceSchema.optional().nullable(),
     quantity: sourceQuantitySchema,
     unitOfMeasure: openEnumSchema.optional().nullable(),
     selectionType: openEnumSchema.optional().nullable(),
@@ -143,6 +146,7 @@ const sourceOrderSchema = z
     diningOption: sourceReferenceSchema.optional().nullable(),
     revenueCenter: sourceReferenceSchema.optional().nullable(),
     restaurantService: sourceReferenceSchema.optional().nullable(),
+    numberOfGuests: z.number().int().min(0).optional(),
     excessFood: z.boolean(),
     deleted: z.boolean(),
     voided: z.boolean(),
@@ -237,6 +241,7 @@ export interface NormalizedSelection {
   readonly itemGroup: NormalizedReference | undefined;
   readonly optionGroup: NormalizedReference | undefined;
   readonly salesCategory: NormalizedReference | undefined;
+  readonly diningOption: NormalizedReference | undefined;
   readonly quantity: number;
   readonly unitOfMeasure: string | undefined;
   readonly selectionType: string | undefined;
@@ -277,6 +282,7 @@ export interface NormalizedOrder {
   readonly scheduled: boolean;
   readonly approvalStatus: string | undefined;
   readonly source: string | undefined;
+  readonly numberOfGuests: number | undefined;
   readonly diningOption: NormalizedReference | undefined;
   readonly revenueCenter: NormalizedReference | undefined;
   readonly restaurantService: NormalizedReference | undefined;
@@ -408,6 +414,7 @@ function normalizeOrder(source: SourceOrder): NormalizedOrder {
     scheduled: source.promisedDate != null,
     approvalStatus: source.approvalStatus ?? undefined,
     source: source.source ?? undefined,
+    numberOfGuests: source.numberOfGuests,
     diningOption: normalizeReference(source.diningOption),
     revenueCenter: normalizeReference(source.revenueCenter),
     restaurantService: normalizeReference(source.restaurantService),
@@ -536,6 +543,7 @@ function freezeSelection(
     itemGroup: normalizeReference(source.itemGroup),
     optionGroup: normalizeReference(source.optionGroup),
     salesCategory: normalizeReference(source.salesCategory),
+    diningOption: normalizeReference(source.diningOption),
     quantity: source.quantity,
     unitOfMeasure: source.unitOfMeasure ?? undefined,
     selectionType: source.selectionType ?? undefined,
@@ -652,18 +660,21 @@ function normalizeQuery(query: NormalizedOrdersQuery): NormalizedOrdersQuery {
   }
 
   if (query.mode === "modified_window") {
-    const start = Date.parse(query.startDate);
-    const end = Date.parse(query.endDate);
     if (
-      Number.isNaN(start)
-      || Number.isNaN(end)
-      || end <= start
-      || query.startDate.length === 0
-      || query.endDate.length === 0
+      !isValidSourceDateTime(query.startDate)
+      || !isValidSourceDateTime(query.endDate)
     ) {
       throw new OrdersNormalizationError(
         "orders_query_invalid",
-        "Orders modified-window query must contain a valid increasing date-time interval.",
+        "Orders modified-window query must contain zoned ISO-8601 date-times.",
+      );
+    }
+    const start = Date.parse(query.startDate);
+    const end = Date.parse(query.endDate);
+    if (end <= start) {
+      throw new OrdersNormalizationError(
+        "orders_query_invalid",
+        "Orders modified-window query must contain an increasing date-time interval.",
       );
     }
     return Object.freeze({ ...query });
@@ -729,6 +740,10 @@ function assertUnique(
     );
   }
   seen.add(guid);
+}
+
+function isValidSourceDateTime(value: string): boolean {
+  return ISO_DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 function isValidBusinessDate(value: number): boolean {
