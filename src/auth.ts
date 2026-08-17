@@ -7,25 +7,9 @@ import {
 
 const AUTHENTICATION_LOGIN_PATH = "/authentication/v1/authentication/login";
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 60_000;
-
-/**
- * Sanity ceiling on Toast's returned `expiresIn` (seconds).
- *
- * T0 research (`docs/research/toast-api-reporting-landscape.md`) documents the
- * authentication request body precisely but says nothing about a maximum
- * token lifetime; the client is told only to cache "according to the
- * returned expiry rather than assuming a fixed duration." Without an upper
- * bound, `z.number().int().positive()` accepts `Number.MAX_SAFE_INTEGER`,
- * which computes a refresh time millions of years in the future and silently
- * defeats the final-minute refresh contract for the life of the process.
- *
- * 24 hours is chosen as a defensible, generous ceiling: no legitimate
- * client-credentials access token needs to be cached longer than a day, so
- * this comfortably accommodates any plausible Toast-issued expiry while
- * still rejecting the class of implausible values (integer overflow,
- * corrupted upstream response, hostile stand-in) that would otherwise cache
- * a token as effectively permanent. See T1-003-R1-F1.
- */
+const JWT_SEGMENT_COUNT = 3;
+const MAX_SCOPE_LENGTH = 128;
+const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/u;
 const MAX_ACCEPTABLE_EXPIRES_IN_SECONDS = 86_400;
 
 const toastTokenResponseSchema = z.object({
@@ -39,6 +23,12 @@ const toastTokenResponseSchema = z.object({
     accessToken: z.string().min(1),
   }),
 });
+
+const toastAccessTokenPayloadSchema = z
+  .object({
+    scope: z.union([z.string(), z.array(z.string())]),
+  })
+  .passthrough();
 
 export type OAuthFetch = (
   input: string,
@@ -99,7 +89,6 @@ export class OAuthTokenManager {
 
   async getAccessToken(): Promise<string> {
     const cached = this.#cachedToken;
-
     if (
       cached !== undefined &&
       this.#now() < cached.refreshAfterEpochMs
@@ -127,6 +116,15 @@ export class OAuthTokenManager {
     return `Bearer ${await this.getAccessToken()}`;
   }
 
+  /**
+   * Return only the provisioned scope list from the current Toast-issued JWT.
+   * The bearer token stays inside this owner; capability code never receives a
+   * second raw token copy. Malformed/missing claims fail closed and sanitized.
+   */
+  async getProvisionedScopes(): Promise<readonly string[]> {
+    return decodeProvisionedScopes(await this.getAccessToken());
+  }
+
   async #requestAccessToken(): Promise<string> {
     const credentials = getRuntimeConfigCredentials(this.#config);
     let response: Response;
@@ -136,9 +134,7 @@ export class OAuthTokenManager {
         `https://${this.#config.apiHostname}${AUTHENTICATION_LOGIN_PATH}`,
         {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({
             clientId: credentials.clientId,
             clientSecret: credentials.clientSecret,
@@ -147,13 +143,6 @@ export class OAuthTokenManager {
         },
       );
     } catch {
-      // `this.#fetch` is an injectable `OAuthFetch`; a later slice (T1-004)
-      // or a hostile stand-in could reject with an error whose `message`
-      // carries upstream body content, header values, or other unsanitized
-      // detail. Every other failure path in this file normalizes through
-      // `ToastAuthError` and never surfaces an upstream body; this path must
-      // have the same guarantee. Deliberately do not read or interpolate
-      // any property of the caught value here.
       throw new ToastAuthError(
         "token_request_network_error",
         "Toast authentication request failed before a response was received.",
@@ -170,7 +159,6 @@ export class OAuthTokenManager {
 
     const payload = await readJson(response);
     const parsed = toastTokenResponseSchema.safeParse(payload);
-
     if (!parsed.success) {
       throw new ToastAuthError(
         "token_response_invalid",
@@ -185,7 +173,6 @@ export class OAuthTokenManager {
       refreshAfterEpochMs:
         this.#now() + token.expiresIn * 1000 - TOKEN_REFRESH_SAFETY_WINDOW_MS,
     };
-
     return token.accessToken;
   }
 }
@@ -195,6 +182,51 @@ export function createOAuthTokenManager(
   options: OAuthTokenManagerOptions = {},
 ): OAuthTokenManager {
   return new OAuthTokenManager(config, options);
+}
+
+function decodeProvisionedScopes(accessToken: string): readonly string[] {
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length !== JWT_SEGMENT_COUNT || parts[1] === undefined) {
+      throw new Error("invalid JWT shape");
+    }
+
+    const payload: unknown = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8"),
+    );
+    const parsed = toastAccessTokenPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new Error("missing scope claim");
+    }
+
+    const rawScopes = Array.isArray(parsed.data.scope)
+      ? parsed.data.scope
+      : parsed.data.scope.split(/\s+/u).filter((scope) => scope.length > 0);
+    const scopes: string[] = [];
+    const seen = new Set<string>();
+
+    for (const scope of rawScopes) {
+      if (
+        scope !== scope.trim() ||
+        scope.length === 0 ||
+        scope.length > MAX_SCOPE_LENGTH ||
+        !SCOPE_PATTERN.test(scope)
+      ) {
+        throw new Error("invalid scope claim");
+      }
+      if (!seen.has(scope)) {
+        seen.add(scope);
+        scopes.push(scope);
+      }
+    }
+
+    return Object.freeze(scopes);
+  } catch {
+    throw new ToastAuthError(
+      "token_response_invalid",
+      "Toast authentication access token did not contain a usable provisioned-scope claim.",
+    );
+  }
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -213,7 +245,6 @@ function buildAuthErrorMetadata(
   response: Response,
 ): { readonly upstreamStatus: number; readonly upstreamRequestId?: string } {
   const upstreamRequestId = response.headers.get("toast-request-id");
-
   return {
     upstreamStatus: response.status,
     ...(upstreamRequestId !== null ? { upstreamRequestId } : {}),
