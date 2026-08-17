@@ -16,7 +16,7 @@ The normalizer accepts only:
 
 It emits immutable Standard-API records containing only data needed by planned reporting calculations.
 
-## Query modes are not interchangeable
+## Query and timestamp modes are not interchangeable
 
 Toast documents two materially different `/ordersBulk` query modes:
 
@@ -25,15 +25,28 @@ Toast documents two materially different `/ordersBulk` query modes:
 
 The normalizer records the caller-selected mode verbatim and validates it. It does not infer one mode from timestamps and does not rewrite Toast's `Order.businessDate` from UTC time. A scheduled order's `promisedDate` and `approvalStatus` remain explicit so the report layer can distinguish future fulfillment from completed/past sales using an injected/report-time clock rather than normalization-time wall clock.
 
+Source timestamps and modified-window bounds must use Toast's zoned ISO-8601 form: date plus `T` time plus either `Z` or an explicit numeric UTC offset. Numeric offsets with or without the colon are accepted because current Toast examples use both forms. Human-readable locale strings and zone-less local date-times are rejected even when JavaScript's `Date.parse` happens to accept them.
+
 ## Currency and arithmetic boundary
 
-Toast documents Orders monetary values as two-decimal currency amounts. The location context supplies the ISO-4217 `currencyCode`; there is no USD fallback.
+Toast documents Orders monetary values at two decimal places. The location context supplies the ISO-4217 `currencyCode`; there is no USD fallback.
 
 Every retained currency amount is converted to integer minor units at normalization time. A source value that cannot round-trip at two decimal places or would overflow a JavaScript safe integer after multiplication by 100 fails closed. The normalizer never silently rounds a higher-precision source value.
 
 Quantities and percentages are **not** currency. A weighted quantity such as `0.5` remains a number and is never converted to minor units.
 
 T3 calculations must sum integer minor units. They must not re-price selections or reconstruct Toast tax/pricing algorithms from configuration when Toast already returned the amount.
+
+## Report dimensions retained before the privacy boundary
+
+The source model keeps structured dimensions that downstream reports cannot reconstruct after raw Orders objects are discarded:
+
+- `Order.numberOfGuests` as a non-negative integer when Toast returns it, for guest counts and guest-normalized metrics;
+- order-level dining option, revenue center, restaurant service, and source;
+- selection-level dining option plus item, item group, option group, and sales category references;
+- unresolved configuration references by GUID and/or multi-location ID.
+
+Only identifiers survive. Human-readable free-text values from selections, check tabs, customers, or delivery fields are intentionally excluded.
 
 ## Lifecycle state retained
 
