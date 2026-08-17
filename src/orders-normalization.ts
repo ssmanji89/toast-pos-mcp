@@ -144,7 +144,10 @@ const sourceCheckSchema = z
     amount: sourceMoneySchema,
     taxAmount: sourceMoneySchema,
     totalAmount: sourceMoneySchema,
-    taxExempt: z.boolean(),
+    // Toast documents false as the default and does not mark this response
+    // field required. Omission is therefore the documented non-exempt state,
+    // while non-boolean values still fail schema validation.
+    taxExempt: z.boolean().default(false),
     deleted: z.boolean(),
     voided: z.boolean(),
     voidDate: sourceDateTimeSchema.optional(),
@@ -191,6 +194,7 @@ type SourceAppliedDiscount = z.infer<typeof sourceAppliedDiscountSchema>;
 
 export type OrdersNormalizationErrorCode =
   | "orders_business_date_invalid"
+  | "orders_business_date_mismatch"
   | "orders_duplicate_entity"
   | "orders_money_precision_invalid"
   | "orders_query_invalid"
@@ -365,6 +369,13 @@ export interface NormalizedOrdersBatch {
   readonly orders: readonly NormalizedOrder[];
 }
 
+interface BatchEntityGuards {
+  readonly checkGuids: Set<string>;
+  readonly selectionGuids: Set<string>;
+  readonly paymentGuids: Set<string>;
+  readonly serviceChargeGuids: Set<string>;
+}
+
 export function normalizeOrdersPages(options: {
   readonly location: ToastLocation;
   readonly query: NormalizedOrdersQuery;
@@ -380,6 +391,12 @@ export function normalizeOrdersPages(options: {
   }
 
   const seenOrderGuids = new Set<string>();
+  const entityGuards: BatchEntityGuards = {
+    checkGuids: new Set<string>(),
+    selectionGuids: new Set<string>(),
+    paymentGuids: new Set<string>(),
+    serviceChargeGuids: new Set<string>(),
+  };
   const orders: NormalizedOrder[] = [];
   const pageProvenance: NormalizedOrdersPageProvenance[] = [];
 
@@ -400,9 +417,19 @@ export function normalizeOrdersPages(options: {
       if (!parsed.success) {
         throw sourceInvalid();
       }
+      if (
+        query.mode === "business_date"
+        && parsed.data.businessDate !== query.businessDate
+      ) {
+        throw new OrdersNormalizationError(
+          "orders_business_date_mismatch",
+          "Orders business-date source contained an order outside the requested business date.",
+        );
+      }
+
       const orderGuid = parsed.data.guid.toLowerCase();
       assertUnique(seenOrderGuids, orderGuid, "order");
-      orders.push(normalizeOrder(parsed.data));
+      orders.push(normalizeOrder(parsed.data, entityGuards));
     }
 
     pageProvenance.push(Object.freeze({
@@ -427,22 +454,19 @@ export function normalizeOrdersPages(options: {
   });
 }
 
-function normalizeOrder(source: SourceOrder): NormalizedOrder {
-  const seenCheckGuids = new Set<string>();
-  const seenSelectionGuids = new Set<string>();
-  const seenPaymentGuids = new Set<string>();
-  const seenServiceChargeGuids = new Set<string>();
+function normalizeOrder(
+  source: SourceOrder,
+  guards: BatchEntityGuards,
+): NormalizedOrder {
+  // Applied-discount GUID identity is kept order-local here. The current
+  // reporting contract does not rely on those identifiers as a batch-global
+  // entity key; broadening that uniqueness claim requires source evidence.
   const seenDiscountGuids = new Set<string>();
 
   const checks = source.checks.map((check) => {
     const guid = check.guid.toLowerCase();
-    assertUnique(seenCheckGuids, guid, "check");
-    return normalizeCheck(check, {
-      seenSelectionGuids,
-      seenPaymentGuids,
-      seenServiceChargeGuids,
-      seenDiscountGuids,
-    });
+    assertUnique(guards.checkGuids, guid, "check");
+    return normalizeCheck(check, guards, seenDiscountGuids);
   });
 
   return Object.freeze({
@@ -469,29 +493,25 @@ function normalizeOrder(source: SourceOrder): NormalizedOrder {
 
 function normalizeCheck(
   source: SourceCheck,
-  seen: {
-    readonly seenSelectionGuids: Set<string>;
-    readonly seenPaymentGuids: Set<string>;
-    readonly seenServiceChargeGuids: Set<string>;
-    readonly seenDiscountGuids: Set<string>;
-  },
+  guards: BatchEntityGuards,
+  seenDiscountGuids: Set<string>,
 ): NormalizedCheck {
   const selections = source.selections.map((selection) =>
-    normalizeSelectionIterative(selection, seen.seenSelectionGuids),
+    normalizeSelectionIterative(selection, guards.selectionGuids),
   );
   const payments = source.payments.map((payment) => {
     const guid = payment.guid.toLowerCase();
-    assertUnique(seen.seenPaymentGuids, guid, "payment");
+    assertUnique(guards.paymentGuids, guid, "payment");
     return normalizePayment(payment);
   });
   const serviceCharges = source.appliedServiceCharges.map((charge) => {
     const guid = charge.guid.toLowerCase();
-    assertUnique(seen.seenServiceChargeGuids, guid, "service charge");
+    assertUnique(guards.serviceChargeGuids, guid, "service charge");
     return normalizeServiceCharge(charge);
   });
   const discounts = source.appliedDiscounts.map((discount) => {
     const guid = discount.guid.toLowerCase();
-    assertUnique(seen.seenDiscountGuids, guid, "discount");
+    assertUnique(seenDiscountGuids, guid, "discount");
     return normalizeAppliedDiscount(discount);
   });
 
