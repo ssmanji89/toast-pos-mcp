@@ -48,54 +48,90 @@ export function createRateLimitAwareToastHttpClient(
   const maxWaitMs =
     transportOptions.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
 
-  const coordinatedFetch: typeof fetch = async (input, init) => {
-    const url = new URL(
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url,
-    );
-    const headers = new Headers(init?.headers);
-    const restaurantGuid =
-      headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
-    const context = Object.freeze({
-      restaurantGuid,
-      apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
-      endpointKey: endpointKeyFromPath(url.pathname),
-    });
+  // Serializing only the Standard-data fetch seam makes each completed Toast
+  // response visible to the coordinator before another data request performs
+  // its preflight. This closes the concurrent-handler race without inventing
+  // request reservations or decrementing quota values Toast did not report.
+  // OAuth token exchange is outside this queue and has its own Toast limits.
+  let fetchTail: Promise<void> = Promise.resolve();
 
-    const waitMs = coordinator.waitMilliseconds(context, now());
-    if (waitMs > maxWaitMs) {
-      // Return a static synthetic 429 through the normal Toast transport path
-      // instead of throwing from fetch. `ToastHttpClient` will apply its
-      // existing server-wait ceiling and surface `rate_limit_wait_exceeded`
-      // without misclassifying this as a network error or leaking state.
-      return new Response("{}", {
-        status: 429,
-        headers: {
-          "content-type": "application/json",
-          "retry-after": String(Math.ceil(waitMs / 1000)),
-        },
+  const coordinatedFetch: typeof fetch = async (input, init) =>
+    withSerializedTurn(fetchTail, (nextTail) => {
+      fetchTail = nextTail;
+    }, async () => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      const headers = new Headers(init?.headers);
+      const restaurantGuid =
+        headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
+      const context = Object.freeze({
+        restaurantGuid,
+        apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
+        endpointKey: endpointKeyFromPath(url.pathname),
       });
-    }
-    if (waitMs > 0) {
-      await sleep(waitMs);
-    }
 
-    const response = await underlyingFetch(input, init);
-    coordinator.record(
-      context,
-      readToastRateLimitObservation(response, now()),
-    );
+      const waitMs = coordinator.waitMilliseconds(context, now());
+      if (waitMs > maxWaitMs) {
+        // Return a static synthetic 429 through the normal Toast transport path
+        // instead of throwing from fetch. `ToastHttpClient` will apply its
+        // existing server-wait ceiling and surface `rate_limit_wait_exceeded`
+        // without misclassifying this as a network error or leaking state.
+        return new Response("{}", {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(Math.ceil(waitMs / 1000)),
+          },
+        });
+      }
+      if (waitMs > 0) {
+        await sleep(waitMs);
+      }
 
-    return withCurrentRateLimitAliases(response);
-  };
+      const response = await underlyingFetch(input, init);
+      coordinator.record(
+        context,
+        readToastRateLimitObservation(response, now()),
+      );
+
+      return withCurrentRateLimitAliases(response);
+    });
 
   return createToastHttpClient(config, tokenManager, {
     ...transportOptions,
     fetch: coordinatedFetch,
   });
+}
+
+/**
+ * Run one task after the previous serialized Standard-data fetch has fully
+ * returned and published its rate-limit observation. `tail` never inherits a
+ * task rejection: the release promise is resolved in `finally`, so a network
+ * failure cannot deadlock every later request.
+ */
+async function withSerializedTurn<T>(
+  tail: Promise<void>,
+  publishTail: (tail: Promise<void>) => void,
+  task: () => Promise<T>,
+): Promise<T> {
+  let release!: () => void;
+  const currentTurn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const previousTurn = tail;
+  publishTail(previousTurn.then(() => currentTurn));
+
+  await previousTurn;
+  try {
+    return await task();
+  } finally {
+    release();
+  }
 }
 
 /**
