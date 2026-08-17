@@ -197,7 +197,9 @@ function createHarness(
   });
 
   const client = createRateLimitAwareToastHttpClient(config, tokenManager, {
-    maxRateLimitWaitMs: options.maxRateLimitWaitMs,
+    ...(options.maxRateLimitWaitMs !== undefined
+      ? { maxRateLimitWaitMs: options.maxRateLimitWaitMs }
+      : {}),
     now: () => nowMs,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
