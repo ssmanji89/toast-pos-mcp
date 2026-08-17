@@ -73,9 +73,11 @@ If a known hierarchical wait exceeds the same configured wait ceiling used by `T
 
 ## Concurrency and process boundary
 
-All Standard-data fetches made by one production client instance are serialized at the wrapper seam. This is intentionally conservative: request N+1 performs its hierarchy preflight only after request N's response has been observed and recorded. A response that consumes the last request in a time slice can therefore establish the reset wait before another concurrent MCP handler reaches upstream.
+Actual Standard-data fetches are serialized through response observation: request N+1 cannot enter upstream until request N's response has been seen and its current rate-limit observation has been recorded. This closes the concurrent-handler race without inventing quota reservations or decrementing values Toast did not report.
 
-This serialization is not a fabricated token bucket. The client still sends requests while Toast reports capacity and stops only on observed exhausted constraints or Retry-After. It trades unused theoretical concurrency for deterministic correctness and can be optimized later only with a separately reviewed reservation model.
+A **positive known wait is not held inside that serialized turn**. The waiting request releases the turn, sleeps, then re-enters and rechecks its applicable constraints. An unrelated restaurant or endpoint can therefore use the shared client while a scoped request is waiting. Two requests for the same exhausted scope may sleep concurrently, but when they wake they re-enter the fetch turn one at a time; the first completed response is observed before the next one can reach upstream.
+
+This design intentionally trades simultaneous upstream fetch throughput for deterministic response-observation ordering, but it does not convert one restaurant's wait into another restaurant's wait. A more concurrent reservation model may be considered later only as a separately reviewed optimization.
 
 OAuth authentication exchange is outside this queue because Toast documents authentication rate limiting separately and does not include normal rate-limit headers on authentication responses.
 
@@ -95,6 +97,7 @@ Focused synthetic proof covers:
 - malformed-current-header behavior;
 - current `By` never borrowing legacy Remaining/Reset;
 - concurrent calls serialized through the first response observation;
+- a scoped wait releasing the turn so another restaurant reaches upstream while it sleeps;
 - absolute reset semantics;
 - over-ceiling fail-closed behavior with no second upstream request.
 
