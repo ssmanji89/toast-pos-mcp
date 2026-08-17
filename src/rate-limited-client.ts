@@ -12,6 +12,7 @@ import {
   createToastHttpClient,
   type ToastHttpClient,
   type ToastHttpClientOptions,
+  ToastRateLimitPreflightError,
 } from "./transport.js";
 
 const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
@@ -85,20 +86,10 @@ export function createRateLimitAwareToastHttpClient(
         async (): Promise<SerializedFetchDecision> => {
           const waitMs = coordinator.waitMilliseconds(context, now());
           if (waitMs > maxWaitMs) {
-            // Feed an over-ceiling known wait through the existing transport
-            // response path. The transport's established server-wait ceiling
-            // converts this synthetic 429 into `rate_limit_wait_exceeded`
-            // without sending an upstream request.
-            return {
-              kind: "response",
-              response: new Response("{}", {
-                status: 429,
-                headers: {
-                  "content-type": "application/json",
-                  "retry-after": String(Math.ceil(waitMs / 1000)),
-                },
-              }),
-            };
+            // Throw a dedicated internal preflight error before any upstream
+            // request. ToastHttpClient preserves only this exact subclass;
+            // every unrelated custom-fetch exception stays a network error.
+            throw new ToastRateLimitPreflightError();
           }
           if (waitMs > 0) {
             return { kind: "wait", milliseconds: waitMs };
