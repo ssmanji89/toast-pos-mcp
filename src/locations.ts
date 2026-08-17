@@ -1,22 +1,19 @@
 import { z } from "zod";
 
 import type { RuntimeConfig } from "./config.js";
-import { ToastHttpError, type ToastHttpClient } from "./transport.js";
+import {
+  ToastHttpError,
+  type ToastDetailedJsonResult,
+  type ToastHttpClient,
+} from "./transport.js";
 
 const RESTAURANT_DETAIL_PATH_PREFIX = "/restaurants/v1/restaurants";
 const RESTAURANTS_RATE_LIMIT_KEY = "restaurants";
 const MAX_SCOPE_LENGTH = 128;
+const MAX_LOCATION_PROVENANCE_REQUEST_IDS = 100;
 const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/u;
 const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/u;
 
-// A real IANA time zone identifier is never a bare UTC offset designator
-// ("-05:00", "+05:30", "UTC-08:00", ...). Some current ICU/V8 builds accept
-// these strings in `Intl.DateTimeFormat`'s `timeZone` option anyway, because
-// TC39's sanctioned single-offset time-zone extension to ECMA-402 has begun
-// landing in newer engines. Node 20 rejects a value such as "-05:00", while
-// newer Node/ICU combinations can accept it. Rejecting this shape before
-// asking Intl keeps the business-date foundation independent of that runtime
-// version difference.
 const UTC_OFFSET_DESIGNATOR_PATTERN = /^(?:UTC|GMT)?[+-]\d{1,2}:?\d{2}$/iu;
 
 function isValidIanaTimeZone(candidate: string): boolean {
@@ -74,8 +71,6 @@ const restaurantNameSchema = z
  * needs, including partner-contact email and external reference fields.
  * The narrow object schema strips unknown fields from the validated result,
  * then normalization constructs an even smaller immutable connection model.
- * Raw source bytes necessarily exist transiently while response.json() and
- * validation run, but unrelated fields are never retained in runtime state.
  */
 const partnerAccessSchema = z.object({
   restaurantGuid: restaurantGuidSchema,
@@ -104,17 +99,21 @@ export interface ToastLocation {
   readonly closeoutHour: number;
   readonly currencyCode: string;
   readonly managementGroupGuid: string | undefined;
-  /**
-   * Scope names granted for this specific restaurant connection by the
-   * Partners accessible-restaurants source. T2-002 intersects these with
-   * the current JWT's provisioned scopes before a data request is eligible.
-   */
   readonly connectionScopes: readonly string[];
+}
+
+export interface ToastLocationDiscoveryProvenance {
+  readonly retrievedThroughEpochMs: number;
+  readonly upstreamRequestIds: readonly string[];
+  readonly upstreamRequestIdCount: number;
+  readonly upstreamRequestIdsTruncated: boolean;
 }
 
 export interface ToastLocationDiscovery {
   readonly bootstrapRestaurantGuid: string;
   readonly locations: readonly ToastLocation[];
+  /** Provenance for the exact complete registry generation published here. */
+  readonly provenance: ToastLocationDiscoveryProvenance;
 }
 
 interface AccessibleRestaurantConnection {
@@ -192,18 +191,9 @@ export function createLocationRegistry(): ToastLocationRegistry {
  * through the restaurant-scoped Restaurants API.
  *
  * No registry mutation occurs until the complete active set has been
- * validated. A failed detail request therefore leaves any previously known
- * complete registry intact rather than publishing a partial replacement.
- *
- * Toast's current public documentation is internally inconsistent about
- * whether Standard API credentials can call the Partners accessible-
- * restaurants endpoint. The API overview and Standard-credential guide say
- * they can; the dedicated Partners location-access guide says only partner
- * API accounts can. Until a live Standard credential resolves that conflict,
- * an authorization failure from this credential-wide source is surfaced as
- * `location_discovery_source_unavailable`. We deliberately do not fall back
- * to every restaurant in a management group: Standard credentials can be
- * configured for only a subset, so group membership is not proof of access.
+ * validated. Provenance is accumulated from the same successful responses and
+ * returned only with that complete published generation; a failed discovery
+ * never publishes a partial registry or partial provenance snapshot.
  */
 export async function discoverStandardLocations(options: {
   readonly config: RuntimeConfig;
@@ -220,9 +210,10 @@ export async function discoverStandardLocations(options: {
   }
 
   const bootstrapRestaurantGuid = configuredBootstrapGuid.toLowerCase();
-  let partnerPayload: unknown;
+  const provenance = new LocationProvenanceCollector();
+  let partnerResult: ToastDetailedJsonResult;
   try {
-    partnerPayload = await options.toastHttpClient.getAccessibleRestaurantsJson();
+    partnerResult = await options.toastHttpClient.getAccessibleRestaurantsJsonDetailed();
   } catch (error) {
     if (error instanceof ToastHttpError && error.upstreamStatus === 403) {
       throw new ToastLocationError(
@@ -230,24 +221,25 @@ export async function discoverStandardLocations(options: {
         "The credential-wide Toast location discovery source is not authorized for this credential type.",
       );
     }
-
     throw error;
   }
+  provenance.add(partnerResult);
 
   const connections = normalizeAccessibleRestaurantConnections(
-    partnerPayload,
+    partnerResult.body,
     bootstrapRestaurantGuid,
   );
 
   const locations: ToastLocation[] = [];
   for (const connection of connections) {
-    const detailPayload = await options.toastHttpClient.getJson({
+    const detailResult = await options.toastHttpClient.getJsonDetailed({
       path: `${RESTAURANT_DETAIL_PATH_PREFIX}/${connection.restaurantGuid}`,
       restaurantGuid: connection.restaurantGuid,
       query: { includeArchived: false },
       rateLimitKey: RESTAURANTS_RATE_LIMIT_KEY,
     });
-    locations.push(normalizeRestaurantDetail(detailPayload, connection));
+    provenance.add(detailResult);
+    locations.push(normalizeRestaurantDetail(detailResult.body, connection));
   }
 
   const frozenLocations = Object.freeze([...locations]);
@@ -256,7 +248,45 @@ export async function discoverStandardLocations(options: {
   return Object.freeze({
     bootstrapRestaurantGuid,
     locations: frozenLocations,
+    provenance: provenance.snapshot(),
   });
+}
+
+class LocationProvenanceCollector {
+  #retrievedThroughEpochMs = 0;
+  #requestIds = new Set<string>();
+  #shownRequestIds: string[] = [];
+
+  add(result: ToastDetailedJsonResult): void {
+    if (
+      !Number.isSafeInteger(result.retrievedAtEpochMs)
+      || result.retrievedAtEpochMs < 0
+    ) {
+      throw invalidLocationResponse();
+    }
+    this.#retrievedThroughEpochMs = Math.max(
+      this.#retrievedThroughEpochMs,
+      result.retrievedAtEpochMs,
+    );
+    const requestId = result.upstreamRequestId;
+    if (requestId === undefined || this.#requestIds.has(requestId)) {
+      return;
+    }
+    this.#requestIds.add(requestId);
+    if (this.#shownRequestIds.length < MAX_LOCATION_PROVENANCE_REQUEST_IDS) {
+      this.#shownRequestIds.push(requestId);
+    }
+  }
+
+  snapshot(): ToastLocationDiscoveryProvenance {
+    return Object.freeze({
+      retrievedThroughEpochMs: this.#retrievedThroughEpochMs,
+      upstreamRequestIds: Object.freeze([...this.#shownRequestIds]),
+      upstreamRequestIdCount: this.#requestIds.size,
+      upstreamRequestIdsTruncated:
+        this.#requestIds.size > this.#shownRequestIds.length,
+    });
+  }
 }
 
 function normalizeAccessibleRestaurantConnections(
@@ -329,10 +359,6 @@ function normalizeRestaurantDetail(
     );
   }
 
-  // `includeArchived=false` should keep archived locations out of a normal
-  // success response. If an upstream implementation nevertheless returns an
-  // explicitly archived object, fail closed instead of silently treating an
-  // inactive restaurant as reportable.
   if (parsed.data.general.archived === true) {
     throw invalidLocationResponse();
   }
