@@ -12,6 +12,8 @@ import {
   createLocationRegistry,
   discoverStandardLocations,
   type ToastLocation,
+  type ToastLocationDiscovery,
+  type ToastLocationDiscoveryProvenance,
   type ToastLocationRegistry,
 } from "./locations.js";
 import { createRateLimitAwareToastHttpClient } from "./rate-limited-client.js";
@@ -29,8 +31,14 @@ export interface ApplicationRuntimeOptions {
   readonly maxRateLimitWaitMs?: number;
 }
 
+export interface ApplicationLocationContext {
+  readonly location: ToastLocation;
+  readonly provenance: ToastLocationDiscoveryProvenance;
+}
+
 export type ApplicationRuntimeErrorCode =
   | "runtime_default_restaurant_required"
+  | "runtime_location_provenance_missing"
   | "runtime_restaurant_inaccessible";
 
 export class ApplicationRuntimeError extends Error {
@@ -51,8 +59,9 @@ export class ApplicationRuntimeError extends Error {
  * belongs to the SDK-created server instance; Toast application state does not.
  *
  * The same exact RuntimeConfig object owns the credential WeakMap identity,
- * token manager, HTTP client, and location registry. Tool handlers never
- * reload environment variables or construct "equivalent" config objects.
+ * token manager, HTTP client, location registry, and the provenance for the
+ * exact registry generation currently published. Tool handlers never reload
+ * environment variables or construct "equivalent" config objects.
  */
 export class ApplicationRuntime {
   readonly config: RuntimeConfig;
@@ -61,7 +70,8 @@ export class ApplicationRuntime {
   readonly toastHttpClient: ToastHttpClient;
   readonly tokenManager: OAuthTokenManager;
 
-  #locationDiscoveryInFlight: Promise<void> | undefined;
+  #locationDiscoveryInFlight: Promise<ToastLocationDiscovery> | undefined;
+  #locationProvenance: ToastLocationDiscoveryProvenance | undefined;
 
   constructor(
     config: RuntimeConfig,
@@ -78,6 +88,12 @@ export class ApplicationRuntime {
   }
 
   async getLocation(requestedRestaurantGuid?: string): Promise<ToastLocation> {
+    return (await this.getLocationContext(requestedRestaurantGuid)).location;
+  }
+
+  async getLocationContext(
+    requestedRestaurantGuid?: string,
+  ): Promise<ApplicationLocationContext> {
     const restaurantGuid = (
       requestedRestaurantGuid ?? this.config.defaultRestaurantGuid
     )?.toLowerCase();
@@ -90,25 +106,34 @@ export class ApplicationRuntime {
     }
 
     let location = this.locationRegistry.get(this.config, restaurantGuid);
-    if (location !== undefined) {
-      return location;
-    }
-
-    if (this.locationRegistry.list(this.config).length === 0) {
+    if (location === undefined && this.locationRegistry.list(this.config).length === 0) {
       await this.#ensureLocationDiscovery();
       location = this.locationRegistry.get(this.config, restaurantGuid);
-      if (location !== undefined) {
-        return location;
-      }
     }
 
-    throw new ApplicationRuntimeError(
-      "runtime_restaurant_inaccessible",
-      "The requested Toast restaurant is not present in the validated active location context.",
-    );
+    if (location === undefined) {
+      throw new ApplicationRuntimeError(
+        "runtime_restaurant_inaccessible",
+        "The requested Toast restaurant is not present in the validated active location context.",
+      );
+    }
+    if (this.#locationProvenance === undefined) {
+      // A location without provenance could only be introduced through a
+      // future/manual registry mutation outside the reviewed runtime path.
+      // Do not silently bless it as production report context.
+      throw new ApplicationRuntimeError(
+        "runtime_location_provenance_missing",
+        "The validated Toast location context did not have matching source provenance.",
+      );
+    }
+
+    return Object.freeze({
+      location,
+      provenance: this.#locationProvenance,
+    });
   }
 
-  async #ensureLocationDiscovery(): Promise<void> {
+  async #ensureLocationDiscovery(): Promise<ToastLocationDiscovery> {
     if (this.#locationDiscoveryInFlight !== undefined) {
       return this.#locationDiscoveryInFlight;
     }
@@ -117,11 +142,13 @@ export class ApplicationRuntime {
       config: this.config,
       registry: this.locationRegistry,
       toastHttpClient: this.toastHttpClient,
-    }).then(() => undefined);
+    });
     this.#locationDiscoveryInFlight = discovery;
 
     try {
-      await discovery;
+      const result = await discovery;
+      this.#locationProvenance = result.provenance;
+      return result;
     } finally {
       if (this.#locationDiscoveryInFlight === discovery) {
         this.#locationDiscoveryInFlight = undefined;
