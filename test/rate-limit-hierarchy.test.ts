@@ -138,10 +138,42 @@ test("current X-Toast headers override legacy aliases and populate compatibility
   ]);
 
   await restaurantGet(harness, RESTAURANT_A, "/orders/v2/payments", "payments-index");
-  assert.equal(
-    harness.client.getRateLimitSnapshot("standard", RESTAURANT_A, "payments-index")?.remaining,
-    1,
+  const snapshot = harness.client.getRateLimitSnapshot(
+    "standard",
+    RESTAURANT_A,
+    "payments-index",
   );
+  assert.equal(snapshot?.remaining, 1);
+  assert.equal(snapshot?.resetAtEpochMs, 1_800_000_001_000);
+  await restaurantGet(harness, RESTAURANT_A, "/orders/v2/payments", "payments-index");
+  assert.deepEqual(harness.sleeps, []);
+});
+
+test("malformed current header wins as unknown instead of being reinterpreted through a legacy alias", async () => {
+  const harness = createHarness();
+  harness.setResponses([
+    new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-toast-ratelimit-by": "ENDPOINT",
+        "x-toast-ratelimit-remaining": "10junk",
+        "x-toast-ratelimit-reset": "not-an-epoch",
+        "toast-ratelimit-remaining": "0",
+        "toast-ratelimit-reset": "1800000999",
+      },
+    }),
+    jsonResponse({ ok: true }),
+  ]);
+
+  await restaurantGet(harness, RESTAURANT_A, "/orders/v2/payments", "payments-index");
+  const snapshot = harness.client.getRateLimitSnapshot(
+    "standard",
+    RESTAURANT_A,
+    "payments-index",
+  );
+  assert.equal(snapshot?.remaining, undefined);
+  assert.equal(snapshot?.resetAtEpochMs, undefined);
   await restaurantGet(harness, RESTAURANT_A, "/orders/v2/payments", "payments-index");
   assert.deepEqual(harness.sleeps, []);
 });
