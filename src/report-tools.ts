@@ -1,0 +1,103 @@
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+
+import { buildPaymentSummaryReport } from "./payment-report.js";
+import type { ApplicationRuntime } from "./runtime.js";
+import { buildSalesSummaryReport } from "./sales-report.js";
+
+const businessDateSchema = z
+  .number()
+  .int()
+  .refine(isValidBusinessDate, {
+    message: "businessDate must be a real calendar date in yyyyMMdd form",
+  });
+
+const reportInputSchema = z.object({
+  businessDate: businessDateSchema.describe(
+    "Toast restaurant business date in yyyyMMdd form, for example 20260816.",
+  ),
+  restaurantGuid: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Optional Toast restaurant GUID. When omitted, the validated TOAST_DEFAULT_RESTAURANT_GUID is used.",
+    ),
+});
+
+const reportOutputSchema = z
+  .object({
+    status: z.enum(["complete", "denied"]),
+    report: z.enum(["sales_summary", "payment_summary"]),
+    source: z.literal("standard_api"),
+    restaurantGuid: z.string().uuid().optional(),
+    businessDate: businessDateSchema,
+    generatedAtEpochMs: z.number().int().nonnegative(),
+    warnings: z.array(z.string()),
+  })
+  .passthrough();
+
+export function registerStandardReportTools(
+  server: McpServer,
+  runtime: ApplicationRuntime,
+): void {
+  server.registerTool(
+    "toast_sales_summary",
+    {
+      title: "Toast Sales Summary",
+      description:
+        "Calculate a deterministic read-only Standard API sales summary for one Toast business date, with future orders separated from current/past sales and explicit completeness/provenance metadata.",
+      inputSchema: reportInputSchema,
+      outputSchema: reportOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input) => toolResult(await buildSalesSummaryReport(runtime, input)),
+  );
+
+  server.registerTool(
+    "toast_payment_summary",
+    {
+      title: "Toast Payment Summary",
+      description:
+        "Calculate a deterministic read-only Standard API payment summary for one Toast business date using paid, refunded, and voided payment event sources separately.",
+      inputSchema: reportInputSchema,
+      outputSchema: reportOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input) => toolResult(await buildPaymentSummaryReport(runtime, input)),
+  );
+}
+
+function toolResult(result: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(result) }],
+    structuredContent: result,
+    ...(result.status === "denied" ? { isError: true } : {}),
+  };
+}
+
+function isValidBusinessDate(value: number): boolean {
+  const text = String(value);
+  if (!/^\d{8}$/u.test(text)) {
+    return false;
+  }
+  const year = Number(text.slice(0, 4));
+  const month = Number(text.slice(4, 6));
+  const day = Number(text.slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+  );
+}
