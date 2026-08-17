@@ -252,6 +252,24 @@ export class ToastHttpError extends Error {
   }
 }
 
+/**
+ * Narrow internal fetch-preflight error used only by the rate-limit-aware
+ * Standard client wrapper. `#requestJson` preserves this exact class through
+ * its fetch catch; every other thrown fetch value is still normalized to
+ * `request_network_error`, so arbitrary custom-fetch exceptions do not gain
+ * a trusted bypass into the transport's public error surface.
+ */
+export class ToastRateLimitPreflightError extends ToastHttpError {
+  constructor() {
+    super(
+      "rate_limit_wait_exceeded",
+      "A known Toast rate-limit reset is further in the future than the configured rate-limit wait ceiling.",
+      { apiFamily: "standard", retryable: false },
+    );
+    this.name = "ToastRateLimitPreflightError";
+  }
+}
+
 export interface ToastHttpClientOptions {
   readonly baseRetryDelayMs?: number;
   readonly fetch?: typeof fetch;
@@ -687,7 +705,11 @@ export class ToastHttpClient {
           method: "GET",
           headers,
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof ToastRateLimitPreflightError) {
+          throw error;
+        }
+
         lastError = new ToastHttpError(
           "request_network_error",
           "Toast data request failed before a response was received.",
@@ -1231,21 +1253,18 @@ function retryAfterEpochMsFromHeaders(
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter !== null) {
     // RFC 7231 permits `Retry-After` as either delta-seconds or an HTTP-date.
-    // Try delta-seconds first; only a string of digits parses as a safe
-    // non-negative integer here, so an HTTP-date (which begins with a day
-    // name, e.g. "Wed, 21 Oct 2026 07:28:00 GMT") correctly falls through
-    // to the Date.parse fallback below rather than being misread. Without
-    // that fallback, an HTTP-date yielded NaN and the header was silently
-    // ignored, producing a sleep of 0 for a wait Toast asked for an hour
-    // out. The clamp in #sleepBeforeRetry / #waitForKnownRateLimit (see
-    // DEFAULT_MAX_RATE_LIMIT_WAIT_MS, T1-004-R1-F2) applies to whichever
-    // form resolves here.
-    const seconds = Number.parseInt(retryAfter, 10);
-    if (Number.isSafeInteger(seconds) && seconds >= 0) {
-      return now + seconds * 1000;
+    // Require the complete trimmed value to be digits before treating it as
+    // delta-seconds; a malformed value such as `10junk` must not silently
+    // become ten seconds. HTTP-date remains the second accepted form.
+    const trimmedRetryAfter = retryAfter.trim();
+    if (/^\d+$/u.test(trimmedRetryAfter)) {
+      const seconds = Number(trimmedRetryAfter);
+      if (Number.isSafeInteger(seconds) && seconds >= 0) {
+        return now + seconds * 1000;
+      }
     }
 
-    const parsedDateEpochMs = Date.parse(retryAfter);
+    const parsedDateEpochMs = Date.parse(trimmedRetryAfter);
     if (!Number.isNaN(parsedDateEpochMs)) {
       return parsedDateEpochMs;
     }
