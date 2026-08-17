@@ -1,0 +1,445 @@
+import { z } from "zod";
+
+import {
+  createCapabilityContext,
+  decideCapability,
+  type CapabilityDenial,
+} from "./capabilities.js";
+import {
+  addMinorUnits,
+  denialFromError,
+  moneyToMinorUnits,
+  ReportComputationError,
+  ReportProvenanceCollector,
+  type ReportDenial,
+  type ReportProvenance,
+} from "./report-core.js";
+import type { ApplicationRuntime } from "./runtime.js";
+
+const MAX_PAYMENT_DETAILS_PER_REPORT = 5_000;
+const businessDateSchema = z.number().int().min(19000101).max(29991231);
+const guidSchema = z.string().uuid();
+const sourceMoneySchema = z.number().finite();
+const sourcePaymentSchema = z
+  .object({
+    guid: guidSchema,
+    paidDate: z.string().optional().nullable(),
+    paidBusinessDate: businessDateSchema.optional().nullable(),
+    type: z.string().min(1),
+    amount: sourceMoneySchema,
+    tipAmount: sourceMoneySchema,
+    paymentStatus: z.string().min(1).optional().nullable(),
+    refundStatus: z.string().min(1).optional().nullable(),
+    refund: z
+      .object({
+        refundAmount: sourceMoneySchema,
+        tipRefundAmount: sourceMoneySchema,
+        refundDate: z.string().optional().nullable(),
+        refundBusinessDate: businessDateSchema.optional().nullable(),
+      })
+      .passthrough()
+      .optional()
+      .nullable(),
+    voidInfo: z
+      .object({
+        voidDate: z.string().optional().nullable(),
+        voidBusinessDate: businessDateSchema.optional().nullable(),
+      })
+      .passthrough()
+      .optional()
+      .nullable(),
+  })
+  .passthrough();
+
+type SourcePayment = z.infer<typeof sourcePaymentSchema>;
+
+export interface PaymentTypeTotal {
+  readonly type: string;
+  readonly paymentCount: number;
+  readonly amountMinor: number;
+  readonly tipAmountMinor: number;
+}
+
+export interface PaymentStatusCount {
+  readonly status: string;
+  readonly paymentCount: number;
+}
+
+export interface PaymentSummaryComplete {
+  readonly status: "complete";
+  readonly report: "payment_summary";
+  readonly source: "standard_api";
+  readonly restaurantGuid: string;
+  readonly businessDate: number;
+  readonly timezone: string;
+  readonly closeoutHour: number;
+  readonly currencyCode: string;
+  readonly generatedAtEpochMs: number;
+  readonly uniquePaymentCount: number;
+  readonly paid: {
+    readonly paymentCount: number;
+    readonly amountMinor: number;
+    readonly tipAmountMinor: number;
+  };
+  readonly refunded: {
+    readonly paymentCount: number;
+    readonly refundAmountMinor: number;
+    readonly tipRefundAmountMinor: number;
+  };
+  readonly voided: {
+    readonly paymentCount: number;
+    readonly amountMinor: number;
+  };
+  readonly paidByType: readonly PaymentTypeTotal[];
+  readonly paymentStatusCounts: readonly PaymentStatusCount[];
+  readonly refundStatusCounts: readonly PaymentStatusCount[];
+  readonly provenance: ReportProvenance;
+  readonly warnings: readonly string[];
+}
+
+export interface PaymentSummaryDenied {
+  readonly status: "denied";
+  readonly report: "payment_summary";
+  readonly source: "standard_api";
+  readonly restaurantGuid: string | undefined;
+  readonly businessDate: number;
+  readonly generatedAtEpochMs: number;
+  readonly denial: ReportDenial;
+  readonly missingScopes: readonly string[];
+  readonly missingProvisionedScopes: readonly string[];
+  readonly missingConnectionScopes: readonly string[];
+  readonly excludedScopes: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export type PaymentSummaryResult = PaymentSummaryComplete | PaymentSummaryDenied;
+
+const PAYMENT_WARNINGS = Object.freeze([
+  "Payment events are sourced independently by paidBusinessDate, refundBusinessDate, and voidBusinessDate; one payment can legitimately appear in more than one event group.",
+  "For a finalized prior-day payment report, Toast recommends allowing post-closeout processing time for refunds, voids, and tip adjustments.",
+]);
+
+export async function buildPaymentSummaryReport(
+  runtime: ApplicationRuntime,
+  input: {
+    readonly businessDate: number;
+    readonly restaurantGuid?: string;
+  },
+): Promise<PaymentSummaryResult> {
+  const generatedAtEpochMs = runtime.now();
+  let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
+
+  try {
+    const location = await runtime.getLocation(input.restaurantGuid);
+    resolvedRestaurantGuid = location.restaurantGuid;
+    const capabilityContext = await createCapabilityContext(
+      runtime.tokenManager,
+      location,
+    );
+    const capability = decideCapability(capabilityContext, {
+      restaurantGuid: location.restaurantGuid,
+      requiredScopes: ["orders:read"],
+    });
+    if (capability.status === "denied") {
+      return capabilityDenied(
+        input.businessDate,
+        generatedAtEpochMs,
+        location.restaurantGuid,
+        capability,
+      );
+    }
+
+    const provenance = new ReportProvenanceCollector();
+    const paidIds = await retrievePaymentIds(
+      runtime,
+      location.restaurantGuid,
+      input.businessDate,
+      "paidBusinessDate",
+      provenance,
+    );
+    const refundIds = await retrievePaymentIds(
+      runtime,
+      location.restaurantGuid,
+      input.businessDate,
+      "refundBusinessDate",
+      provenance,
+    );
+    const voidIds = await retrievePaymentIds(
+      runtime,
+      location.restaurantGuid,
+      input.businessDate,
+      "voidBusinessDate",
+      provenance,
+    );
+
+    const paidSet = new Set(paidIds);
+    const refundSet = new Set(refundIds);
+    const voidSet = new Set(voidIds);
+    const uniqueIds = orderedUnion(paidIds, refundIds, voidIds);
+    if (uniqueIds.length > MAX_PAYMENT_DETAILS_PER_REPORT) {
+      throw new ReportComputationError(
+        "payment_identifier_bound_exceeded",
+        `Payment summary exceeded the bounded detail count of ${MAX_PAYMENT_DETAILS_PER_REPORT}.`,
+      );
+    }
+
+    let paidAmountMinor = 0;
+    let paidTipAmountMinor = 0;
+    let refundAmountMinor = 0;
+    let tipRefundAmountMinor = 0;
+    let voidAmountMinor = 0;
+    const paidByType = new Map<string, {
+      paymentCount: number;
+      amountMinor: number;
+      tipAmountMinor: number;
+    }>();
+    const paymentStatusCounts = new Map<string, number>();
+    const refundStatusCounts = new Map<string, number>();
+
+    for (const paymentGuid of uniqueIds) {
+      const detail = await runtime.toastHttpClient.getJsonDetailed({
+        path: `/orders/v2/payments/${paymentGuid}`,
+        restaurantGuid: location.restaurantGuid,
+        rateLimitKey: "payments-detail",
+      });
+      provenance.add(detail);
+      const payment = parsePayment(detail.body, paymentGuid);
+
+      incrementStatus(paymentStatusCounts, payment.paymentStatus);
+      incrementStatus(refundStatusCounts, payment.refundStatus);
+
+      if (paidSet.has(paymentGuid)) {
+        if (payment.paidBusinessDate !== input.businessDate) {
+          throw paymentSourceInvalid();
+        }
+        const amountMinor = moneyToMinorUnits(payment.amount, "payment.amount");
+        const tipAmountMinor = moneyToMinorUnits(
+          payment.tipAmount,
+          "payment.tipAmount",
+        );
+        paidAmountMinor = addMinorUnits(paidAmountMinor, amountMinor);
+        paidTipAmountMinor = addMinorUnits(
+          paidTipAmountMinor,
+          tipAmountMinor,
+        );
+        const byType = paidByType.get(payment.type) ?? {
+          paymentCount: 0,
+          amountMinor: 0,
+          tipAmountMinor: 0,
+        };
+        byType.paymentCount += 1;
+        byType.amountMinor = addMinorUnits(byType.amountMinor, amountMinor);
+        byType.tipAmountMinor = addMinorUnits(
+          byType.tipAmountMinor,
+          tipAmountMinor,
+        );
+        paidByType.set(payment.type, byType);
+      }
+
+      if (refundSet.has(paymentGuid)) {
+        if (
+          payment.refund === null
+          || payment.refund === undefined
+          || payment.refund.refundBusinessDate !== input.businessDate
+        ) {
+          throw paymentSourceInvalid();
+        }
+        refundAmountMinor = addMinorUnits(
+          refundAmountMinor,
+          moneyToMinorUnits(
+            payment.refund.refundAmount,
+            "payment.refund.refundAmount",
+          ),
+        );
+        tipRefundAmountMinor = addMinorUnits(
+          tipRefundAmountMinor,
+          moneyToMinorUnits(
+            payment.refund.tipRefundAmount,
+            "payment.refund.tipRefundAmount",
+          ),
+        );
+      }
+
+      if (voidSet.has(paymentGuid)) {
+        if (
+          payment.voidInfo === null
+          || payment.voidInfo === undefined
+          || payment.voidInfo.voidBusinessDate !== input.businessDate
+        ) {
+          throw paymentSourceInvalid();
+        }
+        voidAmountMinor = addMinorUnits(
+          voidAmountMinor,
+          moneyToMinorUnits(payment.amount, "payment.amount"),
+        );
+      }
+    }
+
+    return Object.freeze({
+      status: "complete" as const,
+      report: "payment_summary" as const,
+      source: "standard_api" as const,
+      restaurantGuid: location.restaurantGuid,
+      businessDate: input.businessDate,
+      timezone: location.timezone,
+      closeoutHour: location.closeoutHour,
+      currencyCode: location.currencyCode,
+      generatedAtEpochMs,
+      uniquePaymentCount: uniqueIds.length,
+      paid: Object.freeze({
+        paymentCount: paidIds.length,
+        amountMinor: paidAmountMinor,
+        tipAmountMinor: paidTipAmountMinor,
+      }),
+      refunded: Object.freeze({
+        paymentCount: refundIds.length,
+        refundAmountMinor,
+        tipRefundAmountMinor,
+      }),
+      voided: Object.freeze({
+        paymentCount: voidIds.length,
+        amountMinor: voidAmountMinor,
+      }),
+      paidByType: Object.freeze(
+        [...paidByType.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([type, value]) => Object.freeze({ type, ...value })),
+      ),
+      paymentStatusCounts: freezeStatusCounts(paymentStatusCounts),
+      refundStatusCounts: freezeStatusCounts(refundStatusCounts),
+      provenance: provenance.snapshot(),
+      warnings: PAYMENT_WARNINGS,
+    });
+  } catch (error) {
+    return Object.freeze({
+      status: "denied" as const,
+      report: "payment_summary" as const,
+      source: "standard_api" as const,
+      restaurantGuid: resolvedRestaurantGuid,
+      businessDate: input.businessDate,
+      generatedAtEpochMs,
+      denial: denialFromError(error),
+      missingScopes: Object.freeze([]),
+      missingProvisionedScopes: Object.freeze([]),
+      missingConnectionScopes: Object.freeze([]),
+      excludedScopes: Object.freeze([]),
+      warnings: PAYMENT_WARNINGS,
+    });
+  }
+}
+
+async function retrievePaymentIds(
+  runtime: ApplicationRuntime,
+  restaurantGuid: string,
+  businessDate: number,
+  event: "paidBusinessDate" | "refundBusinessDate" | "voidBusinessDate",
+  provenance: ReportProvenanceCollector,
+): Promise<readonly string[]> {
+  const result = await runtime.toastHttpClient.getJsonDetailed({
+    path: "/orders/v2/payments",
+    restaurantGuid,
+    query: { [event]: businessDate },
+    rateLimitKey: `payments-${event}`,
+  });
+  provenance.add(result);
+  const parsed = z.array(guidSchema).safeParse(result.body);
+  if (!parsed.success) {
+    throw paymentSourceInvalid();
+  }
+
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const rawGuid of parsed.data) {
+    const guid = rawGuid.toLowerCase();
+    if (seen.has(guid)) {
+      throw new ReportComputationError(
+        "payment_duplicate_identifier",
+        "Toast returned a repeated payment GUID within one business-date event list.",
+      );
+    }
+    seen.add(guid);
+    ids.push(guid);
+  }
+  return Object.freeze(ids);
+}
+
+function parsePayment(body: unknown, expectedGuid: string): SourcePayment {
+  const parsed = sourcePaymentSchema.safeParse(body);
+  if (!parsed.success || parsed.data.guid.toLowerCase() !== expectedGuid) {
+    throw paymentSourceInvalid();
+  }
+  return parsed.data;
+}
+
+function orderedUnion(
+  ...groups: readonly (readonly string[])[]
+): readonly string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const group of groups) {
+    for (const guid of group) {
+      if (!seen.has(guid)) {
+        seen.add(guid);
+        result.push(guid);
+      }
+    }
+  }
+  return Object.freeze(result);
+}
+
+function incrementStatus(
+  counts: Map<string, number>,
+  status: string | null | undefined,
+): void {
+  if (status === undefined || status === null) {
+    return;
+  }
+  counts.set(status, (counts.get(status) ?? 0) + 1);
+}
+
+function freezeStatusCounts(
+  counts: ReadonlyMap<string, number>,
+): readonly PaymentStatusCount[] {
+  return Object.freeze(
+    [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([status, paymentCount]) => Object.freeze({
+        status,
+        paymentCount,
+      })),
+  );
+}
+
+function capabilityDenied(
+  businessDate: number,
+  generatedAtEpochMs: number,
+  restaurantGuid: string,
+  denial: CapabilityDenial,
+): PaymentSummaryDenied {
+  return Object.freeze({
+    status: "denied" as const,
+    report: "payment_summary" as const,
+    source: "standard_api" as const,
+    restaurantGuid,
+    businessDate,
+    generatedAtEpochMs,
+    denial: Object.freeze({
+      code: `capability_${denial.reason}`,
+      retryable: false,
+      upstreamStatus: undefined,
+      upstreamRequestId: undefined,
+    }),
+    missingScopes: denial.missingScopes,
+    missingProvisionedScopes: denial.missingProvisionedScopes,
+    missingConnectionScopes: denial.missingConnectionScopes,
+    excludedScopes: denial.excludedScopes,
+    warnings: PAYMENT_WARNINGS,
+  });
+}
+
+function paymentSourceInvalid(): ReportComputationError {
+  return new ReportComputationError(
+    "payment_source_invalid",
+    "Toast payment source data was not usable for deterministic reporting.",
+  );
+}
