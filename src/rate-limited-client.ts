@@ -23,6 +23,10 @@ export interface RateLimitAwareToastHttpClientOptions extends ToastHttpClientOpt
   readonly rateLimitCoordinator?: ToastRateLimitCoordinator;
 }
 
+type SerializedFetchDecision =
+  | { readonly kind: "wait"; readonly milliseconds: number }
+  | { readonly kind: "response"; readonly response: Response };
+
 /**
  * Production constructor for the Standard Toast transport.
  *
@@ -48,59 +52,80 @@ export function createRateLimitAwareToastHttpClient(
   const maxWaitMs =
     transportOptions.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
 
-  // Serializing only the Standard-data fetch seam makes each completed Toast
-  // response visible to the coordinator before another data request performs
-  // its preflight. This closes the concurrent-handler race without inventing
-  // request reservations or decrementing quota values Toast did not report.
-  // OAuth token exchange is outside this queue and has its own Toast limits.
+  // Each actual Standard-data fetch is serialized through the point where its
+  // response headers are observed. Positive rate-limit sleeps are deliberately
+  // outside the turn: a waiting restaurant releases the queue, sleeps, then
+  // re-enters and rechecks, so an unrelated location does not inherit its
+  // delay. OAuth token exchange is outside this queue and has separate limits.
   let fetchTail: Promise<void> = Promise.resolve();
 
-  const coordinatedFetch: typeof fetch = async (input, init) =>
-    withSerializedTurn(fetchTail, (nextTail) => {
-      fetchTail = nextTail;
-    }, async () => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      const headers = new Headers(init?.headers);
-      const restaurantGuid =
-        headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
-      const context = Object.freeze({
-        restaurantGuid,
-        apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
-        endpointKey: endpointKeyFromPath(url.pathname),
-      });
-
-      const waitMs = coordinator.waitMilliseconds(context, now());
-      if (waitMs > maxWaitMs) {
-        // Return a static synthetic 429 through the normal Toast transport path
-        // instead of throwing from fetch. `ToastHttpClient` will apply its
-        // existing server-wait ceiling and surface `rate_limit_wait_exceeded`
-        // without misclassifying this as a network error or leaking state.
-        return new Response("{}", {
-          status: 429,
-          headers: {
-            "content-type": "application/json",
-            "retry-after": String(Math.ceil(waitMs / 1000)),
-          },
-        });
-      }
-      if (waitMs > 0) {
-        await sleep(waitMs);
-      }
-
-      const response = await underlyingFetch(input, init);
-      coordinator.record(
-        context,
-        readToastRateLimitObservation(response, now()),
-      );
-
-      return withCurrentRateLimitAliases(response);
+  const coordinatedFetch: typeof fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url,
+    );
+    const headers = new Headers(init?.headers);
+    const restaurantGuid =
+      headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
+    const context = Object.freeze({
+      restaurantGuid,
+      apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
+      endpointKey: endpointKeyFromPath(url.pathname),
     });
+
+    for (;;) {
+      const decision = await withSerializedTurn(
+        fetchTail,
+        (nextTail) => {
+          fetchTail = nextTail;
+        },
+        async (): Promise<SerializedFetchDecision> => {
+          const waitMs = coordinator.waitMilliseconds(context, now());
+          if (waitMs > maxWaitMs) {
+            // Feed an over-ceiling known wait through the existing transport
+            // response path. The transport's established server-wait ceiling
+            // converts this synthetic 429 into `rate_limit_wait_exceeded`
+            // without sending an upstream request.
+            return {
+              kind: "response",
+              response: new Response("{}", {
+                status: 429,
+                headers: {
+                  "content-type": "application/json",
+                  "retry-after": String(Math.ceil(waitMs / 1000)),
+                },
+              }),
+            };
+          }
+          if (waitMs > 0) {
+            return { kind: "wait", milliseconds: waitMs };
+          }
+
+          const response = await underlyingFetch(input, init);
+          coordinator.record(
+            context,
+            readToastRateLimitObservation(response, now()),
+          );
+
+          return {
+            kind: "response",
+            response: withCurrentRateLimitAliases(response),
+          };
+        },
+      );
+
+      if (decision.kind === "response") {
+        return decision.response;
+      }
+
+      // Sleep after releasing the serialized turn, then re-enter and recheck
+      // because another request may have updated this constraint meanwhile.
+      await sleep(decision.milliseconds);
+    }
+  };
 
   return createToastHttpClient(config, tokenManager, {
     ...transportOptions,
