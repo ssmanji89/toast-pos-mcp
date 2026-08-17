@@ -1,7 +1,10 @@
 import type { OAuthTokenManager } from "./auth.js";
 import type { RuntimeConfig } from "./config.js";
 import {
+  readToastRateLimitLimit,
   readToastRateLimitObservation,
+  readToastRateLimitRemaining,
+  readToastRateLimitResetAtEpochMs,
   ToastRateLimitCoordinator,
   toastApiKeyFromPath,
 } from "./rate-limit.js";
@@ -97,27 +100,33 @@ export function createRateLimitAwareToastHttpClient(
 
 /**
  * Current Toast headers take precedence, but the reviewed transport's public
- * snapshot API still reads the historical unprefixed names. Mirror the
- * current values into those aliases on the Response handed to the transport.
- * This keeps the compatibility API useful without letting a legacy header
- * override an authoritative current value.
+ * snapshot API still reads the historical unprefixed names. Mirror only
+ * successfully parsed current values. If a current header is present but
+ * malformed, delete the legacy alias rather than letting the old permissive
+ * parser reinterpret malformed authoritative data.
  */
 function withCurrentRateLimitAliases(response: Response): Response {
   const headers = new Headers(response.headers);
-  mirrorCurrentHeader(
+  mirrorCurrentNumericHeader(
+    response,
     headers,
     "x-toast-ratelimit-remaining",
     "toast-ratelimit-remaining",
+    readToastRateLimitRemaining(response),
   );
-  mirrorCurrentHeader(
+  mirrorCurrentNumericHeader(
+    response,
     headers,
     "x-toast-ratelimit-reset",
     "toast-ratelimit-reset",
+    readToastRateLimitResetAtEpochMs(response),
   );
-  mirrorCurrentHeader(
+  mirrorCurrentNumericHeader(
+    response,
     headers,
     "x-toast-ratelimit-limit",
     "toast-ratelimit-limit",
+    readToastRateLimitLimit(response),
   );
 
   return new Response(response.body, {
@@ -127,15 +136,21 @@ function withCurrentRateLimitAliases(response: Response): Response {
   });
 }
 
-function mirrorCurrentHeader(
+function mirrorCurrentNumericHeader(
+  response: Response,
   headers: Headers,
   currentName: string,
   legacyName: string,
+  parsedValue: number | undefined,
 ): void {
-  const current = headers.get(currentName);
-  if (current !== null) {
-    headers.set(legacyName, current);
+  if (response.headers.get(currentName) === null) {
+    return;
   }
+  if (parsedValue === undefined) {
+    headers.delete(legacyName);
+    return;
+  }
+  headers.set(legacyName, String(parsedValue));
 }
 
 /**
