@@ -33,7 +33,7 @@ The underlying reviewed `ToastHttpClient` remains responsible for:
 - error sanitization;
 - existing public rate-limit snapshots.
 
-The production factory wraps only the injected `fetch` seam with one process-owned `ToastRateLimitCoordinator`.
+The production factory wraps only the injected Standard-data `fetch` seam with one process-owned `ToastRateLimitCoordinator`.
 
 For every request the wrapper derives, from the request itself:
 
@@ -55,9 +55,11 @@ After fetch, the wrapper records only the specific constraint Toast actually rep
 
 ## Current versus legacy headers
 
-`X-Toast-*` is authoritative. The repository still accepts the historical unprefixed aliases so old fixtures and recorded compatibility cases do not become useless. If both forms are present, the current `X-Toast-*` value always wins, including the value `0`.
+Hierarchical coordination uses one current-header generation only: `X-Toast-RateLimit-By`, current Remaining, and current Reset. A current `By` value never borrows a missing numeric companion from a historical alias. If a current companion is absent or malformed, that portion of the hierarchy observation is unknown.
 
-The wrapper mirrors current remaining/reset/limit values into the legacy aliases on the `Response` handed to the existing transport. This keeps the already-public `getRateLimitSnapshot()` / `getCredentialRateLimitSnapshot()` compatibility surfaces useful without allowing legacy headers to drive production coordination.
+The repository still accepts historical unprefixed numeric aliases for the already-reviewed public snapshot compatibility surface. If a current numeric header is present, its parsed value wins, including `0`. A malformed current value suppresses the legacy alias rather than being reinterpreted by the historical parser.
+
+The wrapper mirrors successfully parsed current remaining/reset/limit values into the legacy aliases on the `Response` handed to the existing transport. This keeps `getRateLimitSnapshot()` / `getCredentialRateLimitSnapshot()` coherent while ensuring legacy fields cannot create production hierarchy state.
 
 `X-Toast-RateLimit-By` has no legacy substitute. When it is absent, no hierarchical constraint is invented. Existing endpoint-local retry/Retry-After behavior remains the fallback.
 
@@ -65,13 +67,17 @@ The wrapper mirrors current remaining/reset/limit values into the legacy aliases
 
 `X-Toast-RateLimit-Reset` is interpreted as an absolute epoch, never as a relative delay. Epoch seconds are the normal documented form; epoch milliseconds are tolerated defensively without changing the absolute-time interpretation.
 
-`Retry-After` accepts either strict non-negative integer seconds or an HTTP date. Strings such as `10junk` are not accepted as ten seconds.
+`Retry-After` accepts strict non-negative integer seconds, plus the historical HTTP-date compatibility already supported by the transport. Strings such as `10junk` are not accepted as ten seconds.
 
 If a known hierarchical wait exceeds the same configured wait ceiling used by `ToastHttpClient`, the wrapper does not sleep beyond the ceiling and does not send the request early. It feeds a static synthetic 429 through the existing transport path so the established `rate_limit_wait_exceeded` fail-closed behavior remains the sole public error contract.
 
 ## Concurrency and process boundary
 
-The coordinator is shared by every request made through one production client instance, including location discovery, Orders pagination, payment detail, and later Standard reporting calls. Concurrent MCP handlers therefore see the same observed constraints.
+All Standard-data fetches made by one production client instance are serialized at the wrapper seam. This is intentionally conservative: request N+1 performs its hierarchy preflight only after request N's response has been observed and recorded. A response that consumes the last request in a time slice can therefore establish the reset wait before another concurrent MCP handler reaches upstream.
+
+This serialization is not a fabricated token bucket. The client still sends requests while Toast reports capacity and stops only on observed exhausted constraints or Retry-After. It trades unused theoretical concurrency for deterministic correctness and can be optimized later only with a separately reviewed reservation model.
+
+OAuth authentication exchange is outside this queue because Toast documents authentication rate limiting separately and does not include normal rate-limit headers on authentication responses.
 
 Headerless/IP scope is process-local. Two separate local server processes behind the same public IP cannot coordinate in memory; that residual risk is inherent to the local-process distribution and should be revisited only if a multi-process/hosted runtime is approved.
 
@@ -86,6 +92,9 @@ Focused synthetic proof covers:
 - ACCOUNT coordination across restaurants;
 - credential/IP versus restaurant isolation;
 - current-header precedence and legacy snapshot mirroring;
+- malformed-current-header behavior;
+- current `By` never borrowing legacy Remaining/Reset;
+- concurrent calls serialized through the first response observation;
 - absolute reset semantics;
 - over-ceiling fail-closed behavior with no second upstream request.
 
