@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative. The MCP v2 stdio baseline is merged. Location discovery is under repair. Standard credential support for its credential-wide source is an explicit release gate. No public release exists.
+> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative. The MCP v2 stdio baseline and repaired location authority are merged. Capability preflight is under review. Standard credential support for its credential-wide source is an explicit release gate. No public release exists.
 
 ## What this project is
 
@@ -61,6 +61,8 @@ The branch adds a two-stage location context. It discovers credential-accessible
 
 This PR repairs location discovery through credential-wide Partners connection discovery and restaurant-scoped detail hydration. Reporting tools remain unavailable.
 
+This branch adds stateless, restaurant-specific capability preflight. It intersects the current token's provisioned scopes with the selected restaurant connection scopes, then removes product-excluded guest scopes. Reporting tools remain unavailable.
+
 ## Runtime configuration
 
 The process loads non-persistent runtime configuration from environment variables only, validated with Zod, before it starts the MCP transport. Nothing is written to disk and nothing is cached to a durable artifact. `TOAST_CLIENT_ID` and `TOAST_CLIENT_SECRET` are never logged, printed, returned, or included in error messages, fixtures, or snapshots. The loaded configuration object never carries the OAuth client-credentials pair as a data property at all: it is held in a module-private store keyed by the config object's identity and reachable only through a single named accessor, so generic enumeration, spreading, cloning, or serialization of the configuration (`JSON.stringify`, `util.inspect`, `Object.entries`/`values`, object spread, `Object.assign`, `structuredClone`, `for...in`) can never reach it.
@@ -83,13 +85,15 @@ Optional:
 
 If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
 
-The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies.
+The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies. `getProvisionedScopes()` decodes the documented scope claim inside the token owner and returns only a frozen scope array.
 
 The shared Toast HTTP transport uses one validated configuration and token manager. Restaurant-scoped reads use an explicit restaurant GUID and isolated rate-limit state. The credential-scoped discovery path is structurally allowlisted to `GET /partners/v1/restaurants`, omits the restaurant header, and uses a separate credential-scoped rate-limit bucket. Both paths use the same OAuth, bounded retries, wait ceiling, parsing, and error sanitization.
 
 The location layer consumes the Partners accessible-restaurants source when it is authorized. It retains only active restaurant GUID/group/scope context. It hydrates each active restaurant with `GET /restaurants/v1/restaurants/{restaurantGUID}`, a matching restaurant header, and `includeArchived=false`. Invalid or incomplete results fail closed without publishing partial state.
 
 Toast documentation conflicts on Standard credential access to `/partners/v1/restaurants`. An authorization failure returns static `location_discovery_source_unavailable`. The runtime never falls back to every management-group location. Issue #28 records the required live release proof.
+
+Capability preflight uses two independent Toast authorities for the selected restaurant. It intersects the current authentication-token JWT scopes with that restaurant connection's scopes. It then removes guest-linked scopes. A missing scope returns a deterministic denial with global or connection diagnostics. A product-excluded scope returns `excluded_scope_required`. A generic Toast 403 remains an invocation-level denial. It is never cached as capability state. See [`docs/research/toast-auth-capability-contract.md`](docs/research/toast-auth-capability-contract.md).
 
 ## MCP stdio failure behavior
 
@@ -135,7 +139,7 @@ TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates configuration and consent, constructs one OAuth manager and shared transport, then serves the v2 protocol boundary. No startup Toast data request is made and no reporting tool is registered.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates configuration and consent, constructs one OAuth manager and shared transport, then serves the v2 protocol boundary. No startup Toast data request is made. Later reporting-tool orchestration invokes location discovery and capability preflight.
 
 ## Planning and execution control plane
 
@@ -148,6 +152,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Sta
 - [`.planning/ROADMAP.md`](.planning/ROADMAP.md): outcome-oriented campaign and production-verification gates
 - [`.planning/STATE.md`](.planning/STATE.md): non-authoritative resume snapshot
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
+- [`docs/research/toast-auth-capability-contract.md`](docs/research/toast-auth-capability-contract.md): JWT and restaurant-connection capability authority contract
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
 - [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): historical/current threat catalog for the broader product boundary
 - [`docs/architecture/threat-model-mcp-v2-runtime.md`](docs/architecture/threat-model-mcp-v2-runtime.md): MCP v2 local-runtime addendum
@@ -155,7 +160,7 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Sta
 
 ## Current work
 
-The campaign repairs location authority before capability preflight, provenance, bounded page folding, normalization, and reporting tools. Standard support for the credential-wide source remains a live release gate. Use `LOOP.md` and GitHub for the current state.
+The campaign completed the location-authority repair. It now validates capability preflight, provenance, bounded page folding, normalization, and reporting tools. Standard support for the credential-wide source remains a live release gate. Use `LOOP.md` and GitHub for the current state.
 
 ## Important legal and operational note
 
@@ -168,6 +173,8 @@ This repository's interpretation is engineering guidance, not legal advice.
 ## Primary sources
 
 - Toast API overview: https://doc.toasttab.com/doc/devguide/apiOverview.html
+- Toast authentication: https://doc.toasttab.com/doc/devguide/authentication.html
+- Toast Standard API scopes: https://doc.toasttab.com/doc/devguide/devApiAccessScopes.html
 - Toast Standard API access overview: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
 - Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessCredentials.html
 - Toast Partners location access: https://doc.toasttab.com/doc/devguide/apiPartnersGettingAccessibleRestaurants.html
