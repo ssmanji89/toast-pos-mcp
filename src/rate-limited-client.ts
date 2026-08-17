@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { OAuthTokenManager } from "./auth.js";
 import type { RuntimeConfig } from "./config.js";
 import {
@@ -9,19 +11,47 @@ import {
   toastApiKeyFromPath,
 } from "./rate-limit.js";
 import {
-  createToastHttpClient,
-  type ToastHttpClient,
-  type ToastHttpClientOptions,
+  ToastHttpClient,
+  ToastHttpError,
   ToastRateLimitPreflightError,
+  type ToastConfigurationPagesRequest,
+  type ToastDetailedJsonResult,
+  type ToastGetJsonRequest,
+  type ToastHttpClientOptions,
+  type ToastOrdersBulkFoldOptions,
+  type ToastOrdersBulkPageConsumer,
+  type ToastOrdersBulkPagesRequest,
 } from "./transport.js";
 
-const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 15 * 60 * 1000;
 const UUID_PATH_SEGMENT =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const CANCELLED_TURN = Symbol("cancelled-standard-fetch-turn");
+
+interface RequestCancellationContext {
+  readonly signal: AbortSignal | undefined;
+}
+
+/**
+ * Private marker that deliberately inherits from PR #37's one trusted
+ * injected-fetch preflight class, because ToastHttpClient preserves that exact
+ * class family through its fetch catch. The outer request context immediately
+ * translates this marker to the public `request_cancelled` error while the
+ * AbortSignal is permanently aborted, so its inherited rate-limit code never
+ * reaches callers.
+ */
+class ToastRequestCancellationPreflightError extends ToastRateLimitPreflightError {
+  constructor() {
+    super();
+    this.name = "ToastRequestCancellationPreflightError";
+  }
+}
 
 export interface RateLimitAwareToastHttpClientOptions extends ToastHttpClientOptions {
-  /** Shared coordinator injection is useful for exact behavioral tests. */
   readonly rateLimitCoordinator?: ToastRateLimitCoordinator;
+}
+
+export interface CancellableRequestOptions {
+  readonly signal?: AbortSignal;
 }
 
 type SerializedFetchDecision =
@@ -29,112 +59,215 @@ type SerializedFetchDecision =
   | { readonly kind: "response"; readonly response: Response };
 
 /**
- * Production constructor for the Standard Toast transport.
+ * Production Standard client. The accepted ToastHttpClient remains the owner
+ * of OAuth, retries, pagination, JSON/error handling and public snapshots;
+ * this subclass owns hierarchy coordination plus request-local cancellation
+ * at the injected fetch/sleep seams.
  *
- * The underlying `ToastHttpClient` remains the sole owner of OAuth header
- * attachment, retry behavior, pagination, JSON parsing, public snapshots, and
- * error normalization. This factory wraps only its fetch seam so current
- * Toast hierarchy observations can coordinate *all* request paths issued by
- * that one process-owned client.
+ * AsyncLocalStorage carries only an AbortSignal for the active async request.
+ * It never carries credentials, restaurant state, or report data and avoids
+ * modifying the already-reviewed base transport contract.
  */
+export class RateLimitAwareToastHttpClient extends ToastHttpClient {
+  #cancellationContext: AsyncLocalStorage<RequestCancellationContext>;
+
+  constructor(
+    config: RuntimeConfig,
+    tokenManager: OAuthTokenManager,
+    options: RateLimitAwareToastHttpClientOptions = {},
+  ) {
+    const { rateLimitCoordinator, ...transportOptions } = options;
+    const coordinator = rateLimitCoordinator ?? new ToastRateLimitCoordinator();
+    const underlyingFetch = transportOptions.fetch ?? fetch;
+    const rawSleep = transportOptions.sleep ?? defaultSleep;
+    const now = transportOptions.now ?? Date.now;
+    const maxWaitMs = transportOptions.maxRateLimitWaitMs ?? 15 * 60 * 1000;
+    const cancellationContext = new AsyncLocalStorage<RequestCancellationContext>();
+    let fetchTail: Promise<void> = Promise.resolve();
+
+    const cancellableBaseSleep = async (milliseconds: number): Promise<void> => {
+      const signal = cancellationContext.getStore()?.signal;
+      const completed = await sleepUntilOrCancelled(rawSleep, milliseconds, signal);
+      if (!completed) {
+        throw requestCancelledError();
+      }
+    };
+
+    const coordinatedFetch: typeof fetch = async (input, init) => {
+      const signal = cancellationContext.getStore()?.signal;
+      throwCancellationPreflightIfAborted(signal);
+
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      const headers = new Headers(init?.headers);
+      const restaurantGuid =
+        headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
+      const context = Object.freeze({
+        restaurantGuid,
+        apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
+        endpointKey: endpointKeyFromPath(url.pathname),
+      });
+
+      for (;;) {
+        throwCancellationPreflightIfAborted(signal);
+
+        const decision = await withSerializedTurn(
+          fetchTail,
+          (nextTail) => {
+            fetchTail = nextTail;
+          },
+          signal,
+          async (): Promise<SerializedFetchDecision> => {
+            throwCancellationPreflightIfAborted(signal);
+
+            const waitMs = coordinator.waitMilliseconds(context, now());
+            if (waitMs > maxWaitMs) {
+              throw new ToastRateLimitPreflightError();
+            }
+            if (waitMs > 0) {
+              return { kind: "wait", milliseconds: waitMs };
+            }
+
+            let response: Response;
+            try {
+              response = await underlyingFetch(input, {
+                ...init,
+                ...(signal === undefined ? {} : { signal }),
+              });
+            } catch (error) {
+              if (signal?.aborted) {
+                throw new ToastRequestCancellationPreflightError();
+              }
+              throw error;
+            }
+
+            coordinator.record(
+              context,
+              readToastRateLimitObservation(response, now()),
+            );
+            throwCancellationPreflightIfAborted(signal);
+
+            return {
+              kind: "response",
+              response: withCurrentRateLimitAliases(response),
+            };
+          },
+        );
+
+        if (decision === CANCELLED_TURN) {
+          throw new ToastRequestCancellationPreflightError();
+        }
+        if (decision.kind === "response") {
+          return decision.response;
+        }
+
+        const slept = await sleepUntilOrCancelled(
+          rawSleep,
+          decision.milliseconds,
+          signal,
+        );
+        if (!slept) {
+          throw new ToastRequestCancellationPreflightError();
+        }
+      }
+    };
+
+    super(config, tokenManager, {
+      ...transportOptions,
+      fetch: coordinatedFetch,
+      sleep: cancellableBaseSleep,
+    });
+    this.#cancellationContext = cancellationContext;
+  }
+
+  async getJsonDetailedCancellable(
+    request: ToastGetJsonRequest,
+    options: CancellableRequestOptions = {},
+  ): Promise<ToastDetailedJsonResult> {
+    return this.#runCancellable(
+      options.signal,
+      () => super.getJsonDetailed(request),
+    );
+  }
+
+  async getAccessibleRestaurantsJsonDetailedCancellable(
+    options: CancellableRequestOptions = {},
+  ): Promise<ToastDetailedJsonResult> {
+    return this.#runCancellable(
+      options.signal,
+      () => super.getAccessibleRestaurantsJsonDetailed(),
+    );
+  }
+
+  async getConfigurationPagesDetailedCancellable(
+    request: ToastConfigurationPagesRequest,
+    options: CancellableRequestOptions = {},
+  ): Promise<readonly ToastDetailedJsonResult[]> {
+    return this.#runCancellable(
+      options.signal,
+      () => super.getConfigurationPagesDetailed(request),
+    );
+  }
+
+  async foldOrdersBulkPagesCancellable<TState>(
+    request: ToastOrdersBulkPagesRequest,
+    initialState: TState,
+    consumePage: ToastOrdersBulkPageConsumer<TState>,
+    options: ToastOrdersBulkFoldOptions = {},
+  ): Promise<TState> {
+    return this.#runCancellable(
+      options.signal,
+      () => super.foldOrdersBulkPages(
+        request,
+        initialState,
+        consumePage,
+        options,
+      ),
+    );
+  }
+
+  async #runCancellable<T>(
+    signal: AbortSignal | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (signal?.aborted) {
+      throw requestCancelledError();
+    }
+
+    try {
+      const result = await this.#cancellationContext.run({ signal }, operation);
+      if (signal?.aborted) {
+        throw requestCancelledError();
+      }
+      return result;
+    } catch (error) {
+      if (signal?.aborted) {
+        throw requestCancelledError();
+      }
+      throw error;
+    }
+  }
+}
+
 export function createRateLimitAwareToastHttpClient(
   config: RuntimeConfig,
   tokenManager: OAuthTokenManager,
   options: RateLimitAwareToastHttpClientOptions = {},
-): ToastHttpClient {
-  const {
-    rateLimitCoordinator,
-    ...transportOptions
-  } = options;
-  const coordinator = rateLimitCoordinator ?? new ToastRateLimitCoordinator();
-  const underlyingFetch = transportOptions.fetch ?? fetch;
-  const now = transportOptions.now ?? Date.now;
-  const sleep = transportOptions.sleep ?? defaultSleep;
-  const maxWaitMs =
-    transportOptions.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
-
-  // Each actual Standard-data fetch is serialized through the point where its
-  // response headers are observed. Positive rate-limit sleeps are deliberately
-  // outside the turn: a waiting restaurant releases the queue, sleeps, then
-  // re-enters and rechecks, so an unrelated location does not inherit its
-  // delay. OAuth token exchange is outside this queue and has separate limits.
-  let fetchTail: Promise<void> = Promise.resolve();
-
-  const coordinatedFetch: typeof fetch = async (input, init) => {
-    const url = new URL(
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url,
-    );
-    const headers = new Headers(init?.headers);
-    const restaurantGuid =
-      headers.get("toast-restaurant-external-id")?.toLowerCase() ?? undefined;
-    const context = Object.freeze({
-      restaurantGuid,
-      apiKey: toastApiKeyFromPath(url.pathname as `/${string}`),
-      endpointKey: endpointKeyFromPath(url.pathname),
-    });
-
-    for (;;) {
-      const decision = await withSerializedTurn(
-        fetchTail,
-        (nextTail) => {
-          fetchTail = nextTail;
-        },
-        async (): Promise<SerializedFetchDecision> => {
-          const waitMs = coordinator.waitMilliseconds(context, now());
-          if (waitMs > maxWaitMs) {
-            // Throw a dedicated internal preflight error before any upstream
-            // request. ToastHttpClient preserves only this exact subclass;
-            // every unrelated custom-fetch exception stays a network error.
-            throw new ToastRateLimitPreflightError();
-          }
-          if (waitMs > 0) {
-            return { kind: "wait", milliseconds: waitMs };
-          }
-
-          const response = await underlyingFetch(input, init);
-          coordinator.record(
-            context,
-            readToastRateLimitObservation(response, now()),
-          );
-
-          return {
-            kind: "response",
-            response: withCurrentRateLimitAliases(response),
-          };
-        },
-      );
-
-      if (decision.kind === "response") {
-        return decision.response;
-      }
-
-      // Sleep after releasing the serialized turn, then re-enter and recheck
-      // because another request may have updated this constraint meanwhile.
-      await sleep(decision.milliseconds);
-    }
-  };
-
-  return createToastHttpClient(config, tokenManager, {
-    ...transportOptions,
-    fetch: coordinatedFetch,
-  });
+): RateLimitAwareToastHttpClient {
+  return new RateLimitAwareToastHttpClient(config, tokenManager, options);
 }
 
-/**
- * Run one task after the previous serialized Standard-data fetch has fully
- * returned and published its rate-limit observation. `tail` never inherits a
- * task rejection: the release promise is resolved in `finally`, so a network
- * failure cannot deadlock every later request.
- */
 async function withSerializedTurn<T>(
   tail: Promise<void>,
   publishTail: (tail: Promise<void>) => void,
+  signal: AbortSignal | undefined,
   task: () => Promise<T>,
-): Promise<T> {
+): Promise<T | typeof CANCELLED_TURN> {
   let release!: () => void;
   const currentTurn = new Promise<void>((resolve) => {
     release = resolve;
@@ -142,7 +275,12 @@ async function withSerializedTurn<T>(
   const previousTurn = tail;
   publishTail(previousTurn.then(() => currentTurn));
 
-  await previousTurn;
+  const acquired = await waitForTurn(previousTurn, signal);
+  if (!acquired) {
+    release();
+    return CANCELLED_TURN;
+  }
+
   try {
     return await task();
   } finally {
@@ -150,13 +288,94 @@ async function withSerializedTurn<T>(
   }
 }
 
-/**
- * Current Toast headers take precedence, but the reviewed transport's public
- * snapshot API still reads the historical unprefixed names. Mirror only
- * successfully parsed current values. If a current header is present but
- * malformed, delete the legacy alias rather than letting the old permissive
- * parser reinterpret malformed authoritative data.
- */
+async function waitForTurn(
+  previousTurn: Promise<void>,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal === undefined) {
+    await previousTurn;
+    return true;
+  }
+  if (signal.aborted) {
+    return false;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = (): void => finish(false);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    previousTurn.then(
+      () => finish(true),
+      () => finish(true),
+    );
+  });
+}
+
+async function sleepUntilOrCancelled(
+  sleep: (milliseconds: number) => Promise<void>,
+  milliseconds: number,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal === undefined) {
+    await sleep(milliseconds);
+    return true;
+  }
+  if (signal.aborted) {
+    return false;
+  }
+
+  return new Promise<boolean>((resolve, reject) => {
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = (): void => finish(false);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(sleep(milliseconds)).then(
+      () => finish(true),
+      (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function throwCancellationPreflightIfAborted(
+  signal: AbortSignal | undefined,
+): void {
+  if (signal?.aborted) {
+    throw new ToastRequestCancellationPreflightError();
+  }
+}
+
+function requestCancelledError(): ToastHttpError {
+  return new ToastHttpError(
+    "request_cancelled",
+    "Toast data request was cancelled before completion.",
+    { apiFamily: "standard", retryable: false },
+  );
+}
+
 function withCurrentRateLimitAliases(response: Response): Response {
   const headers = new Headers(response.headers);
   mirrorCurrentNumericHeader(
@@ -205,11 +424,6 @@ function mirrorCurrentNumericHeader(
   headers.set(legacyName, String(parsedValue));
 }
 
-/**
- * Normalize entity identifiers out of endpoint identity. `/payments/A` and
- * `/payments/B` are one endpoint constraint; `/payments` and `/ordersBulk`
- * remain distinct.
- */
 function endpointKeyFromPath(pathname: string): string {
   return pathname
     .split("/")
