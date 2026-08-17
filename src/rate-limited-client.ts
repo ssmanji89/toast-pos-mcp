@@ -34,11 +34,16 @@ export function createRateLimitAwareToastHttpClient(
   tokenManager: OAuthTokenManager,
   options: RateLimitAwareToastHttpClientOptions = {},
 ): ToastHttpClient {
-  const coordinator = options.rateLimitCoordinator ?? new ToastRateLimitCoordinator();
-  const underlyingFetch = options.fetch ?? fetch;
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? defaultSleep;
-  const maxWaitMs = options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
+  const {
+    rateLimitCoordinator,
+    ...transportOptions
+  } = options;
+  const coordinator = rateLimitCoordinator ?? new ToastRateLimitCoordinator();
+  const underlyingFetch = transportOptions.fetch ?? fetch;
+  const now = transportOptions.now ?? Date.now;
+  const sleep = transportOptions.sleep ?? defaultSleep;
+  const maxWaitMs =
+    transportOptions.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
 
   const coordinatedFetch: typeof fetch = async (input, init) => {
     const url = new URL(
@@ -85,7 +90,7 @@ export function createRateLimitAwareToastHttpClient(
   };
 
   return createToastHttpClient(config, tokenManager, {
-    ...options,
+    ...transportOptions,
     fetch: coordinatedFetch,
   });
 }
