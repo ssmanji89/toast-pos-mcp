@@ -1,33 +1,24 @@
 #!/usr/bin/env node
 
-import { createOAuthTokenManager } from "./auth.js";
-import { loadRuntimeConfig } from "./config.js";
-import { createRuntime } from "./runtime.js";
+import { createApplicationRuntime } from "./runtime.js";
+import { createServer } from "./server.js";
 import { startStdioServer } from "./stdio.js";
 
 async function main(): Promise<void> {
-  // Fail closed before any MCP transport starts: runtime configuration must
-  // validate and the operator must have explicitly acknowledged documented
-  // Merchant consent for AI processing. See
-  // docs/architecture/public-use-boundary.md.
-  const config = loadRuntimeConfig();
-  const tokenManager = createOAuthTokenManager(config);
-  const runtime = createRuntime(config, tokenManager);
+  // Validate runtime configuration and Merchant-AI-consent acknowledgment,
+  // then construct exactly one config/token/HTTP/location/rate-limit identity
+  // before opening MCP stdio. No Toast data request occurs during startup.
+  const runtime = createApplicationRuntime();
 
-  // MCP v2's stdio entry owns protocol-era negotiation. The same cheap server
-  // factory serves legacy 2025 clients and 2026-07-28 clients while the
-  // process-owned Toast runtime remains explicit and shared. No data request
-  // occurs until a later tool handler actually uses the transport.
-  //
-  // `startStdioServer` also owns the SDK's out-of-band error callback because
-  // serveStdio starts its transport asynchronously and does not propagate a
-  // later start rejection through this function's promise.
-  startStdioServer(() => runtime.server);
+  // The MCP SDK may construct more than one server instance while negotiating
+  // protocol era, but every instance captures this same process-owned Toast
+  // runtime. This is the production wiring path for the reporting tools.
+  startStdioServer(() => createServer({ runtime }));
 }
 
 void main().catch(() => {
   // stdout is reserved for MCP JSON-RPC framing. Keep startup failure output
-  // generic so later credential-bearing errors cannot leak through this layer.
+  // generic so credential-bearing details can never leak through this layer.
   console.error("toast-pos-mcp failed to start");
   process.exitCode = 1;
 });
