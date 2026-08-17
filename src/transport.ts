@@ -97,10 +97,11 @@ const MAX_ALLOWED_CONFIGURATION_RESTARTS = 10;
  * proportion `MAX_ALLOWED_CONFIGURATION_RESTARTS` uses relative to
  * `DEFAULT_MAX_CONFIGURATION_RESTARTS`, generous enough for ordinary
  * operation while still rejecting an implausible caller-supplied value
- * loudly per AGENTS.md rule 11. Every page also accumulates its full JSON
- * body in memory for the life of the call -- no streaming or page-callback
- * interface exists yet; see T1-006-R1-F4 for the note that one should be
- * considered before any MCP tool is built on this primitive.
+ * loudly per AGENTS.md rule 11. The legacy array-returning compatibility
+ * APIs still retain every page by definition; production report paths must
+ * instead consume `foldOrdersBulkPages`, which hands each proven page to one
+ * sequential consumer before requesting the next page and keeps raw-page
+ * residency bounded by consumer state rather than total page count. See #31.
  */
 const DEFAULT_MAX_ORDERS_BULK_PAGES = 100;
 const MAX_ALLOWED_ORDERS_BULK_PAGES = 1_000;
@@ -158,6 +159,22 @@ export interface ToastOrdersBulkPagesRequest {
 }
 
 /**
+ * Cancellation for the sequential `/ordersBulk` fold is cooperative between
+ * pages. The signal is checked before each page request and immediately after
+ * each consumer invocation. An already-owned fetch may finish, but an
+ * observed cancellation can never start another page.
+ */
+export interface ToastOrdersBulkFoldOptions {
+  readonly signal?: AbortSignal;
+}
+
+export type ToastOrdersBulkPageConsumer<TState> = (
+  state: TState,
+  page: ToastDetailedJsonResult,
+  pageNumber: number,
+) => TState | Promise<TState>;
+
+/**
  * Success-path metadata needed by deterministic report envelopes. A request
  * ID is optional because Toast's public documentation does not establish that
  * every successful response carries one. `retrievedAtEpochMs` is sampled only
@@ -202,6 +219,7 @@ export type ToastHttpErrorCode =
   | "configuration_page_token_repeated"
   | "pagination_integrity_failed"
   | "rate_limit_wait_exceeded"
+  | "request_cancelled"
   | "request_failed"
   | "request_network_error"
   | "response_invalid_json"
@@ -504,9 +522,43 @@ export class ToastHttpClient {
     return pages.map((page) => page.body);
   }
 
+  /**
+   * Compatibility projection for bounded internal/backfill callers that need
+   * all raw pages at once. The single `/ordersBulk` Link/retry traversal now
+   * lives in `foldOrdersBulkPages`; this wrapper intentionally opts back into
+   * accumulation without maintaining a second pagination implementation.
+   */
   async getOrdersBulkPagesDetailed(
     request: ToastOrdersBulkPagesRequest,
   ): Promise<readonly ToastDetailedJsonResult[]> {
+    const pages = await this.foldOrdersBulkPages(
+      request,
+      [] as ToastDetailedJsonResult[],
+      (accumulator, page) => {
+        accumulator.push(page);
+        return accumulator;
+      },
+    );
+    return Object.freeze([...pages]);
+  }
+
+  /**
+   * Traverse `/ordersBulk` once and hand each fully parsed, provenance-bearing
+   * page to one sequential consumer before the next page is requested. This
+   * production path does not retain a raw-page array; only the consumer's
+   * explicit state survives between pages.
+   *
+   * All T1-006 Link/path/query/pageSize/+1/max-page guards remain in this same
+   * loop. Consumer failure propagates immediately. Cancellation is checked
+   * before every fetch and after every consumer so it cannot silently produce
+   * a completed state after an observed abort.
+   */
+  async foldOrdersBulkPages<TState>(
+    request: ToastOrdersBulkPagesRequest,
+    initialState: TState,
+    consumePage: ToastOrdersBulkPageConsumer<TState>,
+    options: ToastOrdersBulkFoldOptions = {},
+  ): Promise<TState> {
     if (
       !Number.isInteger(request.pageSize)
       || request.pageSize < 1
@@ -535,11 +587,14 @@ export class ToastHttpClient {
     }
 
     const boundedQuery = normalizedBoundedQuery(request.query);
-    const pages: ToastDetailedJsonResult[] = [];
+    let state = initialState;
+    let pagesProcessed = 0;
     let page = 1;
 
     while (true) {
-      if (pages.length >= maxPages) {
+      throwIfOrdersBulkCancelled(options.signal);
+
+      if (pagesProcessed >= maxPages) {
         throw paginationIntegrityError(
           "ordersBulk pagination exceeded the configured page bound.",
         );
@@ -556,33 +611,18 @@ export class ToastHttpClient {
         rateLimitKey: "ordersBulk",
       });
 
-      pages.push(detailedResult(result));
+      state = await consumePage(state, detailedResult(result), page);
+      pagesProcessed += 1;
 
-      // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
-      // every page number and every fetched page URL "for defense in
-      // depth" alongside the check below, but they were dead code --
-      // removed individually and in combination, 70/70 tests still passed.
-      // That is because `page` starts at 1 and only ever advances to a
-      // value `assertOrdersBulkNextUrl` has already proven equals
-      // `currentPage + 1`; by induction, every `page` this loop ever
-      // fetches is a distinct positive integer 1, 2, 3, ... in strictly
-      // increasing order, and `boundedQuery`/`pageSize` are invariant for
-      // the life of the call (enforced immediately below and by
-      // `assertOrdersBulkNextUrl`'s path/pageSize/query checks), so the
-      // constructed request URL for page N can never coincide with the URL
-      // for any other page. A repeated page number or a repeated page URL
-      // is therefore always already a `currentPage + 1` violation caught
-      // by the check below first -- tracking visited pages/URLs separately
-      // could never fire on its own. Decoupling duplicate detection from
-      // this invariant would require deliberately loosening the strict
-      // `+1` requirement (e.g. to accept a server that legitimately skips
-      // a page), which is not something this slice does; if a future
-      // change does that, duplicate detection must be reintroduced at that
-      // point, independently tested against a case that does not also
-      // violate whatever replaces this check. See T1-006-R1-F2.
+      throwIfOrdersBulkCancelled(options.signal);
+
+      // T1-006-R1-F2: strict +1 progression remains the sole load-bearing
+      // duplicate/repeat guard. It proves every fetched page number and URL
+      // are unique while the bounded query/pageSize stay invariant, so a
+      // second visited-page set would still be dead code on the fold path.
       const nextUrl = linkRelations(result.headers).get("next");
       if (nextUrl === undefined) {
-        return Object.freeze([...pages]);
+        return state;
       }
 
       const parsedNextUrl = parsePaginationUrl(nextUrl, result.url);
@@ -895,6 +935,16 @@ function requestIdMetadata(
   return upstreamRequestId === undefined ? {} : { upstreamRequestId };
 }
 
+function throwIfOrdersBulkCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new ToastHttpError(
+      "request_cancelled",
+      "Toast ordersBulk page traversal was cancelled before completion.",
+      { apiFamily: "standard", retryable: false },
+    );
+  }
+}
+
 function paginationIntegrityError(message: string): ToastHttpError {
   return new ToastHttpError("pagination_integrity_failed", message, {
     apiFamily: "standard",
@@ -1121,9 +1171,10 @@ function assertOrdersBulkNextUrl(
 
   // T1-006-R1-F2: this single check -- the next page must equal exactly
   // `currentPage + 1` -- is the sole load-bearing duplicate/repeat guard.
-  // See the comment beside its call site in `getOrdersBulkPagesDetailed` for
-  // why separate `visitedPages`/`visitedUrls` tracking was removed as dead
-  // code rather than kept as apparent (but non-functional) defense in depth.
+  // The fold path preserves that invariant: every page number is strictly
+  // increasing and the bounded query/pageSize are unchanged, so a separate
+  // visited-page set remains dead code unless this +1 rule is deliberately
+  // relaxed by a future reviewed change.
   const nextPageText = nextUrl.searchParams.get("page");
   const nextPage = nextPageText === null ? NaN : Number(nextPageText);
   if (!Number.isInteger(nextPage) || nextPage !== currentPage + 1) {
