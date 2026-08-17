@@ -56,7 +56,11 @@ export function registerStandardReportTools(
         openWorldHint: true,
       },
     },
-    async (input) => toolResult(await buildSalesSummaryReport(runtime, input)),
+    async (input, ctx) => toolResult(await buildSalesSummaryReport(
+      runtime,
+      input,
+      { signal: ctx.mcpReq.signal },
+    )),
   );
 
   server.registerTool(
@@ -74,14 +78,26 @@ export function registerStandardReportTools(
         openWorldHint: true,
       },
     },
-    async (input) => toolResult(await buildPaymentSummaryReport(runtime, input)),
+    async (input, ctx) => toolResult(await buildPaymentSummaryReport(
+      runtime,
+      input,
+      { signal: ctx.mcpReq.signal },
+    )),
   );
 }
 
-function toolResult(result: Record<string, unknown>) {
+function toolResult(
+  result: { readonly status: "complete" | "denied" } & object,
+) {
+  const structuredContent = result as Record<string, unknown>;
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(result) }],
-    structuredContent: result,
+    content: [{
+      type: "text" as const,
+      text: result.status === "complete"
+        ? `Toast ${String(structuredContent.report)} completed for business date ${String(structuredContent.businessDate)}.`
+        : `Toast ${String(structuredContent.report)} was denied for business date ${String(structuredContent.businessDate)}.`,
+    }],
+    structuredContent,
     ...(result.status === "denied" ? { isError: true } : {}),
   };
 }
