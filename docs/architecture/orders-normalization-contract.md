@@ -20,10 +20,12 @@ It emits immutable Standard-API records containing only data needed by planned r
 
 Toast documents two materially different `/ordersBulk` query modes:
 
-- `business_date`: `businessDate=yyyyMMdd`, selecting orders created on that restaurant business day;
+- `business_date`: `businessDate=yyyyMMdd`, selecting orders opened/promised on that restaurant business day;
 - `modified_window`: `startDate` inclusive and `endDate` exclusive, selecting by order modification time.
 
-The normalizer records the caller-selected mode verbatim and validates it. It does not infer one mode from timestamps and does not rewrite Toast's `Order.businessDate` from UTC time. A scheduled order's `promisedDate` and `approvalStatus` remain explicit so the report layer can distinguish future fulfillment from completed/past sales using an injected/report-time clock rather than normalization-time wall clock.
+The normalizer records the caller-selected mode verbatim and validates it. It does not infer one mode from timestamps and does not rewrite Toast's `Order.businessDate` from UTC time. In `business_date` mode, every returned order must carry `Order.businessDate` equal to the requested business date; a missing or mismatched value fails the entire batch because otherwise the batch label and source records would contradict each other. `modified_window` may legitimately span multiple Toast business dates.
+
+A scheduled order's `promisedDate` and `approvalStatus` remain explicit so the report layer can distinguish future fulfillment from completed/past sales using an injected/report-time clock rather than normalization-time wall clock.
 
 Source timestamps and modified-window bounds must use Toast's zoned ISO-8601 form: date plus `T` time plus either `Z` or an explicit numeric UTC offset. Numeric offsets with or without the colon are accepted because current Toast examples use both forms. Human-readable locale strings and zone-less local date-times are rejected even when JavaScript's `Date.parse` happens to accept them.
 
@@ -70,7 +72,7 @@ The source model keeps structured dimensions that downstream reports cannot reco
 - `Order.numberOfGuests` as a non-negative integer when Toast returns it, for guest counts and guest-normalized metrics;
 - order-level dining option, revenue center, restaurant service, and source;
 - selection-level dining option plus item, item group, option group, and sales category references;
-- check `taxExempt` state;
+- check `taxExempt` state, using Toast's documented `false` default when the response omits the field;
 - selection/service-charge applied-tax source components;
 - unresolved configuration references by GUID and/or multi-location ID.
 
@@ -117,8 +119,9 @@ The transport proves page traversal. The normalizer adds record-level integrity:
 
 - at least one detailed page must exist;
 - retrieval timestamps must be valid non-negative safe integers;
-- duplicate order GUIDs across pages fail closed rather than double-count;
-- duplicate check, payment, service-charge, or selection GUIDs within one order fail closed where they represent repeated source entities;
+- order GUIDs are unique across all pages in one normalized batch;
+- check, selection (including nested modifiers), payment, and applied service-charge GUIDs are also unique across the complete batch, not merely within one parent order, so a malformed repeated Toast entity cannot be double-counted under two distinct orders;
+- applied-discount identity is intentionally not asserted batch-global without a sourced uniqueness guarantee; check-level duplicates are guarded within their owning order and selection discounts within their owning selection;
 - a malformed record anywhere in the batch fails the whole normalization operation; T3-001 does not invent a partial-record policy.
 
 One page may legitimately contain zero orders. The page and record counts in the normalized batch are derived from the validated page bodies and aligned transport provenance, not guessed from query parameters.
@@ -145,4 +148,4 @@ The executable integration test must spawn built `dist/index.js`; an in-memory c
 - Toast guide: Deferred menu items
 - Toast guide: Daily order for tracking excess food
 
-DOX: updated for the durable T3 source/privacy/arithmetic boundary.
+DOX: updated for the durable T3 source/privacy/arithmetic/integrity boundary.
