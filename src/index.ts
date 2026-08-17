@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
-
 import { createOAuthTokenManager } from "./auth.js";
 import { loadRuntimeConfig } from "./config.js";
 import { createServer } from "./server.js";
+import { startStdioServer } from "./stdio.js";
 import { createToastHttpClient } from "./transport.js";
 
 async function main(): Promise<void> {
@@ -20,14 +19,11 @@ async function main(): Promise<void> {
   // factory serves legacy 2025 clients and 2026-07-28 clients while the
   // process-owned Toast runtime remains explicit and shared. No data request
   // occurs until a later tool handler actually uses the transport.
-  serveStdio(() => createServer({ toastHttpClient }), {
-    legacy: "serve",
-    onerror: () => {
-      // Do not interpolate SDK/transport errors. Future failures may include
-      // credential- or upstream-shaped detail, and stderr is not a secret sink.
-      console.error("toast-pos-mcp stdio transport error");
-    },
-  });
+  //
+  // `startStdioServer` also owns the SDK's out-of-band error callback because
+  // serveStdio starts its transport asynchronously and does not propagate a
+  // later start rejection through this function's promise.
+  startStdioServer(() => createServer({ toastHttpClient }));
 }
 
 void main().catch(() => {
