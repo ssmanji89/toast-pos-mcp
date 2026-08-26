@@ -11,7 +11,7 @@ import {
 } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_GUID = requiredSyntheticRuntimeValue("TOAST_DEFAULT_RESTAURANT_GUID");
 const START_EPOCH_MS = 1_800_000_000_000;
 
 test("known over-ceiling hierarchy wait is non-retryable regardless of maxAttempts", async () => {
@@ -117,17 +117,19 @@ function createBaseRetryHarness(retryAfter: string): {
 } {
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
   const sleeps: number[] = [];
+  let nowEpochMs = START_EPOCH_MS;
   let dataFetchCount = 0;
   const tokenManager = createOAuthTokenManager(config, {
-    now: () => START_EPOCH_MS,
+    now: () => nowEpochMs,
     fetch: async () => tokenResponse(),
   });
   const client = createToastHttpClient(config, tokenManager, {
     maxAttempts: 2,
-    now: () => START_EPOCH_MS,
+    now: () => nowEpochMs,
     random: () => 0,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
+      nowEpochMs += milliseconds;
     },
     fetch: async () => {
       dataFetchCount += 1;
@@ -162,4 +164,10 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function requiredSyntheticRuntimeValue(name: string): string {
+  const value = SYNTHETIC_VALID_RUNTIME_ENV[name];
+  assert.ok(value !== undefined, `missing synthetic runtime value: ${name}`);
+  return value;
 }

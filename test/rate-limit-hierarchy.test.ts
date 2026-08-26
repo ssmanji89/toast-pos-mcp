@@ -7,7 +7,7 @@ import { createRateLimitAwareToastHttpClient } from "../src/rate-limited-client.
 import { ToastHttpError } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_A = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_A = requiredSyntheticRuntimeValue("TOAST_DEFAULT_RESTAURANT_GUID");
 const RESTAURANT_B = "00000000-0000-4000-8000-000000000777";
 
 interface Harness {
@@ -289,4 +289,10 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function requiredSyntheticRuntimeValue(name: string): string {
+  const value = SYNTHETIC_VALID_RUNTIME_ENV[name];
+  assert.ok(value !== undefined, `missing synthetic runtime value: ${name}`);
+  return value;
 }

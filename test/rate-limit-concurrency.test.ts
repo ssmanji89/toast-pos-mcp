@@ -6,7 +6,7 @@ import { loadRuntimeConfig } from "../src/config.js";
 import { createRateLimitAwareToastHttpClient } from "../src/rate-limited-client.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_GUID = requiredSyntheticRuntimeValue("TOAST_DEFAULT_RESTAURANT_GUID");
 const OTHER_RESTAURANT_GUID = "00000000-0000-4000-8000-000000000778";
 
 test("concurrent Standard calls serialize so the second observes the first response's exhausted GLOBAL limit", async () => {
@@ -223,4 +223,10 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function requiredSyntheticRuntimeValue(name: string): string {
+  const value = SYNTHETIC_VALID_RUNTIME_ENV[name];
+  assert.ok(value !== undefined, `missing synthetic runtime value: ${name}`);
+  return value;
 }
