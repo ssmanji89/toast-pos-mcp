@@ -156,6 +156,10 @@ test("exact decimal operations retain exponent, mixed scale, negative, and empty
   assert.deepEqual(addExactDecimals([]), { coefficient: "0", scale: 0 });
 });
 
+test("exact decimal conversion canonicalizes zero", () => {
+  assert.deepEqual(exactDecimalFromNumber(0), { coefficient: "0", scale: 0 });
+});
+
 test("exact decimal conversion expands Number exponent notation", () => {
   const positiveExponent = 1e21;
   const negativeExponent = 1e-7;
