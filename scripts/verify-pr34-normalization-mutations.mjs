@@ -81,15 +81,16 @@ guard("D11", "src/exact-decimal.ts", "if (!Number.isFinite(value)) {\n    throw 
 guard("S01", "src/orders-normalization-helpers.ts", "page.apiFamily !== \"standard\"", "false", "orders-normalization-pr34-remediation.test");
 guard("S02", "src/orders-normalization-helpers.ts", "page.scope.kind !== \"restaurant\"", "false", "orders-normalization-pr34-remediation.test");
 guard("S03", "src/orders-normalization-helpers.ts", "normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid", "false", "orders-normalization-pr34-remediation.test");
-guard("A01", "src/orders-normalization-source.ts", "guid: guidSchema, taxRate", "guid: guidSchema.optional(), taxRate", "orders-normalization-pr34-remediation.test");
+guard("A01", "src/orders-normalization-source.ts", "guid: guidSchema, taxRate", "guid: guidSchema.default(\"00000000-0000-4000-8000-000000000000\"), taxRate", "orders-normalization-pr34-remediation.test");
 guard("A02", "src/orders-normalization-traversal.ts", "assertUnique(seen, guid, \"applied tax\");", "void guid;", "orders-normalization-pr34-remediation.test");
 guard("A03", "src/orders-normalization-traversal.ts", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\", appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes, taxes)", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\", appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes, new Set())", "orders-normalization-pr34-remediation.test");
+guard("A04", "src/orders-normalization-source.ts", "if (value.guid == null && value.multiLocationId == null)", "if (value.guid == null || value.multiLocationId == null)", "orders-normalization-pr34-remediation.test");
 guard("C01", "src/exact-decimal.ts", "/^-?0\\d/u.test(value.coefficient)", "false", "orders-normalization-pr34-remediation.test");
 guard("C02", "src/exact-decimal.ts", "value.coefficient === \"-0\"", "false", "orders-normalization-pr34-remediation.test");
 guard("C03", "src/exact-decimal.ts", "value.scale > 0 && value.coefficient.endsWith(\"0\")", "false", "orders-normalization-pr34-remediation.test");
 guard("H01", "src/orders-normalization-traversal.ts", "return Object.freeze({ guid: source.guid.toLowerCase(), amountHundredths: moneyToCurrencyHundredths(source.amount),", "return Object.freeze({ guid: source.guid.toLowerCase(), amountHundredths: 0,", "orders-normalization-pr34-remediation.test");
 
-if (guards.length !== 64) throw new Error(`guard map has ${guards.length} entries, expected 64`);
+if (guards.length !== 65) throw new Error(`guard map has ${guards.length} entries, expected 65`);
 if (!process.versions.node.startsWith("22.22.2")) throw new Error(`Node 22.22.2 is required; found ${process.version}`);
 if (!readFileSync(path.join(root, "package.json"), "utf8")) throw new Error("repository root is not readable");
 const requestedIds = process.env.PR34_MUTATION_IDS?.split(",").filter(Boolean);
