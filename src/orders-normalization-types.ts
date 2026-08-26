@@ -19,7 +19,7 @@ export class OrdersNormalizationError extends Error {
 }
 
 export interface NormalizedReference { readonly guid: string | undefined; readonly multiLocationId: string | undefined; }
-export interface NormalizedAppliedTax { readonly guid: string; readonly taxRate: NormalizedReference | undefined; readonly rate: ExactDecimal | undefined; readonly taxAmount: ExactDecimal; readonly type: string | undefined; readonly facilitatorCollectAndRemitTax: boolean | undefined; }
+export interface NormalizedAppliedTax { readonly guid: string; readonly taxRate: NormalizedReference; readonly rate: ExactDecimal | undefined; readonly taxAmount: ExactDecimal; readonly type: string | undefined; readonly facilitatorCollectAndRemitTax: boolean | undefined; }
 export interface NormalizedAppliedDiscount { readonly guid: string; readonly discountAmountHundredths: number; readonly nonTaxDiscountAmountHundredths: number; readonly discount: NormalizedReference | undefined; readonly discountType: string | undefined; readonly processingState: string | undefined; }
 export interface NormalizedRefundDetails { readonly refundAmountHundredths: number; readonly taxRefundAmountHundredths: number; }
 export interface NormalizedServiceCharge { readonly guid: string; readonly serviceCharge: NormalizedReference; readonly chargeAmountHundredths: number; readonly chargeType: string | undefined; readonly gratuity: boolean; readonly serviceChargeCategory: string; readonly appliedTaxes: readonly NormalizedAppliedTax[]; readonly refundDetails: NormalizedRefundDetails | undefined; }

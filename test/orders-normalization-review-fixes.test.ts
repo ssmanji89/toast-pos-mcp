@@ -129,6 +129,32 @@ test("modified-window query uses the same zoned ISO contract", () => {
   }
 });
 
+test("modified-window query rejects invalid calendar days and accepts leap days", () => {
+  assert.throws(() => normalizeOrdersPages({
+    location: LOCATION,
+    query: {
+      mode: "modified_window",
+      startDate: "2026-02-30T00:00:00Z",
+      endDate: "2026-03-03T00:00:00Z",
+    },
+    pages: [page([])],
+  }), (error: unknown) => {
+    assert.ok(error instanceof OrdersNormalizationError);
+    assert.equal(error.code, "orders_query_invalid");
+    return true;
+  });
+
+  assert.doesNotThrow(() => normalizeOrdersPages({
+    location: LOCATION,
+    query: {
+      mode: "modified_window",
+      startDate: "2028-02-29T00:00:00Z",
+      endDate: "2028-03-01T00:00:00Z",
+    },
+    pages: [page([])],
+  }));
+});
+
 function normalize(rawOrders: readonly unknown[]) {
   return normalizeOrdersPages({
     location: LOCATION,

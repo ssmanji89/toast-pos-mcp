@@ -147,6 +147,30 @@ test("rejects an applied tax without its required GUID", () => {
   assertSourceInvalid(() => normalize(page({ body: [raw] })));
 });
 
+test("requires each applied tax to contain a valid tax-rate reference", () => {
+  for (const taxRate of [{}, { guid: "not-a-guid" }, { multiLocationId: "" }]) {
+    const raw = detailedOrder(1064);
+    raw.checks[0].selections[0].appliedTaxes = [{
+      guid: guid(1065),
+      taxRate,
+      taxAmount: 0.075,
+    }];
+    assertSourceInvalid(() => normalize(page({ body: [raw] })));
+  }
+
+  const raw = detailedOrder(1066);
+  raw.checks[0].selections[0].appliedTaxes = [{
+    guid: guid(1067),
+    taxRate: { multiLocationId: "synthetic-valid-tax-rate" },
+    taxAmount: 0.075,
+  }];
+  const batch = normalize(page({ body: [raw] }));
+  const appliedTax = batch.orders[0]?.checks[0]?.selections[0]?.appliedTaxes[0];
+  const taxRate = appliedTax?.taxRate;
+  assert.ok(taxRate !== undefined);
+  assert.equal(taxRate.multiLocationId, "synthetic-valid-tax-rate");
+});
+
 test("exact decimal operations retain exponent, mixed scale, negative, and empty identity semantics", () => {
   assert.deepEqual(exactDecimalFromNumber(1.2e3), { coefficient: "1200", scale: 0 });
   assert.equal(exactDecimalToString(addExactDecimals([

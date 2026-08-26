@@ -30,7 +30,7 @@ guard("N07", "src/orders-normalization-helpers.ts", "page.upstreamRequestId.leng
 guard("N08", "src/orders-normalization-traversal.ts", "if (!parsed.success) throw sourceInvalid();\n      if (query.mode", "if (!parsed.success) continue;\n      if (query.mode", "orders-normalization.test");
 guard("N09", "src/orders-normalization-helpers.ts", "const parsed = guidSchema.safeParse(value);", "const parsed = { success: true, data: value };", "orders-normalization-pr34-remediation.test");
 guard("N10", "src/orders-normalization-source.ts", "z.number().int().min(0).optional()", "z.number().int().optional()", "orders-normalization-review-fixes.test");
-guard("N11", "src/orders-normalization-helpers.ts", "return ISO_DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));", "return !Number.isNaN(Date.parse(value));", "orders-normalization-review-fixes.test");
+guard("N11", "src/orders-normalization-helpers.ts", "month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth", "true", "orders-normalization-review-fixes.test");
 guard("N12", "src/orders-normalization-source.ts", "taxExempt: z.boolean().default(false)", "taxExempt: z.boolean().default(true)", "orders-normalization-r3-fixes.test");
 guard("N13", "src/orders-normalization-helpers.ts", "Number(value.toFixed(2)) !== value", "false", "orders-normalization.test");
 guard("N14", "src/orders-normalization-helpers.ts", "if (!Number.isSafeInteger(hundredths))", "if (false)", "orders-normalization-pr34-remediation.test");
@@ -49,7 +49,7 @@ guard("N26", "src/orders-normalization-source.ts", "const openEnumSchema = z.str
 guard("N27", "src/orders-normalization-traversal.ts", "numberOfGuests: source.numberOfGuests,", "numberOfGuests: undefined,", "orders-normalization-review-fixes.test");
 guard("N28", "src/orders-normalization-traversal.ts", "numberOfGuests: source.numberOfGuests, diningOption: normalizeReference(source.diningOption),", "numberOfGuests: source.numberOfGuests, diningOption: undefined,", "orders-normalization-review-fixes.test");
 guard("N29", "src/orders-normalization-traversal.ts", "salesCategory: normalizeReference(source.salesCategory), diningOption: normalizeReference(source.diningOption),", "salesCategory: normalizeReference(source.salesCategory), diningOption: source.diningOption as never,", "orders-normalization-review-fixes.test");
-guard("N30", "src/orders-normalization-traversal.ts", "taxRate: normalizeReference(source.taxRate),", "taxRate: source.taxRate as never,", "orders-tax-normalization.test");
+guard("N30", "src/orders-normalization-traversal.ts", "const taxRate = normalizeReference(source.taxRate);", "const taxRate = source.taxRate as never;", "orders-tax-normalization.test");
 guard("N31", "src/orders-normalization-traversal.ts", "source: \"standard_api\"", "source: \"analytics_api\" as never", "orders-normalization.test");
 guard("N32", "src/orders-normalization-traversal.ts", "taxAmount: exactDecimalFromNumber(source.taxAmount)", "taxAmount: exactDecimalFromNumber(Math.round(source.taxAmount * 100) / 100)", "orders-tax-normalization.test");
 guard("N33", "src/orders-normalization-traversal.ts", "scheduled: source.promisedDate != null", "scheduled: false", "orders-normalization.test");
@@ -87,7 +87,7 @@ guard("A03", "src/orders-normalization-traversal.ts", "serviceChargeCategory: so
 guard("C01", "src/exact-decimal.ts", "/^-?0\\d/u.test(value.coefficient)", "false", "orders-normalization-pr34-remediation.test");
 guard("C02", "src/exact-decimal.ts", "value.coefficient === \"-0\"", "false", "orders-normalization-pr34-remediation.test");
 guard("C03", "src/exact-decimal.ts", "value.scale > 0 && value.coefficient.endsWith(\"0\")", "false", "orders-normalization-pr34-remediation.test");
-guard("H01", "src/orders-normalization-types.ts", "export interface NormalizedCheck { readonly guid: string; readonly amountHundredths", "export interface NormalizedCheck { readonly guid: string; readonly amountMinor", "orders-normalization-pr34-remediation.test");
+guard("H01", "src/orders-normalization-traversal.ts", "return Object.freeze({ guid: source.guid.toLowerCase(), amountHundredths: moneyToCurrencyHundredths(source.amount),", "return Object.freeze({ guid: source.guid.toLowerCase(), amountHundredths: 0,", "orders-normalization-pr34-remediation.test");
 
 if (guards.length !== 64) throw new Error(`guard map has ${guards.length} entries, expected 64`);
 if (!process.versions.node.startsWith("22.22.2")) throw new Error(`Node 22.22.2 is required; found ${process.version}`);
@@ -117,21 +117,24 @@ function mutateCase(entry) {
 
 const caught = [];
 const survivors = [];
+const compileFailures = [];
 const start = performance.now();
 try {
   for (const entry of selectedGuards) {
     const caseDir = mutateCase(entry);
     const build = spawnSync(process.execPath, ["./node_modules/typescript/bin/tsc", "-p", "tsconfig.test.json"], { cwd: caseDir, encoding: "utf8" });
-    const run = build.status === 0
-      ? spawnSync(process.execPath, ["--test", "--enable-source-maps", entry.testFile], { cwd: caseDir, encoding: "utf8" })
-      : build;
-    if (run.status === 0) survivors.push(entry.id);
-    else caught.push(entry.id);
+    if (build.status !== 0) {
+      compileFailures.push(entry.id);
+    } else {
+      const run = spawnSync(process.execPath, ["--test", "--enable-source-maps", entry.testFile], { cwd: caseDir, encoding: "utf8" });
+      if (run.status === 0) survivors.push(entry.id);
+      else caught.push(entry.id);
+    }
     rmSync(caseDir, { recursive: true, force: true });
   }
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }
 const durationMs = Math.round(performance.now() - start);
-console.log(JSON.stringify({ caught: caught.length, total: selectedGuards.length, survivors, caughtGuards: caught, durationMs }));
-process.exitCode = survivors.length === 0 ? 0 : 1;
+console.log(JSON.stringify({ caught: caught.length, total: selectedGuards.length, survivors, caughtGuards: caught, compileFailures, durationMs }));
+process.exitCode = survivors.length === 0 && compileFailures.length === 0 ? 0 : 1;
