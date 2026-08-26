@@ -21,6 +21,7 @@ type FixtureScenario =
   | "missing-scope"
   | "malformed-source"
   | "broken-pagination"
+  | "cancel-active-report"
   | "rate-limit-wait";
 
 const scenario = parseScenario(process.argv[2]);
@@ -110,6 +111,15 @@ async function syntheticToastFetch(
         },
       );
     }
+    if (scenario === "cancel-active-report") {
+      console.error("orders-fetch-started");
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          console.error("orders-fetch-aborted");
+          reject(new Error("synthetic orders fetch cancellation"));
+        }, { once: true });
+      });
+    }
     if (scenario === "rate-limit-wait") {
       ordersFetchCount += 1;
       return jsonResponse(
@@ -120,7 +130,7 @@ async function syntheticToastFetch(
               "x-toast-ratelimit-by": "GLOBAL",
               "x-toast-ratelimit-remaining": "0",
               "x-toast-ratelimit-reset": String(
-                Math.floor(Date.now() / 1000) + 1,
+                Math.floor(Date.now() / 1000) + 2,
               ),
             }
           : {},
@@ -286,6 +296,7 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "missing-scope"
     || value === "malformed-source"
     || value === "broken-pagination"
+    || value === "cancel-active-report"
     || value === "rate-limit-wait"
   ) {
     return value ?? "success";

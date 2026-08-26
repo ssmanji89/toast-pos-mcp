@@ -116,6 +116,7 @@ export interface ToastGetJsonRequest {
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly rateLimitKey: string;
   readonly apiFamily?: ToastApiFamily;
+  readonly signal?: AbortSignal | undefined;
 }
 
 /**
@@ -131,6 +132,7 @@ interface ToastCredentialScopedGetJsonRequest {
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
   readonly rateLimitKey: typeof PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY;
   readonly apiFamily?: ToastApiFamily;
+  readonly signal?: AbortSignal | undefined;
 }
 
 type ToastInternalGetJsonRequest =
@@ -161,7 +163,7 @@ export interface ToastOrdersBulkPagesRequest {
 /**
  * Cancellation for the sequential `/ordersBulk` fold is cooperative between
  * pages. The signal is checked before each page request and immediately after
- * each consumer invocation. An already-owned fetch may finish, but an
+ * each consumer invocation. It also aborts the active page fetch, and an
  * observed cancellation can never start another page.
  */
 export interface ToastOrdersBulkFoldOptions {
@@ -640,6 +642,7 @@ export class ToastHttpClient {
           pageSize: request.pageSize,
         },
         rateLimitKey: "ordersBulk",
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
       };
       const result = await this.#requestJson(pageRequest);
 
@@ -685,7 +688,9 @@ export class ToastHttpClient {
     let lastError: ToastHttpError | undefined;
 
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
+      throwIfOrdersBulkCancelled(request.signal);
       await this.#waitForKnownRateLimit(stateKey);
+      throwIfOrdersBulkCancelled(request.signal);
 
       // Acquire the authorization header in its own try/catch, outside the
       // fetch-transport try below. `getAuthorizationHeader()` never reaches
@@ -722,8 +727,12 @@ export class ToastHttpClient {
         response = await this.#fetch(url, {
           method: "GET",
           headers,
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
         });
       } catch (error) {
+        if (request.signal?.aborted) {
+          throwIfOrdersBulkCancelled(request.signal);
+        }
         if (error instanceof ToastRateLimitPreflightError) {
           throw error;
         }
@@ -737,6 +746,8 @@ export class ToastHttpClient {
         await this.#sleepBeforeRetry(attempt, undefined, apiFamily);
         continue;
       }
+
+      throwIfOrdersBulkCancelled(request.signal);
 
       if (restaurantGuid === undefined) {
         this.#recordCredentialRateLimit(

@@ -22,6 +22,7 @@ type FixtureScenario =
   | "missing-scope"
   | "malformed-source"
   | "broken-pagination"
+  | "cancel-active-report"
   | "rate-limit-wait";
 
 test(
@@ -172,6 +173,63 @@ test(
 );
 
 test(
+  "a nonzero-ID active report cancellation aborts Standard fetch and returns a structured denial",
+  { timeout: 20_000 },
+  async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [REPORT_SERVER_PATH, "cancel-active-report"],
+      cwd: process.cwd(),
+      stderr: "pipe",
+    });
+    const stderr = observeFixtureStderr(transport);
+    const client = new Client(
+      { name: "toast-report-cancellation-test", version: "0.0.0" },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+    try {
+      await client.connect(transport);
+      await client.discover({ timeout: 5_000 });
+
+      const controller = new AbortController();
+      const cancelled = client.callTool(
+        {
+          name: "toast_sales_summary",
+          arguments: { businessDate: BUSINESS_DATE },
+        },
+        {
+          signal: controller.signal,
+          timeout: 5_000,
+          toolDefinition: {
+            name: "toast_sales_summary",
+            inputSchema: {
+              type: "object",
+              properties: { businessDate: { type: "number" } },
+              required: ["businessDate"],
+              additionalProperties: false,
+            },
+          },
+        },
+      );
+      await stderr.waitFor("orders-fetch-started");
+      controller.abort("synthetic active cancellation");
+      await assert.rejects(cancelled);
+
+      // `server/discover` consumes ID zero on this retained modern connection.
+      // The active report request therefore uses a nonzero ID.
+      await stderr.waitFor("orders-fetch-aborted");
+      await client.discover({ timeout: 5_000 });
+    } finally {
+      try {
+        await client.close();
+      } finally {
+        stderr.stop();
+      }
+    }
+  },
+);
+
+test(
   "a stored upstream rate limit delays a later stdio report without bypassing report provenance",
   { timeout: 20_000 },
   async () => {
@@ -190,7 +248,7 @@ test(
         arguments: { businessDate: BUSINESS_DATE },
       });
       const elapsedMs = Date.now() - startedAt;
-      assert.ok(elapsedMs >= 200, `expected rate-limit delay, observed ${elapsedMs}ms`);
+      assert.ok(elapsedMs >= 900, `expected rate-limit delay, observed ${elapsedMs}ms`);
       assert.equal(second.isError, undefined);
       const output = structured(second.structuredContent);
       assert.equal(output.status, "complete");
@@ -279,4 +337,42 @@ async function connectWithTimeout(connection: Connection): Promise<void> {
 function structured(value: unknown): Record<string, any> {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
   return value as Record<string, any>;
+}
+
+function observeFixtureStderr(transport: StdioClientTransport): {
+  readonly waitFor: (marker: string) => Promise<void>;
+  readonly stop: () => void;
+} {
+  const stream = transport.stderr;
+  assert.ok(stream !== null, "expected fixture stderr");
+  let output = "";
+  let waiter: Deferred<void> | undefined;
+  const onData = (chunk: Buffer | string): void => {
+    output += chunk.toString();
+    waiter?.resolve();
+    waiter = undefined;
+  };
+  stream.on("data", onData);
+  return {
+    waitFor: async (marker: string): Promise<void> => {
+      while (!output.includes(marker)) {
+        waiter = deferred<void>();
+        await waiter.promise;
+      }
+    },
+    stop: () => stream.off("data", onData),
+  };
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  return {
+    promise: new Promise<T>((next) => { resolve = next; }),
+    resolve,
+  };
 }
