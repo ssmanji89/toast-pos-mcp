@@ -1,8 +1,8 @@
 # Toast Authentication and Capability Source Contract
 
-**Status:** current source contract for T2-002  
-**Last reviewed:** 2026-08-16  
-**Supersedes:** the opaque-token/advisory-scope implementation note in `toast-api-reporting-landscape.md`  
+**Status:** current source contract for T2-002
+**Last reviewed:** 2026-08-16
+**Supersedes:** the opaque-token/advisory-scope implementation note in `toast-api-reporting-landscape.md`
 **Scope:** Standard API preflight only; this is not report-success semantics
 
 ## Why this document supersedes the earlier note
