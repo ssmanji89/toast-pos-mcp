@@ -72,7 +72,7 @@ guard("D04", "src/exact-decimal.ts", "while (currentScale > 0 && current % 10n =
 guard("D05", "src/exact-decimal.ts", "const padded = unsigned.padStart(value.scale + 1, \"0\");", "const padded = unsigned;", "orders-normalization-pr34-remediation.test");
 guard("D06", "src/exact-decimal.ts", "const sign = match[1] === \"-\" ? \"-\" : \"\";", "const sign = \"\";", "orders-normalization-pr34-remediation.test");
 guard("D07", "src/exact-decimal.ts", "if (/^0+$/u.test(digits))", "if (false)", "orders-normalization-pr34-remediation.test");
-guard("D08", "src/exact-decimal.ts", "return Object.freeze({ coefficient: \"0\", scale: 0 });", "return { coefficient: \"0\", scale: 0 };", "orders-normalization-pr34-remediation.test");
+guard("D08", "src/exact-decimal.ts", "if (values.length === 0) {\n    return Object.freeze({ coefficient: \"0\", scale: 0 });", "if (values.length === 0) {\n    return { coefficient: \"0\", scale: 0 };", "orders-normalization-pr34-remediation.test");
 guard("D09", "src/exact-decimal.ts", "!COEFFICIENT_PATTERN.test(value.coefficient)", "false", "orders-normalization-pr34-remediation.test");
 guard("D10", "src/exact-decimal.ts", "if (values.length === 0)", "if (false)", "orders-normalization-pr34-remediation.test");
 guard("D11", "src/exact-decimal.ts", "if (!Number.isFinite(value))", "if (false)", "orders-normalization-pr34-remediation.test");
