@@ -325,7 +325,7 @@ The transport must read Toast rate-limit headers, coordinate all tools through a
 
 ### Legacy rate-limit-reset fallback semantics — original implementation note, not sourced from Toast documentation
 
-Current Toast documentation now defines `X-Toast-RateLimit-Reset` as an absolute epoch. The current-header hierarchy uses that documented contract. This note remains unresolved for only the historical unprefixed `Toast-RateLimit-Reset` fallback. `src/transport.ts` preserves the established compatibility snapshot behavior by treating it as an absolute point in time, encoded as epoch seconds or epoch milliseconds. The historical fallback does not create hierarchy coordination waits. A future reviewer with a live legacy response or source documentation must confirm or correct the fallback before treating it as production-proven semantics.
+Current Toast documentation now defines `X-Toast-RateLimit-Reset` as an absolute epoch. The current-header hierarchy uses that documented contract. This note remains unresolved for only the historical unprefixed `Toast-RateLimit-Reset` fallback. `src/transport.ts` preserves compatibility snapshots and same-key endpoint-local preflight behavior by treating it as an absolute point in time, encoded as epoch seconds or epoch milliseconds. The historical fallback cannot create hierarchical constraints. A future reviewer with a live legacy response or source documentation must confirm or correct the fallback before treating it as production-proven semantics.
 
 ### Errors and completeness
 

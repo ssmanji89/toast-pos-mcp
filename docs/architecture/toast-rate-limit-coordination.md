@@ -57,9 +57,9 @@ After fetch, the wrapper records only the specific constraint Toast actually rep
 
 Hierarchical coordination uses one current-header generation only: `X-Toast-RateLimit-By`, current Remaining, and current Reset. A current `By` value never borrows a missing numeric companion from a historical alias. If a current companion is absent or malformed, that portion of the hierarchy observation is unknown. The bounded normalized `By` token list preserves unknown current values for later inspection. Known coordination fields derive separately from `GLOBAL`, `API`, `ENDPOINT`, and `ACCOUNT`.
 
-The repository still accepts historical unprefixed numeric aliases for the already-reviewed public snapshot compatibility surface. If a current numeric header is present, its parsed value wins, including `0`. A malformed current value suppresses the legacy alias rather than being reinterpreted by the historical parser.
+The repository still accepts historical unprefixed numeric aliases for the already-reviewed public snapshot compatibility surface and same-key endpoint-local preflight waits. If a current numeric header is present, its parsed value wins, including `0`. A malformed current value suppresses the legacy alias rather than being reinterpreted by the historical parser.
 
-The wrapper mirrors successfully parsed current remaining/reset/limit values into the legacy aliases on the `Response` handed to the existing transport. This keeps `getRateLimitSnapshot()` / `getCredentialRateLimitSnapshot()` coherent while ensuring legacy fields cannot create production hierarchy state.
+The wrapper mirrors successfully parsed current remaining/reset/limit values into the legacy aliases on the `Response` handed to the existing transport. This keeps `getRateLimitSnapshot()` / `getCredentialRateLimitSnapshot()` coherent and preserves same-key endpoint-local preflight behavior. Legacy fields cannot create hierarchical constraints.
 
 `X-Toast-RateLimit-By` has no legacy substitute. When it is absent, no hierarchical constraint is invented. Existing endpoint-local retry/Retry-After behavior remains the fallback.
 
@@ -114,4 +114,4 @@ This contract does not implement:
 - write operations;
 - report formulas or MCP tools.
 
-DOX: this document is the current rate-limit architecture record. It supersedes the older unsourced reset assumption only for current `X-Toast-RateLimit-Reset` semantics. Historical unprefixed `Toast-RateLimit-Reset` fallback semantics remain unresolved and affect compatibility snapshots only, not hierarchy coordination.
+DOX: this document is the current rate-limit architecture record. It supersedes the older unsourced reset assumption only for current `X-Toast-RateLimit-Reset` semantics. Historical unprefixed `Toast-RateLimit-Reset` fallback semantics remain unresolved. They affect compatibility snapshots and same-key endpoint-local preflight waits, but not hierarchy coordination.

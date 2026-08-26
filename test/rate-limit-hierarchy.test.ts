@@ -111,6 +111,36 @@ test("ACCOUNT API exhaustion coordinates the same API across restaurants", async
   assert.deepEqual(harness.sleeps, [1000]);
 });
 
+test("ACCOUNT ENDPOINT exhaustion spans restaurants for one normalized endpoint only", async () => {
+  const harness = createHarness();
+  harness.setResponses([
+    limitedResponse("ENDPOINT, ACCOUNT", 0, 1),
+    jsonResponse({ sameNormalizedEndpoint: true }),
+    jsonResponse({ siblingEndpoint: true }),
+  ]);
+
+  await restaurantGet(
+    harness,
+    RESTAURANT_A,
+    "/orders/v2/payments/00000000-0000-4000-8000-000000000701",
+    "payment-detail-a",
+  );
+  await restaurantGet(
+    harness,
+    RESTAURANT_B,
+    "/orders/v2/payments/00000000-0000-4000-8000-000000000702",
+    "payment-detail-b",
+  );
+  await restaurantGet(
+    harness,
+    RESTAURANT_B,
+    "/orders/v2/orders/00000000-0000-4000-8000-000000000703",
+    "order-detail-b",
+  );
+
+  assert.deepEqual(harness.sleeps, [1000]);
+});
+
 test("ACCOUNT constraints cross restaurants and select the longest simultaneous wait", () => {
   const coordinator = new ToastRateLimitCoordinator();
   const nowMs = 1_800_000_000_000;
