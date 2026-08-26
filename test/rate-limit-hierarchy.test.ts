@@ -115,8 +115,8 @@ test("ACCOUNT ENDPOINT exhaustion spans restaurants for one normalized endpoint 
   const harness = createHarness();
   harness.setResponses([
     limitedResponse("ENDPOINT, ACCOUNT", 0, 1),
-    jsonResponse({ sameNormalizedEndpoint: true }),
     jsonResponse({ siblingEndpoint: true }),
+    jsonResponse({ sameNormalizedEndpoint: true }),
   ]);
 
   await restaurantGet(
@@ -125,17 +125,19 @@ test("ACCOUNT ENDPOINT exhaustion spans restaurants for one normalized endpoint 
     "/orders/v2/payments/00000000-0000-4000-8000-000000000701",
     "payment-detail-a",
   );
-  await restaurantGet(
-    harness,
-    RESTAURANT_B,
-    "/orders/v2/payments/00000000-0000-4000-8000-000000000702",
-    "payment-detail-b",
-  );
+  assert.deepEqual(harness.sleeps, []);
   await restaurantGet(
     harness,
     RESTAURANT_B,
     "/orders/v2/orders/00000000-0000-4000-8000-000000000703",
     "order-detail-b",
+  );
+  assert.deepEqual(harness.sleeps, []);
+  await restaurantGet(
+    harness,
+    RESTAURANT_B,
+    "/orders/v2/payments/00000000-0000-4000-8000-000000000702",
+    "payment-detail-b",
   );
 
   assert.deepEqual(harness.sleeps, [1000]);
@@ -155,11 +157,14 @@ test("ACCOUNT constraints cross restaurants and select the longest simultaneous 
     endpointKey: "orders/v2/orders/example",
   };
 
-  coordinator.record(restaurantA, observation("GLOBAL", nowMs + 1000));
-  coordinator.record(restaurantA, observation("API, ACCOUNT", nowMs + 3000));
+  coordinator.record(restaurantA, observation("GLOBAL", nowMs + 3000));
+  assert.equal(coordinator.waitMilliseconds(restaurantA, nowMs), 3000);
+  assert.equal(coordinator.waitMilliseconds(restaurantB, nowMs), 0);
+
+  coordinator.record(restaurantA, observation("API, ACCOUNT", nowMs + 1000));
 
   assert.equal(coordinator.waitMilliseconds(restaurantA, nowMs), 3000);
-  assert.equal(coordinator.waitMilliseconds(restaurantB, nowMs), 3000);
+  assert.equal(coordinator.waitMilliseconds(restaurantB, nowMs), 1000);
 });
 
 test("preserves bounded normalized unknown X-Toast-RateLimit-By tokens", () => {
