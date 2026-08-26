@@ -42,10 +42,10 @@ guard("N19", "src/orders-normalization-traversal.ts", "assertUnique(guards.payme
 guard("N20", "src/orders-normalization-traversal.ts", "assertUnique(guards.serviceChargeGuids, guid, \"service charge\");", "void guid;", "orders-normalization-pr34-remediation.test");
 guard("N21", "src/orders-normalization-traversal.ts", "assertUnique(discounts, guid, \"discount\");", "void guid;", "orders-normalization-pr34-remediation.test");
 guard("N22", "src/orders-normalization-traversal.ts", "assertUnique(discounts, discount.guid.toLowerCase(), \"selection discount\");", "void discount.guid;", "orders-normalization-pr34-remediation.test");
-guard("N23", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.enum([\"APPROVED\"]);", "orders-normalization.test");
-guard("N24", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.enum([\"CLOSED\"]);", "orders-normalization.test");
-guard("N25", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.enum([\"NONE\"]);", "orders-normalization.test");
-guard("N26", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.enum([\"CASH\"]);", "orders-normalization.test");
+guard("N23", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.string().superRefine((value, context) => { if (value !== \"APPROVED\") context.addIssue({ code: \"custom\", message: \"must equal APPROVED\" }); });", "orders-normalization.test");
+guard("N24", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.string().superRefine((value, context) => { if (value !== \"CLOSED\") context.addIssue({ code: \"custom\", message: \"must equal CLOSED\" }); });", "orders-normalization.test");
+guard("N25", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.string().superRefine((value, context) => { if (value !== \"NONE\") context.addIssue({ code: \"custom\", message: \"must equal NONE\" }); });", "orders-normalization.test");
+guard("N26", "src/orders-normalization-source.ts", "const openEnumSchema = z.string().min(1);", "const openEnumSchema = z.string().superRefine((value, context) => { if (value !== \"CASH\") context.addIssue({ code: \"custom\", message: \"must equal CASH\" }); });", "orders-normalization.test");
 guard("N27", "src/orders-normalization-traversal.ts", "numberOfGuests: source.numberOfGuests,", "numberOfGuests: undefined,", "orders-normalization-review-fixes.test");
 guard("N28", "src/orders-normalization-traversal.ts", "numberOfGuests: source.numberOfGuests, diningOption: normalizeReference(source.diningOption),", "numberOfGuests: source.numberOfGuests, diningOption: undefined,", "orders-normalization-review-fixes.test");
 guard("N29", "src/orders-normalization-traversal.ts", "salesCategory: normalizeReference(source.salesCategory), diningOption: normalizeReference(source.diningOption),", "salesCategory: normalizeReference(source.salesCategory), diningOption: source.diningOption as never,", "orders-normalization-review-fixes.test");
@@ -55,8 +55,8 @@ guard("N32", "src/orders-normalization-traversal.ts", "taxAmount: exactDecimalFr
 guard("N33", "src/orders-normalization-traversal.ts", "scheduled: source.promisedDate != null", "scheduled: false", "orders-normalization.test");
 guard("N34", "src/orders-normalization-traversal.ts", "return guid === undefined && multiLocationId === undefined ? undefined : Object.freeze({ guid, multiLocationId });", "return guid === undefined ? undefined : Object.freeze({ guid, multiLocationId });", "orders-normalization.test");
 guard("N35", "src/orders-normalization-source.ts", "quantity: z.number().finite()", "quantity: z.number().int()", "orders-normalization.test");
-guard("N36", "src/orders-normalization-traversal.ts", "return Object.freeze({ source: \"standard_api\"", "return { source: \"standard_api\"", "orders-normalization.test");
-guard("N37", "src/orders-normalization-traversal.ts", "refund: source.refund == null ? undefined", "refund: undefined", "orders-normalization.test");
+guard("N36", "src/orders-normalization-traversal.ts", "return Object.freeze({ source: \"standard_api\"", "return Object.assign({ source: \"standard_api\" as const", "orders-normalization.test");
+guard("N37", "src/orders-normalization-traversal.ts", "refund: source.refund == null ? undefined : Object.freeze({ refundAmountHundredths: moneyToCurrencyHundredths(source.refund.refundAmount), tipRefundAmountHundredths: moneyToCurrencyHundredths(source.refund.tipRefundAmount), refundDate: source.refund.refundDate, refundBusinessDate: source.refund.refundBusinessDate })", "refund: undefined", "orders-normalization.test");
 guard("N38", "src/orders-normalization-traversal.ts", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\"", "serviceChargeCategory: \"SERVICE_CHARGE\"", "orders-normalization-pr34-remediation.test");
 guard("N39", "src/orders-normalization-traversal.ts", "recordCount: rawOrders.data.length", "recordCount: 0", "orders-normalization.test");
 guard("N40", "src/orders-normalization-traversal.ts", "pageNumber: pageIndex + 1", "pageNumber: pageIndex", "orders-normalization.test");
@@ -79,7 +79,7 @@ guard("D11", "src/exact-decimal.ts", "if (!Number.isFinite(value)) {\n    throw 
 
 // S: source scope guards. A: applied-tax guards. C: canonical decimal guards.
 guard("S01", "src/orders-normalization-helpers.ts", "page.apiFamily !== \"standard\"", "false", "orders-normalization-pr34-remediation.test");
-guard("S02", "src/orders-normalization-helpers.ts", "page.scope.kind !== \"restaurant\"", "false", "orders-normalization-pr34-remediation.test");
+guard("S02", "src/orders-normalization-helpers.ts", "page.scope.kind !== \"restaurant\" || normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid", "false || normalizeRestaurantGuid(page.scope.kind === \"restaurant\" ? page.scope.restaurantGuid : restaurantGuid) !== restaurantGuid", "orders-normalization-pr34-remediation.test");
 guard("S03", "src/orders-normalization-helpers.ts", "normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid", "false", "orders-normalization-pr34-remediation.test");
 guard("A01", "src/orders-normalization-source.ts", "guid: guidSchema, taxRate", "guid: guidSchema.default(\"00000000-0000-4000-8000-000000000000\"), taxRate", "orders-normalization-pr34-remediation.test");
 guard("A02", "src/orders-normalization-traversal.ts", "assertUnique(seen, guid, \"applied tax\");", "void guid;", "orders-normalization-pr34-remediation.test");
