@@ -16,6 +16,17 @@ const SERVICE_CHARGE_CONFIG_GUID = "00000000-0000-4000-8000-000000000807";
 const BUSINESS_DATE = 20260816;
 const NOW = Date.parse("2026-08-16T20:00:00Z");
 
+type FixtureScenario =
+  | "success"
+  | "missing-scope"
+  | "malformed-source"
+  | "broken-pagination";
+
+const scenario = parseScenario(process.argv[2]);
+const tokenScopes = scenario === "missing-scope"
+  ? ["restaurants:read"]
+  : ["orders:read", "restaurants:read"];
+
 const runtime = createApplicationRuntime({
   env: SYNTHETIC_VALID_RUNTIME_ENV,
   now: () => NOW,
@@ -25,7 +36,7 @@ const runtime = createApplicationRuntime({
     token: {
       tokenType: "Bearer",
       expiresIn: 3600,
-      accessToken: syntheticJwt(["orders:read", "restaurants:read"]),
+      accessToken: syntheticJwt(tokenScopes),
     },
   }),
   dataFetch: syntheticToastFetch,
@@ -75,14 +86,32 @@ async function syntheticToastFetch(
 
   if (url.pathname === "/orders/v2/ordersBulk") {
     assertRestaurantHeader(headers);
+    assertDataAllowedByScenario();
     if (url.searchParams.get("businessDate") !== String(BUSINESS_DATE)) {
       return jsonResponse([]);
+    }
+    if (scenario === "malformed-source") {
+      return jsonResponse(
+        { not: "an-orders-array" },
+        "fixture-malformed-orders",
+      );
+    }
+    if (scenario === "broken-pagination") {
+      return jsonResponse(
+        [syntheticOrder()],
+        "fixture-broken-link-page-1",
+        {
+          link:
+            `</orders/v2/ordersBulk?businessDate=${BUSINESS_DATE}&page=3&pageSize=100>; rel="next"`,
+        },
+      );
     }
     return jsonResponse([syntheticOrder()], "fixture-orders-page-1");
   }
 
   if (url.pathname === "/orders/v2/payments") {
     assertRestaurantHeader(headers);
+    assertDataAllowedByScenario();
     if (
       url.searchParams.get("paidBusinessDate") === String(BUSINESS_DATE)
       || url.searchParams.get("refundBusinessDate") === String(BUSINESS_DATE)
@@ -95,6 +124,7 @@ async function syntheticToastFetch(
 
   if (url.pathname === `/orders/v2/payments/${PAYMENT_GUID}`) {
     assertRestaurantHeader(headers);
+    assertDataAllowedByScenario();
     return jsonResponse({
       guid: PAYMENT_GUID,
       paidDate: "2026-08-16T12:00:00-0500",
@@ -209,6 +239,14 @@ function syntheticOrder(): object {
   };
 }
 
+function assertDataAllowedByScenario(): void {
+  if (scenario === "missing-scope") {
+    // If capability preflight regresses and a data call occurs, make the
+    // resulting denial visibly different from the expected missing-scope code.
+    throw new Error("missing-scope fixture must not reach Orders data source");
+  }
+}
+
 function assertRestaurantHeader(headers: Headers): void {
   if (headers.get("toast-restaurant-external-id") !== RESTAURANT_GUID) {
     throw new Error("synthetic fixture expected restaurant isolation header");
@@ -219,6 +257,19 @@ function assertNoRestaurantHeader(headers: Headers): void {
   if (headers.get("toast-restaurant-external-id") !== null) {
     throw new Error("synthetic fixture expected credential-scoped request");
   }
+}
+
+function parseScenario(value: string | undefined): FixtureScenario {
+  if (
+    value === undefined
+    || value === "success"
+    || value === "missing-scope"
+    || value === "malformed-source"
+    || value === "broken-pagination"
+  ) {
+    return value ?? "success";
+  }
+  throw new Error("unknown synthetic report fixture scenario");
 }
 
 function syntheticJwt(scopes: readonly string[]): string {
@@ -233,12 +284,17 @@ function base64Url(value: unknown): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 
-function jsonResponse(body: unknown, requestId?: string): Response {
+function jsonResponse(
+  body: unknown,
+  requestId?: string,
+  additionalHeaders: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: {
       "content-type": "application/json",
       ...(requestId === undefined ? {} : { "toast-request-id": requestId }),
+      ...additionalHeaders,
     },
   });
 }
