@@ -180,18 +180,29 @@ function requireRetainedPid(connection: TestConnection): number {
 }
 
 async function proveRetainedProcessRequests(
-  _connection: TestConnection,
-  _era: "legacy" | "modern",
-  _pid: number,
+  connection: TestConnection,
+  era: "legacy" | "modern",
+  pid: number,
 ): Promise<void> {
-  throw new Error("retained-process request proof is not implemented");
+  await requestForEraWithTimeout(connection, era);
+  assert.equal(connection.transport.pid, pid);
+
+  await requestForEraWithTimeout(connection, era);
+  assert.equal(connection.transport.pid, pid);
+
+  await Promise.all([
+    requestForEraWithTimeout(connection, era),
+    requestForEraWithTimeout(connection, era),
+  ]);
+  assert.equal(connection.transport.pid, pid);
 }
 
 async function requestForEraWithTimeout(
   connection: TestConnection,
   era: "legacy" | "modern",
 ): Promise<void> {
-  const request = era === "legacy" ? connection.client.ping() : connection.client.discover();
+  const request =
+    era === "legacy" ? connection.client.ping() : connection.client.discover();
   await withTimeout(
     request,
     STDIO_CONNECT_TIMEOUT_MS,
