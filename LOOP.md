@@ -80,7 +80,7 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-PR #45 is the current Phase 1 evidence slice. Retained-process and restart proof is BUILT. First-tool-request handler cancellation remains a T6-003 release gate.
+PR #39 is the next dependency-safe pre-T3 slice. It must preserve the merged rate-limit hierarchy while adding request-local Standard cancellation. PR #34 normalization repair proceeds independently in its own worktree.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -139,37 +139,10 @@ PR #45 is the current Phase 1 evidence slice. Retained-process and restart proof
 - Squash merge: `793784e69bb538624ef5b0281abd9ab25481a25e`.
 - Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 18 test files and 217 tests passed on each runtime. Package dry-run contained 47 files.
 - Mutation verification: all 13 named hierarchy, header, isolation, wait, abort, queue, runtime-wiring, and open-token mutations were caught. No survivor remained.
-- Independent exact-head review: CLEAN. The shipped runtime uses the rate-limit-aware client. Current `X-Toast-*` observations remain separate from legacy endpoint-local compatibility waits.
+- Independent exact-head review: CLEAN. The shipped runtime now uses the rate-limit-aware client. Current `X-Toast-*` observations remain separate from legacy endpoint-local compatibility waits.
 - Structured PR evidence: https://github.com/ssmanji89/toast-pos-mcp/pull/37#issuecomment-5431345857. Issues #32 and #36 are closed; issue #32 carries the identical gate object.
 - Scope: Standard transport coordination only. Live Toast compatibility and cross-process coordination remain external release gates.
 - DOX: updated.
-
-### Phase 1 local stdio compatibility candidate — BUILT
-
-- Owning issue / PR: #4 / PR #45.
-- Inherited prerequisite: PR #37 merged as `793784e69bb538624ef5b0281abd9ab25481a25e`; issue #32 is closed with structured exact-head evidence.
-- Implemented proof: official legacy and modern clients each complete sequential and concurrent requests on one retained process, then reconnect to a new process.
-- Limitation proof: an ordered server-side probe after the first-request cancellation boundary observes the original handler signal as un-aborted. The proof uses no elapsed-time window.
-- Nonzero-ID cancellation proof: an official modern client aborts one synthetic test-only wait handler after a retained request, the handler observes its signal, and the same process remains usable.
-- Negative verification: `ignore-handler-signal` and `terminate-process-on-cancel` were caught and restored for the nonzero-ID path. The immutable candidate gate must repeat both mutations.
-- Pending gates: authentic Node 20.20.2 and Node 22.22.2 checks, complete package dry-run JSON, and independent exact-head CLEAN review.
-- Owned release gate: T6-003 requires either an MCP SDK correction or a separately reviewed local runtime correction that proves first-tool-request handler cancellation.
-- Scope: local stdio compatibility only. This is not a GH-4 completion claim. Production report cancellation remains a Phase 3 gate. Live compatibility and publication remain Phase 6 gates.
-- DOX: updated.
-
-### Standard request cancellation prerequisite — MERGED
-
-- Owning PR: #39.
-- Reviewed source head: `c6a7229f6ae3f3d365227e809f18dd19a41f9edd`.
-- Squash merge: `5714eac747375d2410adab6ff62bb34a230e4c04`.
-- Scope: production Standard request cancellation. This remains separate from PR #45's synthetic compatibility fixture.
-
-### T3 normalization prerequisite — MERGED
-
-- Owning issue / PR: #18 / PR #34.
-- Reviewed source head: `af00a67e782df111c9822aa45f495af5c4fd17b7`.
-- Squash merge: `1ab7cb7ceaccbbc83f5b31428ce2fb6f336e68a2`.
-- Scope: normalized records for dependent production-tool work.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
 
@@ -416,7 +389,7 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** PR #45 — Phase 1 local stdio compatibility evidence.
-- **Required action:** run the immutable-candidate Node 20/22 and mutation gates, then obtain independent exact-head review without closing the T6-003 first-request cancellation gate.
-- **After PR #45:** retain issue #4 as open for T6-003 and consume merged PR #39 without treating the synthetic GH-4 handler as production report cancellation proof.
+- **Next slice:** PR #39 — Standard request cancellation.
+- **Required action:** replay only the three cancellation-owned commits onto `main` at `793784e69bb538624ef5b0281abd9ab25481a25e`, then run Node 20/22 exact-head validation, the complete cancellation mutation matrix, and an independent review.
+- **Parallel slice:** PR #34 remains FINDINGS at `08b892033d0534c7b0faa91669e4708c7be83931`; applied-tax identity, fixed-hundredths naming, canonical decimal, and module-size findings must close before another exact-head review.
 - **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.
