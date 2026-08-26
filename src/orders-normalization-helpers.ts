@@ -1,0 +1,19 @@
+import { z } from "zod";
+
+import { OrdersNormalizationError, type NormalizedOrdersQuery } from "./orders-normalization-types.js";
+import type { ToastDetailedJsonResult } from "./transport.js";
+
+export const guidSchema = z.string().uuid();
+const BUSINESS_DATE_PATTERN = /^\d{8}$/u;
+const ISO_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/u;
+
+export function sourceInvalid(): OrdersNormalizationError { return new OrdersNormalizationError("orders_source_invalid", "Orders source data was not usable for deterministic normalization."); }
+export function moneyPrecisionInvalid(): OrdersNormalizationError { return new OrdersNormalizationError("orders_money_precision_invalid", "Orders source contained a currency value that cannot be represented exactly in two decimal places."); }
+export function assertUnique(seen: Set<string>, guid: string, entity: string): void { if (seen.has(guid)) { throw new OrdersNormalizationError("orders_duplicate_entity", `Orders normalization received a repeated ${entity} GUID.`); } seen.add(guid); }
+export function isValidSourceDateTime(value: string): boolean { return ISO_DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value)); }
+export function isValidBusinessDate(value: number): boolean { const text = String(value); if (!BUSINESS_DATE_PATTERN.test(text)) return false; const year = Number(text.slice(0, 4)); const month = Number(text.slice(4, 6)); const day = Number(text.slice(6, 8)); const date = new Date(Date.UTC(year, month - 1, day)); return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day; }
+export function normalizeQuery(query: NormalizedOrdersQuery): NormalizedOrdersQuery { if (query.mode === "business_date") { if (!isValidBusinessDate(query.businessDate)) throw new OrdersNormalizationError("orders_business_date_invalid", "Orders business-date query must contain a valid yyyyMMdd date."); return Object.freeze({ ...query }); } if (query.mode === "modified_window") { if (!isValidSourceDateTime(query.startDate) || !isValidSourceDateTime(query.endDate)) throw new OrdersNormalizationError("orders_query_invalid", "Orders modified-window query must contain zoned ISO-8601 date-times."); if (Date.parse(query.endDate) <= Date.parse(query.startDate)) throw new OrdersNormalizationError("orders_query_invalid", "Orders modified-window query must contain an increasing date-time interval."); return Object.freeze({ ...query }); } throw new OrdersNormalizationError("orders_query_invalid", "Orders normalization received an unsupported query mode."); }
+export function moneyToCurrencyHundredths(value: number): number { if (!Number.isFinite(value) || Number(value.toFixed(2)) !== value) throw moneyPrecisionInvalid(); const hundredths = Math.round(value * 100); if (!Number.isSafeInteger(hundredths)) throw moneyPrecisionInvalid(); return hundredths; }
+export function normalizeRestaurantGuid(value: string): string { const parsed = guidSchema.safeParse(value); if (!parsed.success) throw sourceInvalid(); return parsed.data.toLowerCase(); }
+export function assertRetrievalMetadata(page: ToastDetailedJsonResult): void { if (!Number.isSafeInteger(page.retrievedAtEpochMs) || page.retrievedAtEpochMs < 0 || (page.upstreamRequestId !== undefined && page.upstreamRequestId.length === 0)) throw sourceInvalid(); }
+export function assertStandardRestaurantScope(page: ToastDetailedJsonResult, restaurantGuid: string): void { if (page.apiFamily !== "standard" || page.scope.kind !== "restaurant" || normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid) throw sourceInvalid(); }

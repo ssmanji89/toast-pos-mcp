@@ -35,7 +35,7 @@ The location context supplies the ISO-4217 `currencyCode`; there is no USD fallb
 
 ### Rounded settlement/display totals
 
-Toast documents ordinary Orders currency totals as two-decimal amounts. The following retained values therefore cross the normalization boundary as integer minor units:
+Toast documents ordinary Orders currency totals as two-decimal amounts. The following retained values therefore cross the normalization boundary as integer currency hundredths:
 
 - check `amount`, `taxAmount`, and `totalAmount`;
 - selection `price`, `preDiscountPrice`, and aggregate `tax`;
@@ -45,9 +45,9 @@ Toast documents ordinary Orders currency totals as two-decimal amounts. The foll
 
 A source value in one of those fields that cannot round-trip at two decimal places, or would overflow a JavaScript safe integer after multiplication by 100, fails closed. The normalizer never silently rounds a higher-precision value.
 
-Quantities and percentages are **not** currency. A weighted quantity such as `0.5` remains a number and is never converted to minor units.
+Quantities and percentages are **not** currency. A weighted quantity such as `0.5` remains a number and is never converted to currency hundredths.
 
-T3 calculations must sum integer minor units for these rounded totals. They must not re-price selections or reconstruct Toast tax/pricing algorithms from configuration when Toast already returned the amount.
+T3 calculations must sum integer currency hundredths for these rounded totals. They must not re-price selections or reconstruct Toast tax/pricing algorithms from configuration when Toast already returned the amount.
 
 ### Applied-tax source components
 

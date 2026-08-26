@@ -101,6 +101,10 @@ function assertExactDecimal(value: ExactDecimal): void {
     !COEFFICIENT_PATTERN.test(value.coefficient)
     || !Number.isSafeInteger(value.scale)
     || value.scale < 0
+    || (value.coefficient === "0" && value.scale !== 0)
+    || value.coefficient === "-0"
+    || /^-?0\d/u.test(value.coefficient)
+    || (value.scale > 0 && value.coefficient.endsWith("0"))
   ) {
     throw new RangeError("Exact decimal value was not canonicalizable.");
   }

@@ -37,7 +37,7 @@ const LOCATION: ToastLocation = Object.freeze({
   connectionScopes: Object.freeze(["orders:read"]),
 });
 
-test("normalizes production-shaped Orders data into immutable minor-unit records", () => {
+test("normalizes production-shaped Orders data into immutable currency-hundredth records", () => {
   const batch = normalizeOrdersPages({
     location: LOCATION,
     query: { mode: "business_date", businessDate: 20260816 },
@@ -65,17 +65,17 @@ test("normalizes production-shaped Orders data into immutable minor-unit records
 
   const check = order.checks[0];
   assert.ok(check);
-  assert.equal(check.amountMinor, 1010);
-  assert.equal(check.taxAmountMinor, 85);
-  assert.equal(check.totalAmountMinor, 1095);
+  assert.equal(check.amountHundredths, 1010);
+  assert.equal(check.taxAmountHundredths, 85);
+  assert.equal(check.totalAmountHundredths, 1095);
   assert.equal(check.taxExempt, false);
   assert.equal(check.paymentStatus, "FUTURE_CHECK_STATUS");
 
   const selection = check.selections[0];
   assert.ok(selection);
   assert.equal(selection.quantity, 0.5);
-  assert.equal(selection.priceMinor, 325);
-  assert.equal(selection.preDiscountPriceMinor, 400);
+  assert.equal(selection.priceHundredths, 325);
+  assert.equal(selection.preDiscountPriceHundredths, 400);
   assert.equal(selection.selectionType, "FUTURE_SELECTION_TYPE");
   assert.equal(selection.unitOfMeasure, "KG");
   assert.equal(selection.item?.guid, ITEM_GUID);
@@ -87,14 +87,14 @@ test("normalizes production-shaped Orders data into immutable minor-unit records
   const payment = check.payments[0];
   assert.ok(payment);
   assert.equal(payment.type, "FUTURE_PAYMENT_TYPE");
-  assert.equal(payment.amountMinor, 1010);
-  assert.equal(payment.tipAmountMinor, 125);
-  assert.equal(payment.refund?.refundAmountMinor, 225);
-  assert.equal(payment.refund?.tipRefundAmountMinor, 50);
+  assert.equal(payment.amountHundredths, 1010);
+  assert.equal(payment.tipAmountHundredths, 125);
+  assert.equal(payment.refund?.refundAmountHundredths, 225);
+  assert.equal(payment.refund?.tipRefundAmountHundredths, 50);
 
   const charge = check.appliedServiceCharges[0];
   assert.ok(charge);
-  assert.equal(charge.chargeAmountMinor, 145);
+  assert.equal(charge.chargeAmountHundredths, 145);
   assert.equal(charge.serviceChargeCategory, "SERVICE_CHARGE");
   assert.equal(charge.serviceCharge.guid, SERVICE_CHARGE_CONFIG_GUID);
 
@@ -145,7 +145,7 @@ test("preserves lifecycle, scheduled, deferred, refund, and unresolved reference
     guid: undefined,
     multiLocationId: "synthetic-unresolved-item-multi-location-id",
   });
-  assert.equal(order?.checks[0]?.payments[0]?.refund?.refundAmountMinor, 225);
+  assert.equal(order?.checks[0]?.payments[0]?.refund?.refundAmountHundredths, 225);
 });
 
 test("strips guest, delivery, card, free-text, and transaction markers by construction", () => {
@@ -206,7 +206,7 @@ test("converts large safe two-decimal values without floating-point summation", 
     query: { mode: "business_date", businessDate: 20260816 },
     pages: [page([raw])],
   });
-  assert.equal(batch.orders[0]?.checks[0]?.amountMinor, 12345678901234);
+  assert.equal(batch.orders[0]?.checks[0]?.amountHundredths, 12345678901234);
 });
 
 test("normalizes 3000 nested modifiers without recursive call-stack dependence", () => {

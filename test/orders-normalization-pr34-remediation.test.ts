@@ -62,6 +62,15 @@ test("rejects an aggregate currency amount outside the safe integer boundary", (
   });
 });
 
+test("uses currency-hundredths names for fixed-two-decimal totals", () => {
+  const batch = normalize(page());
+  const check = JSON.parse(JSON.stringify(batch.orders[0]?.checks[0])) as {
+    amountHundredths: number | undefined;
+  };
+
+  assert.equal(check.amountHundredths, 1000);
+});
+
 test("enforces each supported source identity boundary independently", () => {
   const cases: readonly [string, (first: Raw, second: Raw) => void][] = [
     ["order", (first, second) => { second.guid = first.guid; }],
@@ -86,6 +95,40 @@ test("enforces each supported source identity boundary independently", () => {
   const discounts = selectionDiscounts.checks[0].selections[0].appliedDiscounts;
   discounts.push({ ...discounts[0] });
   assertDuplicate(() => normalize(page({ body: [selectionDiscounts] })));
+});
+
+test("retains required applied-tax GUIDs and rejects cross-surface duplicates", () => {
+  const raw = detailedOrder(1050);
+  const appliedTaxGuid = guid(1058);
+  raw.checks[0].selections[0].appliedTaxes = [{
+    guid: appliedTaxGuid,
+    taxRate: { guid: guid(1059) },
+    taxAmount: 0.075,
+  }];
+  raw.checks[0].appliedServiceCharges[0].appliedTaxes = [{
+    guid: appliedTaxGuid,
+    taxRate: { guid: guid(1060) },
+    taxAmount: 0.625,
+  }];
+
+  assertDuplicate(() => normalize(page({ body: [raw] })));
+
+  raw.checks[0].appliedServiceCharges[0].appliedTaxes[0].guid = guid(1061);
+  const batch = normalize(page({ body: [raw] }));
+  const normalizedTax = JSON.parse(JSON.stringify(
+    batch.orders[0]?.checks[0]?.selections[0]?.appliedTaxes[0],
+  )) as { guid: string | undefined };
+  assert.equal(normalizedTax.guid, appliedTaxGuid);
+});
+
+test("rejects an applied tax without its required GUID", () => {
+  const raw = detailedOrder(1062);
+  raw.checks[0].selections[0].appliedTaxes = [{
+    taxRate: { guid: guid(1063) },
+    taxAmount: 0.075,
+  }];
+
+  assertSourceInvalid(() => normalize(page({ body: [raw] })));
 });
 
 test("exact decimal operations retain exponent, mixed scale, negative, and empty identity semantics", () => {
@@ -114,9 +157,9 @@ test("exact decimal conversion expands Number exponent notation", () => {
 
 test("exact decimal addition removes trailing coefficient zeroes", () => {
   assert.deepEqual(addExactDecimals([
-    { coefficient: "1200", scale: 3 },
-    { coefficient: "0", scale: 3 },
-  ]), { coefficient: "12", scale: 1 });
+    { coefficient: "12", scale: 1 },
+    { coefficient: "8", scale: 1 },
+  ]), { coefficient: "2", scale: 0 });
 });
 
 test("exact decimal rendering prefixes a positive fraction with zero", () => {
@@ -136,6 +179,17 @@ test("exact decimal operations reject non-canonical inputs", () => {
     { coefficient: "1.2", scale: 1 },
     { coefficient: "1", scale: -1 },
     { coefficient: "1", scale: Number.NaN },
+  ]) {
+    assert.throws(() => exactDecimalToString(value));
+    assert.throws(() => addExactDecimals([value]));
+  }
+});
+
+test("exact decimal operations reject redundant coefficient forms", () => {
+  for (const value of [
+    { coefficient: "001", scale: 0 },
+    { coefficient: "-0", scale: 0 },
+    { coefficient: "1200", scale: 3 },
   ]) {
     assert.throws(() => exactDecimalToString(value));
     assert.throws(() => addExactDecimals([value]));

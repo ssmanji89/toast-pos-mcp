@@ -36,6 +36,7 @@ test("retains check tax-exempt state and exact selection/service-charge tax comp
   const selectionTaxes = check?.selections[0]?.appliedTaxes;
   assert.deepEqual(selectionTaxes, [
     {
+      guid: G(508),
       taxRate: { guid: G(510), multiLocationId: undefined },
       rate: { coefficient: "75", scale: 4 },
       taxAmount: { coefficient: "75", scale: 3 },
@@ -43,6 +44,7 @@ test("retains check tax-exempt state and exact selection/service-charge tax comp
       facilitatorCollectAndRemitTax: false,
     },
     {
+      guid: G(509),
       taxRate: { guid: G(511), multiLocationId: undefined },
       rate: { coefficient: "625", scale: 4 },
       taxAmount: { coefficient: "625", scale: 3 },
@@ -53,6 +55,7 @@ test("retains check tax-exempt state and exact selection/service-charge tax comp
 
   const serviceTax = check?.appliedServiceCharges[0]?.appliedTaxes[0];
   assert.deepEqual(serviceTax, {
+    guid: G(507),
     taxRate: { guid: undefined, multiLocationId: "synthetic-tax-rate-ref" },
     rate: { coefficient: "25", scale: 2 },
     taxAmount: { coefficient: "-125", scale: 3 },
@@ -101,16 +104,16 @@ test("exact decimal representation is canonical, frozen, and JSON-safe", () => {
   assert.doesNotThrow(() => JSON.stringify(values));
 });
 
-test("ordinary aggregate currency totals remain two-decimal minor units", () => {
+test("ordinary aggregate currency totals remain two-decimal currency hundredths", () => {
   const batch = normalizeOrdersPages({
     location: LOCATION,
     query: { mode: "business_date", businessDate: 20260816 },
     pages: [page([orderFixture()])],
   });
   const check = batch.orders[0]?.checks[0];
-  assert.equal(check?.taxAmountMinor, 70);
-  assert.equal(check?.selections[0]?.taxMinor, 70);
-  assert.equal(check?.appliedServiceCharges[0]?.chargeAmountMinor, 100);
+  assert.equal(check?.taxAmountHundredths, 70);
+  assert.equal(check?.selections[0]?.taxHundredths, 70);
+  assert.equal(check?.appliedServiceCharges[0]?.chargeAmountHundredths, 100);
 });
 
 function page(body: unknown): ToastDetailedJsonResult {
