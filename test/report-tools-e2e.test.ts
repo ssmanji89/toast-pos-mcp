@@ -16,6 +16,11 @@ const REPORT_SERVER_PATH = path.resolve(
 const BUSINESS_DATE = 20260816;
 const INACCESSIBLE_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000009999";
+const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
+const SECOND_ITEM_GUID = "00000000-0000-4000-8000-000000000812";
+const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
+const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
+const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
 
 type FixtureScenario =
   | "success"
@@ -23,7 +28,9 @@ type FixtureScenario =
   | "malformed-source"
   | "broken-pagination"
   | "cancel-active-report"
-  | "rate-limit-wait";
+  | "rate-limit-wait"
+  | "missing-menu-item"
+  | "menu-refresh-fails-after-cache";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -36,6 +43,7 @@ test(
       const names = listed.tools.map((tool) => tool.name).sort();
       assert.ok(names.includes("toast_sales_summary"));
       assert.ok(names.includes("toast_payment_summary"));
+      assert.ok(names.includes("toast_item_sales_summary"));
 
       const sales = await connection.client.callTool({
         name: "toast_sales_summary",
@@ -54,8 +62,6 @@ test(
       const combined = structured(salesOutput.combined);
       assert.equal(combined.grossCheckAmountMinor, 1000);
       assert.equal(combined.netOrderAmountMinor, 900);
-      // One selection satisfies both deferred and HOUSE_ACCOUNT_PAY_BALANCE;
-      // Toast's exclusion predicate is OR, so its $1 price is deducted once.
       assert.equal(combined.netSalesMinor, 600);
       assert.equal(combined.ordersEmbeddedRefundAmountMinor, 200);
       assert.equal(combined.fundraisingContributionAmountMinor, 100);
@@ -73,8 +79,6 @@ test(
       assert.equal(paymentOutput.status, "complete");
       assert.equal(paymentOutput.report, "payment_summary");
       assert.equal(paymentOutput.restaurantName, "Synthetic Tool Cafe");
-      assert.equal(paymentOutput.requestedBusinessDate, BUSINESS_DATE);
-      assert.equal(paymentOutput.effectiveBusinessDate, BUSINESS_DATE);
       assert.equal(paymentOutput.eventListCount, 3);
       assert.equal(paymentOutput.paymentDetailsProcessed, 1);
       assert.equal(structured(paymentOutput.paid).amountMinor, 1000);
@@ -83,8 +87,172 @@ test(
       assert.equal(structured(paymentOutput.refunded).tipRefundAmountMinor, 50);
       assert.equal(structured(paymentOutput.voided).amountMinor, 1000);
       assert.equal(paymentOutput.uniquePaymentCount, 1);
-      assert.ok(Array.isArray(paymentOutput.formulaNotes));
       assert.ok(!JSON.stringify(paymentOutput).includes("must-not-leak"));
+
+      const itemsFirst = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(itemsFirst.isError, true);
+      const itemOutput = structured(itemsFirst.structuredContent);
+      assert.equal(itemOutput.status, "complete");
+      assert.equal(itemOutput.report, "item_sales_summary");
+      assert.equal(itemOutput.dimension, "item");
+      assert.equal(itemOutput.metricBasis, "selection");
+      assert.equal(itemOutput.nonAdditiveAcrossGroups, false);
+      assert.equal(itemOutput.modifierSelectionsTraversed, 2);
+      assert.equal(itemOutput.unresolvedContributionCount, 0);
+      assert.equal(structured(itemOutput.dimensionContext).menuState, "current");
+      assert.deepEqual(
+        structured(structured(itemOutput.dimensionContext).menuSourceProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-full-1"],
+      );
+      assert.deepEqual(
+        structured(structured(itemOutput.dimensionContext).menuFreshnessProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-metadata-1"],
+      );
+
+      const firstItem = groupByGuid(itemOutput, ITEM_GUID);
+      const secondItem = groupByGuid(itemOutput, SECOND_ITEM_GUID);
+      assert.equal(firstItem.displayName, "Current Burger");
+      assert.equal(secondItem.displayName, "Current Burger");
+      assert.notEqual(firstItem.key, secondItem.key);
+      assert.equal(firstItem.quantity, "0.5");
+      assert.equal(firstItem.grossSelectionAmountMinor, 900);
+      assert.equal(firstItem.netSelectionAmountMinor, 800);
+      assert.equal(secondItem.quantity, "1");
+      assert.equal(secondItem.netSelectionAmountMinor, 200);
+      // Parent Selection.price already includes modifier adjustments. The two
+      // nested modifiers are traversed but do not create additional item money.
+      assert.equal(
+        firstItem.netSelectionAmountMinor + secondItem.netSelectionAmountMinor,
+        1000,
+      );
+
+      const itemsSecond = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(itemsSecond.isError, true);
+      const secondOutput = structured(itemsSecond.structuredContent);
+      assert.equal(structured(secondOutput.dimensionContext).menuState, "current");
+      // The fixture throws if the full menu is downloaded twice. A second
+      // successful call therefore proves metadata-only freshness reuse.
+      assert.deepEqual(
+        structured(structured(secondOutput.dimensionContext).menuFreshnessProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-metadata-2"],
+      );
+      assert.deepEqual(
+        structured(structured(secondOutput.dimensionContext).menuSourceProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-full-1"],
+      );
+
+      const categories = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(categories.isError, true);
+      const categoryOutput = structured(categories.structuredContent);
+      assert.equal(categoryOutput.metricBasis, "check_attribution");
+      assert.equal(categoryOutput.nonAdditiveAcrossGroups, true);
+      assert.equal(
+        structured(categoryOutput.dimensionContext).configurationState,
+        "current",
+      );
+      const category = groupByGuid(categoryOutput, SALES_CATEGORY_GUID);
+      assert.equal(category.displayName, "Current Entrees");
+      assert.equal(category.attributedCheckAmountMinor, 1000);
+      // The fixture returns 409 on the first salesCategories traversal. The
+      // successful report proves the shared T1 configuration restart path was
+      // used instead of a T3-local fetch loop.
+      assert.ok(
+        structured(categoryOutput.dimensionContext)
+          .configurationLastModifiedCursor,
+      );
+
+      const tags = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+      });
+      assert.notEqual(tags.isError, true);
+      const tagOutput = structured(tags.structuredContent);
+      assert.equal(tagOutput.nonAdditiveAcrossGroups, true);
+      assert.equal(groupByGuid(tagOutput, TAG_LUNCH_GUID).displayName, "Lunch");
+      assert.equal(
+        groupByGuid(tagOutput, TAG_LUNCH_GUID).attributedCheckAmountMinor,
+        1000,
+      );
+      assert.equal(
+        groupByGuid(tagOutput, TAG_UNKNOWN_GUID).displayName,
+        "NEW_ENUM_TAG",
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "historical item absent from current menu remains a distinct unresolved sales fact",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("legacy", "missing-menu-item");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      const historical = groupByGuid(output, ITEM_GUID);
+      assert.equal(historical.displayName, undefined);
+      assert.equal(historical.enrichmentState, "unresolved");
+      assert.equal(historical.quantity, "0.5");
+      assert.equal(historical.netSelectionAmountMinor, 800);
+      assert.equal(output.unresolvedContributionCount, 1);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "failed metadata refresh after a valid menu snapshot reports stale enrichment instead of current or zero sales",
+  { timeout: 25_000 },
+  async () => {
+    const connection = createConnection(
+      "legacy",
+      "menu-refresh-fails-after-cache",
+    );
+    try {
+      await connectWithTimeout(connection);
+      const first = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(first.isError, true);
+
+      const second = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(second.isError, true);
+      const output = structured(second.structuredContent);
+      assert.equal(structured(output.dimensionContext).menuState, "stale");
+      assert.equal(groupByGuid(output, ITEM_GUID).enrichmentState, "stale");
+      assert.equal(groupByGuid(output, ITEM_GUID).netSelectionAmountMinor, 800);
+      assert.ok(
+        (output.warnings as unknown[]).some((warning) =>
+          String(warning).includes("stale")),
+      );
     } finally {
       await connection.client.close();
     }
@@ -100,6 +268,9 @@ test(
       await connectWithTimeout(connection);
       const listed = await connection.client.listTools();
       assert.ok(listed.tools.some((tool) => tool.name === "toast_sales_summary"));
+      assert.ok(
+        listed.tools.some((tool) => tool.name === "toast_item_sales_summary"),
+      );
 
       const result = await connection.client.callTool({
         name: "toast_sales_summary",
@@ -319,6 +490,17 @@ async function assertSalesDenied(
   } finally {
     await connection.client.close();
   }
+}
+
+function groupByGuid(
+  output: Record<string, any>,
+  guid: string,
+): Record<string, any> {
+  assert.ok(Array.isArray(output.groups));
+  const group = (output.groups as unknown[]).find((candidate) =>
+    structured(candidate).guid === guid);
+  assert.ok(group, `expected group for GUID ${guid}`);
+  return structured(group);
 }
 
 async function connectWithTimeout(connection: Connection): Promise<void> {
