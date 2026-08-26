@@ -80,7 +80,7 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-PR #29 is the next dependency-safe executable slice. It must preserve successful Toast transport provenance before bounded page folding and report tools depend on it.
+PR #35 is the next dependency-safe executable slice. It must fold bounded `/ordersBulk` pages without retaining unbounded raw page bodies.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -109,6 +109,16 @@ PR #29 is the next dependency-safe executable slice. It must preserve successful
 - Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 11 test files and 176 tests passed on each runtime. `npm pack --dry-run --json` passed with 35 package files.
 - Independent exact-head review: CLEAN. JWT scope decoding stays bounded and token-safe. Eligible capability scopes equal the selected location connection scopes intersected with token-provisioned scopes, less product-excluded guest scopes.
 - Scope: internal capability preflight only. No reporting tool or user-facing MCP capability response is registered by this slice.
+- DOX: updated.
+
+### T3 transport success provenance prerequisite — CLOSED
+
+- Owning issue / PR: #15 / PR #29.
+- Reviewed source head: `346034f9ef19724f346b93ea7165dbd22a865d73`.
+- Squash merge: `afdffee57a43207bc045b08e2be1eae2e6d4bd23`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 12 test files and 186 tests passed on each runtime. `npm pack --dry-run --json` passed with 35 package files.
+- Independent exact-head review: CLEAN after immutable API-family and credential-or-restaurant request scope were added to every detailed success result.
+- Scope: internal transport provenance only. No report tool is registered by this slice.
 - DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
@@ -356,6 +366,6 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** PR #29 — successful transport provenance.
-- **Required action:** rebase on `main` at `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`, then run Node 20/22 exact-head validation and an independent review.
+- **Next slice:** PR #35 — bounded `/ordersBulk` page folding.
+- **Required action:** rebase on `main` at `afdffee57a43207bc045b08e2be1eae2e6d4bd23`, then run Node 20/22 exact-head validation and an independent review.
 - **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.

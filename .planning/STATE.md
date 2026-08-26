@@ -2,7 +2,7 @@
 
 **Generated:** 2026-08-26
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`
+**Observed `main`:** `afdffee57a43207bc045b08e2be1eae2e6d4bd23`
 
 ## Canonical campaign position
 
@@ -21,7 +21,7 @@
 |---|---|---|---|
 | T2-001 production location-source regression repair | #16 / PR #27 | merged as `bde1546c89825e9435b274f3f49ef02f266cb65c` | CLOSED; Node 20/22 gates passed, 35/35 required mutations caught, independent review CLEAN; issue #28 remains the live Standard credential gate |
 | T2-002 capability preflight | PR #12 | merged as `0a72aeae2ab22c06626cf40d19d6f7756d7192ed` | CLOSED; Node 20/22 gates passed, independent review CLEAN; internal preflight only, not MCP report-tool wiring |
-| successful transport provenance | #15 / PR #29 | `6c6082e6dba182f95a1cf121b0983ab9eb381c26` | stacked on the prior #27 head; rebase and exact-head validation pending |
+| successful transport provenance | #15 / PR #29 | merged as `afdffee57a43207bc045b08e2be1eae2e6d4bd23` | CLOSED; Node 20/22 gates passed, independent review CLEAN; detailed results retain immutable API family and request scope |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
 | MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
 | stateless/reconnect/cancellation compatibility | #4 | research intake | must be resliced/reconciled before user-facing tool lifecycle is considered production-proven |
@@ -50,8 +50,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Rebase and finalize PR #29, then PR #35, PR #37, and PR #39 in order.
-2. Rebase and finalize PR #34 when PR #29 stabilizes.
+1. Rebase and finalize PR #35, then PR #37 and PR #39 in order.
+2. Rebase and finalize PR #34 now that PR #29 is stable.
 3. Rebase PR #40 after all prerequisites land, then run its complete production-chain validation and independent review.
 4. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.
 
