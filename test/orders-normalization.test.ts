@@ -406,7 +406,13 @@ function page(
   retrievedAtEpochMs = 1_800_000_000_000,
   upstreamRequestId?: string,
 ): ToastDetailedJsonResult {
-  return Object.freeze({ body, retrievedAtEpochMs, upstreamRequestId });
+  return Object.freeze({
+    apiFamily: "standard",
+    body,
+    scope: Object.freeze({ kind: "restaurant", restaurantGuid: RESTAURANT_GUID }),
+    retrievedAtEpochMs,
+    upstreamRequestId,
+  });
 }
 
 function assertDuplicate(action: () => unknown): void {

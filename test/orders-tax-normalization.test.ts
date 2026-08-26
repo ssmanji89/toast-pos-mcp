@@ -115,7 +115,9 @@ test("ordinary aggregate currency totals remain two-decimal minor units", () => 
 
 function page(body: unknown): ToastDetailedJsonResult {
   return Object.freeze({
+    apiFamily: "standard",
     body,
+    scope: Object.freeze({ kind: "restaurant", restaurantGuid: LOCATION.restaurantGuid }),
     retrievedAtEpochMs: 1_800_000_000_000,
     upstreamRequestId: "synthetic-tax-request",
   });

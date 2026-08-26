@@ -61,6 +61,8 @@ test("accepts Toast-style ISO timestamps with Z and colonless numeric offsets", 
   zulu.modifiedDate = "2026-08-16T12:35:56Z";
 
   const offset = baseOrder("00000000-0000-4000-8000-000000000406");
+  offset.checks[0].guid = "00000000-0000-4000-8000-000000000407";
+  offset.checks[0].selections[0].guid = "00000000-0000-4000-8000-000000000408";
   offset.openedDate = "2026-08-16T12:34:56.123-0500";
   offset.modifiedDate = "2026-08-16T12:35:56-05:00";
 
@@ -128,7 +130,9 @@ function normalize(rawOrders: readonly unknown[]) {
 
 function page(body: unknown): ToastDetailedJsonResult {
   return Object.freeze({
+    apiFamily: "standard",
     body,
+    scope: Object.freeze({ kind: "restaurant", restaurantGuid: RESTAURANT_GUID }),
     retrievedAtEpochMs: 1_800_000_000_000,
     upstreamRequestId: undefined,
   });
