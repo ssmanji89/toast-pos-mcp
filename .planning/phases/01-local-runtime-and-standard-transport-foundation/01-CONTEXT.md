@@ -27,7 +27,9 @@ This phase verifies the merged local MCP v2 stdio runtime and Standard transport
 ### Rate-limit semantics gate
 - Accept only current official Toast documentation or sanitized owner-authorized live evidence for issue #32.
 - Do not infer `Toast-RateLimit-Reset` semantics from another vendor or header naming.
-- Keep issue #32 open as an external release gate if authoritative evidence remains unavailable.
+- Current official Toast documentation resolves the absolute-reset contract and names the `X-Toast-*` fields.
+- PR #37 already owns the `X-Toast-*` header repair, hierarchy, tests, and documentation. Rebase, validate, review, and merge that PR. Do not duplicate its implementation in a new Phase 1 branch.
+- Close issue #32 only after PR #37 lands with exact-head evidence.
 
 ### Publication claim
 - Do not mark the package publish-ready from Phase 1 evidence.
@@ -35,7 +37,7 @@ This phase verifies the merged local MCP v2 stdio runtime and Standard transport
 
 ### the agent's Discretion
 - Select the smallest protocol test additions or documentation corrections needed to close issue #4.
-- Select the exact evidence format for an unresolved issue #32 external gate.
+- Select the exact evidence format for issue #32 closure after PR #37 merges.
 
 </decisions>
 
