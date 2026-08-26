@@ -83,7 +83,7 @@ guard("S02", "src/orders-normalization-helpers.ts", "page.scope.kind !== \"resta
 guard("S03", "src/orders-normalization-helpers.ts", "normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid", "false", "orders-normalization-pr34-remediation.test");
 guard("A01", "src/orders-normalization-source.ts", "guid: guidSchema, taxRate", "guid: guidSchema.optional(), taxRate", "orders-normalization-pr34-remediation.test");
 guard("A02", "src/orders-normalization-traversal.ts", "assertUnique(seen, guid, \"applied tax\");", "void guid;", "orders-normalization-pr34-remediation.test");
-guard("A03", "src/orders-normalization-traversal.ts", "normalizeAppliedTaxes(source.appliedTaxes, taxes)", "normalizeAppliedTaxes(source.appliedTaxes, new Set())", "orders-normalization-pr34-remediation.test");
+guard("A03", "src/orders-normalization-traversal.ts", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\", appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes, taxes)", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\", appliedTaxes: normalizeAppliedTaxes(source.appliedTaxes, new Set())", "orders-normalization-pr34-remediation.test");
 guard("C01", "src/exact-decimal.ts", "/^-?0\\d/u.test(value.coefficient)", "false", "orders-normalization-pr34-remediation.test");
 guard("C02", "src/exact-decimal.ts", "value.coefficient === \"-0\"", "false", "orders-normalization-pr34-remediation.test");
 guard("C03", "src/exact-decimal.ts", "value.scale > 0 && value.coefficient.endsWith(\"0\")", "false", "orders-normalization-pr34-remediation.test");
