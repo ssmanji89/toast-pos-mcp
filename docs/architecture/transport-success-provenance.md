@@ -1,6 +1,6 @@
 # Transport success provenance
 
-**Status:** T3 prerequisite implementation on issue #15  
+**Status:** T3 prerequisite implementation on issue #15
 **Depends on:** T2-001 regression repair #16 because both modify the shared Standard transport
 
 ## Problem
