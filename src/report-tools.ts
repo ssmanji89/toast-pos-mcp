@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
 import { buildPaymentSummaryReport } from "./payment-report.js";
+import { STANDARD_REPORT_SCHEMA_VERSION } from "./report-contract.js";
 import type { ApplicationRuntime } from "./runtime.js";
 import { buildSalesSummaryReport } from "./sales-report.js";
 
@@ -25,14 +26,33 @@ const reportInputSchema = z.object({
     ),
 });
 
+/**
+ * MCP outputSchema describes the successful structured report. Denied tool
+ * results are returned with isError=true; MCP v2 deliberately skips output
+ * schema validation for error results, allowing them to carry the structured
+ * denial diagnostics instead of pretending a failed report is a complete one.
+ */
 const reportOutputSchema = z
   .object({
-    status: z.enum(["complete", "denied"]),
+    schemaVersion: z.literal(STANDARD_REPORT_SCHEMA_VERSION),
+    status: z.literal("complete"),
     report: z.enum(["sales_summary", "payment_summary"]),
     source: z.literal("standard_api"),
-    restaurantGuid: z.string().uuid().optional(),
+    restaurantGuid: z.string().uuid(),
+    restaurantName: z.string().min(1),
     businessDate: businessDateSchema,
+    requestedBusinessDate: businessDateSchema,
+    effectiveBusinessDate: businessDateSchema,
+    timezone: z.string().min(1),
+    closeoutHour: z.number().int().min(0).max(12),
+    currencyCode: z.string().regex(/^[A-Z]{3}$/u),
     generatedAtEpochMs: z.number().int().nonnegative(),
+    contextFreshness: z.object({
+      retrievedThroughEpochMs: z.number().int().nonnegative(),
+      ageMs: z.number().int().nonnegative(),
+      maxAgeMs: z.number().int().positive(),
+    }),
+    formulaNotes: z.array(z.string()),
     warnings: z.array(z.string()),
   })
   .passthrough();
