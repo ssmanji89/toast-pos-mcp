@@ -1,9 +1,9 @@
 ---
 phase: 1
 slug: local-runtime-and-standard-transport-foundation
-status: draft
+status: active
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-08-26
 ---
 
@@ -42,7 +42,9 @@ For PR #37, the Phase 1 candidate PR, and the control-plane PR, the structured e
 
 For each issue, the structured closure marker must be the latest issue comment. The checker rejects a later comment because it can invalidate the recorded closure evidence.
 
-These schemas define target evidence. Current open PR #37 and issue #32 do not satisfy this protocol and do not make Phase 1 executable.
+PR #37 and issue #32 satisfy their structured evidence protocol. Plan 01-01 records the exact reviewed head, CLEAN URL, evidence URLs, merge SHA, comment interval, and ancestry proof.
+
+PR #45 contains the implemented GH-4 proof. Its immutable Node 20/22 gates, repeated mutations, and independent exact-head review remain pending.
 
 ---
 
@@ -71,10 +73,10 @@ These schemas define target evidence. Current open PR #37 and issue #32 do not s
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 1-01-01 | 01 | 1 | GH-32 | T-01-07 | One complete preflight proves PR #37 head, structured review, an empty CLEAN-to-evidence comment interval, issue evidence, merge, and ancestry | external prerequisite | Standalone JSON parsing plus the comment-ID interval, review-thread, and `git merge-base --is-ancestor` gates from Plan 01-01 | N/A external | ⬜ pending |
-| 1-01-02 | 01 | 1 | GH-4-REQ | T-01-01 | One process handles era-correct independent requests without hidden session dependence | child-process integration | `npm run build && npm run build:test && node --test dist-test/test/server.test.js` | ✅ strengthen | ⬜ pending |
-| 1-01-03 | 01 | 1 | GH-4-CANCEL | T-01-02 | Official cancellation reaches the handler and the process remains usable | child-process integration and mutation | `npm run build && npm run build:test && node --test dist-test/test/protocol-cancellation.test.js dist-test/test/server.test.js` | ❌ W0 | ⬜ pending |
-| 1-02-01 | 02 | 2 | PH1-PUB | T-02-02 | All tracked edits finish and commit before the immutable candidate gates | focused integration and planning validation | `npm run build && npm run build:test && node --test dist-test/test/server.test.js dist-test/test/protocol-cancellation.test.js && node /Users/sully/.codex/gsd-core/bin/gsd-tools.cjs query roadmap.analyze && git diff --check` | ✅ extend | ⬜ pending |
+| 1-01-01 | 01 | 1 | GH-32 | T-01-07 | One complete preflight proves PR #37 head, structured review, an empty CLEAN-to-evidence comment interval, issue evidence, merge, and ancestry | external prerequisite | Standalone JSON parsing plus the comment-ID interval, review-thread, and `git merge-base --is-ancestor` gates from Plan 01-01 | N/A external | ✅ green |
+| 1-01-02 | 01 | 1 | GH-4-REQ | T-01-01 | One process handles era-correct independent requests without hidden session dependence | child-process integration | `npm run build && npm run build:test && node --test dist-test/test/server.test.js` | ✅ exists | ✅ green |
+| 1-01-03 | 01 | 1 | GH-4-CANCEL | T-01-02 | Official cancellation reaches the handler and the process remains usable | child-process integration and mutation | `npm run build && npm run build:test && node --test dist-test/test/protocol-cancellation.test.js dist-test/test/server.test.js` | ✅ exists | ✅ green |
+| 1-02-01 | 02 | 2 | PH1-PUB | T-02-02 | All tracked edits finish and commit before the immutable candidate gates | focused integration and planning validation | `npm run build && npm run build:test && node --test dist-test/test/server.test.js dist-test/test/protocol-cancellation.test.js && node /Users/sully/.codex/gsd-core/bin/gsd-tools.cjs query roadmap.analyze && git diff --check` | ✅ exists | ✅ green |
 | 1-02-02 | 02 | 2 | GH-4, PH1-PUB | T-02-02, T-02-03 | One unchanged candidate passes both runtimes, and candidate and control evidence have empty CLEAN-to-evidence comment intervals | full exact-head gate and external review | Exact runtime execution plus candidate and control comment-ID intervals and the issue JSON parser from Plan 01-02 | N/A external disposition | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
@@ -83,8 +85,8 @@ These schemas define target evidence. Current open PR #37 and issue #32 do not s
 
 ## Wave 0 Requirements
 
-- [ ] `test/protocol-cancellation.test.ts` — real official-client cancellation fixture.
-- [ ] `test/server.test.ts` — retained-process sequential and concurrent requests for both protocol eras.
+- [x] `test/protocol-cancellation.test.ts` — real official-client cancellation fixture.
+- [x] `test/server.test.ts` — retained-process sequential and concurrent requests for both protocol eras.
 
 External prerequisite: PR #37 owns `test/transport.test.ts`, official `X-Toast-*` header fixtures, absolute seconds-or-milliseconds bounds, negative prefix coverage, exact-head Node gates, independent CLEAN review, and the empty CLEAN-to-evidence comment interval. Phase 1 does not modify or duplicate those transport tests.
 
