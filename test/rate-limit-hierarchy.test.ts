@@ -4,6 +4,10 @@ import test from "node:test";
 import { createOAuthTokenManager } from "../src/auth.js";
 import { loadRuntimeConfig } from "../src/config.js";
 import { createRateLimitAwareToastHttpClient } from "../src/rate-limited-client.js";
+import {
+  readToastRateLimitObservation,
+  ToastRateLimitCoordinator,
+} from "../src/rate-limit.js";
 import { ToastHttpError } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
@@ -105,6 +109,79 @@ test("ACCOUNT API exhaustion coordinates the same API across restaurants", async
   await restaurantGet(harness, RESTAURANT_B, "/orders/v2/orders/example", "orders-b");
 
   assert.deepEqual(harness.sleeps, [1000]);
+});
+
+test("ACCOUNT constraints cross restaurants and select the longest simultaneous wait", () => {
+  const coordinator = new ToastRateLimitCoordinator();
+  const nowMs = 1_800_000_000_000;
+  const restaurantA = {
+    restaurantGuid: RESTAURANT_A,
+    apiKey: "orders",
+    endpointKey: "orders/v2/payments",
+  };
+  const restaurantB = {
+    restaurantGuid: RESTAURANT_B,
+    apiKey: "orders",
+    endpointKey: "orders/v2/orders/example",
+  };
+
+  coordinator.record(restaurantA, observation("GLOBAL", nowMs + 1000));
+  coordinator.record(restaurantA, observation("API, ACCOUNT", nowMs + 3000));
+
+  assert.equal(coordinator.waitMilliseconds(restaurantA, nowMs), 3000);
+  assert.equal(coordinator.waitMilliseconds(restaurantB, nowMs), 3000);
+});
+
+test("preserves bounded normalized unknown X-Toast-RateLimit-By tokens", () => {
+  const response = new Response("{}", {
+    headers: {
+      "x-toast-ratelimit-by":
+        ` global, Future-Limit , ACCOUNT, future-limit, ${"x".repeat(65)}`,
+      "x-toast-ratelimit-remaining": "1",
+      "x-toast-ratelimit-reset": "1800000001",
+    },
+  });
+
+  const observed = readToastRateLimitObservation(response, 1_800_000_000_000);
+
+  assert.deepEqual(observed.byTokens, ["GLOBAL", "FUTURE-LIMIT", "ACCOUNT"]);
+  assert.equal(observed.primary, "GLOBAL");
+  assert.equal(observed.account, true);
+});
+
+test("preserves unknown-only X-Toast-RateLimit-By tokens without creating a known constraint", () => {
+  const response = new Response("{}", {
+    headers: {
+      "x-toast-ratelimit-by": "FUTURE_LIMIT, OTHER",
+      "x-toast-ratelimit-remaining": "0",
+      "x-toast-ratelimit-reset": "1800000001",
+    },
+  });
+  const observed = readToastRateLimitObservation(response, 1_800_000_000_000);
+
+  assert.deepEqual(observed.byTokens, ["FUTURE_LIMIT", "OTHER"]);
+  assert.equal(observed.primary, undefined);
+
+  const coordinator = new ToastRateLimitCoordinator();
+  coordinator.record(
+    {
+      restaurantGuid: RESTAURANT_A,
+      apiKey: "orders",
+      endpointKey: "orders/v2/payments",
+    },
+    observed,
+  );
+  assert.equal(
+    coordinator.waitMilliseconds(
+      {
+        restaurantGuid: RESTAURANT_A,
+        apiKey: "orders",
+        endpointKey: "orders/v2/orders",
+      },
+      1_800_000_000_000,
+    ),
+    0,
+  );
 });
 
 test("headerless Partners/IP-context limit remains disjoint from restaurant context", async () => {
@@ -282,6 +359,19 @@ function limitedResponse(
       "x-toast-ratelimit-reset": String(1_800_000_000 + resetSecondsFromNow),
     },
   });
+}
+
+function observation(by: string, resetAtEpochMs: number) {
+  return readToastRateLimitObservation(
+    new Response("{}", {
+      headers: {
+        "x-toast-ratelimit-by": by,
+        "x-toast-ratelimit-remaining": "0",
+        "x-toast-ratelimit-reset": String(resetAtEpochMs),
+      },
+    }),
+    1_800_000_000_000,
+  );
 }
 
 function jsonResponse(body: unknown): Response {

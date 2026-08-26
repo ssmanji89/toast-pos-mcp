@@ -10,6 +10,8 @@ export interface ToastRateLimitRequestContext {
 }
 
 export interface ToastRateLimitObservation {
+  /** Bounded normalized values, including future Toast enum values. */
+  readonly byTokens: readonly string[];
   readonly primary: ToastRateLimitPrimary | undefined;
   readonly account: boolean;
   readonly remaining: number | undefined;
@@ -33,6 +35,7 @@ export function readToastRateLimitObservation(
   const parsedBy = parseRateLimitBy(by);
 
   return Object.freeze({
+    byTokens: parsedBy.tokens,
     primary: parsedBy.primary,
     account: parsedBy.account,
     remaining: currentNonNegativeIntegerHeader(
@@ -166,25 +169,29 @@ export class ToastRateLimitCoordinator {
 }
 
 function parseRateLimitBy(raw: string | null): {
+  readonly tokens: readonly string[];
   readonly primary: ToastRateLimitPrimary | undefined;
   readonly account: boolean;
 } {
   if (raw === null) {
-    return { primary: undefined, account: false };
+    return { tokens: [], primary: undefined, account: false };
   }
 
-  const values = raw
+  const tokens = [...new Set(raw
     .split(",")
     .map((value) => value.trim().toUpperCase())
-    .filter((value) => value.length > 0);
-  const primary = values.find(
+    .filter((value) => value.length > 0)
+    .filter((value) => value.length <= 64)
+    .slice(0, 16))];
+  const primary = tokens.find(
     (value): value is ToastRateLimitPrimary =>
       value === "GLOBAL" || value === "API" || value === "ENDPOINT",
   );
 
   return {
+    tokens: Object.freeze(tokens),
     primary,
-    account: values.includes("ACCOUNT"),
+    account: tokens.includes("ACCOUNT"),
   };
 }
 

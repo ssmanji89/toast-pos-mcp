@@ -25,6 +25,7 @@ test("known over-ceiling hierarchy wait is non-retryable regardless of maxAttemp
         endpointKey: "orders/v2/payments",
       },
       {
+        byTokens: ["GLOBAL"],
         primary: "GLOBAL",
         account: false,
         remaining: 0,
