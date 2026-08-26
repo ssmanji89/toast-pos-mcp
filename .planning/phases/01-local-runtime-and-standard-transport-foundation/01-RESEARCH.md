@@ -58,7 +58,7 @@ The remaining issue #4 gap is proof quality, not a runtime rebuild. Current test
 
 Issue #32 no longer needs live evidence for the absolute-versus-relative decision. Current official Toast documentation states that `X-Toast-RateLimit-Reset` is a UNIX-epoch timestamp. However, the runtime currently reads `Toast-RateLimit-*` names without the required `X-` prefix. [CITED: https://doc.toasttab.com/doc/devguide/apiRateLimiting.html] [VERIFIED: repository `src/transport.ts` and `test/transport.test.ts`]
 
-**Primary recommendation:** Plan one bounded Phase 1 slice. Add real child-process protocol proof, repair the official `X-Toast-*` header contract, run exact-head Node 20 and Node 22 gates, obtain independent review, and close issues #4 and #32 with exact evidence. [VERIFIED: repository constraints and identified gaps]
+**Primary recommendation:** Use PR #37 as the fail-closed owner for the official `X-Toast-*` repair and issue #32 closure. After it merges CLEAN, add real child-process protocol proof, run immutable exact-head Node 20 and Node 22 gates, obtain independent review, and close issue #4 with exact evidence. Do not duplicate PR #37 in the Phase 1 branch. [VERIFIED: repository constraints and identified gaps]
 
 ## Architectural Responsibility Map
 
@@ -162,7 +162,7 @@ src/
 ├── index.ts                 # unchanged production startup chain
 ├── server.ts                # unchanged empty Phase 1 MCP server
 ├── stdio.ts                 # unchanged serveStdio boundary
-└── transport.ts             # repair official X-Toast header names
+└── transport.ts             # unchanged here; prerequisite PR #37 owns the X-Toast repair
 test/
 ├── server.test.ts           # retained-process requests and reconnect proof
 ├── transport.test.ts        # official header names and boundary behavior
@@ -171,7 +171,7 @@ docs/research/
 └── toast-api-reporting-landscape.md # replace the resolved reset assumption
 ```
 
-This structure changes only the proof and the incorrect header contract. It does not rebuild closed T1 behavior. [VERIFIED: repository layout and Phase 1 constraints]
+The Phase 1 branch changes only protocol proof. Prerequisite PR #37 changes the incorrect header contract. Neither slice rebuilds closed T1 behavior. [VERIFIED: repository layout and Phase 1 constraints]
 
 ### Pattern 1: Retained-process protocol proof
 
@@ -348,17 +348,15 @@ The field names and absolute-reset meaning come from current Toast documentation
 |---|-------|---------|---------------|
 | — | No `[ASSUMED]` claim remains. | All sections | No user confirmation is required for a stack or semantics choice. [VERIFIED: research source audit] |
 
-## Open Questions
+## Resolved Questions
 
-1. **What exact UNIX-epoch unit does Toast send?**
+1. **RESOLVED — What exact UNIX-epoch unit does Toast send?**
    - What we know: Toast documents an absolute UNIX-epoch timestamp. [CITED: https://doc.toasttab.com/doc/devguide/apiRateLimiting.html]
-   - What is unclear: The cited page does not state seconds or milliseconds in the header definition. [VERIFIED: official page inspection on 2026-08-26]
-   - Recommendation: Preserve the bounded seconds-or-milliseconds parser, but remove the relative-value assumption. Add boundary tests for both accepted encodings. [VERIFIED: repository `epochHeader` behavior]
+   - Resolution: The cited page does not state seconds or milliseconds. Preserve the bounded absolute seconds-or-milliseconds parser. Remove the relative-value assumption. Require boundary tests for both accepted encodings. [VERIFIED: official page inspection on 2026-08-26 and repository `epochHeader` behavior]
 
-2. **Does Phase 1 prove production report cancellation?**
+2. **RESOLVED — Does Phase 1 prove production report cancellation?**
    - What we know: The Phase 1 server has no report handler to cancel. [VERIFIED: repository `src/server.ts`]
-   - What is unclear: Nothing is technically unclear; the claim boundary needs explicit wording. [VERIFIED: Phase 1 scope]
-   - Recommendation: Close only local protocol cancellation in #4. Carry real Toast fetch and page-fold cancellation into the first wired report-chain gate. [VERIFIED: repository `.planning/ROADMAP.md`]
+   - Resolution: Phase 1 closes only local protocol cancellation in #4. Phase 3 owns production report cancellation through real Toast fetch and page-fold paths. [VERIFIED: repository `.planning/ROADMAP.md`]
 
 ## Environment Availability
 
@@ -408,7 +406,7 @@ The current source baseline passed `npm run check` on Node 20.20.2 and Node 22.2
 
 - [ ] Add retained-process sequential and concurrent protocol requests to `test/server.test.ts`. [VERIFIED: GH-4 gap]
 - [ ] Add a minimal child-process cancellation fixture and `test/protocol-cancellation.test.ts`. [VERIFIED: GH-4 gap]
-- [ ] Update `test/transport.test.ts` to official `X-Toast-*` names and add non-official-prefix negative coverage. [VERIFIED: GH-32 gap]
+- [ ] External prerequisite PR #37 updates `test/transport.test.ts` to official `X-Toast-*` names, preserves bounded absolute seconds-or-milliseconds parsing, and adds non-official-prefix negative coverage. The Phase 1 branch does not modify this file. [VERIFIED: GH-32 gap ownership]
 - [ ] Update the outdated reset-semantics note and record `DOX: updated`. [VERIFIED: documentation gap]
 
 ## Security Domain
