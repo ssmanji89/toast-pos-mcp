@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 const HANDLER_STARTED_MARKER = "phase1-wait-handler-started";
+const HANDLER_ABORT_OBSERVED_MARKER = "phase1-wait-handler-abort-observed";
 
 function createProtocolCancellationServer(): McpServer {
   const server = new McpServer({
@@ -16,14 +17,26 @@ function createProtocolCancellationServer(): McpServer {
     {
       description: "Synthetic test-only wait operation.",
     },
-    async () => {
-      console.error(HANDLER_STARTED_MARKER);
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 30_000);
+    (ctx) => {
+      return new Promise<never>((_resolve, reject) => {
+        let observed = false;
+        const observeAbort = (): void => {
+          if (observed) {
+            return;
+          }
+          observed = true;
+          console.error(HANDLER_ABORT_OBSERVED_MARKER);
+          reject(new Error("phase1 synthetic request cancelled"));
+        };
+
+        ctx.mcpReq.signal.addEventListener("abort", observeAbort, {
+          once: true,
+        });
+        console.error(HANDLER_STARTED_MARKER);
+        if (ctx.mcpReq.signal.aborted) {
+          observeAbort();
+        }
       });
-      return {
-        content: [{ type: "text", text: "unexpected synthetic success" }],
-      };
     },
   );
 

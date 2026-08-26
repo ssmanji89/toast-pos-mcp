@@ -48,6 +48,13 @@ test(
       const pid = transport.pid;
       assert.ok(pid !== null, "expected a retained cancellation fixture PID");
 
+      await withTimeout(
+        client.discover({ timeout: PROTOCOL_TIMEOUT_MS }),
+        PROTOCOL_TIMEOUT_MS,
+        "The retained process did not answer before cancellation",
+      );
+      assert.equal(transport.pid, pid);
+
       const controller = new AbortController();
       const pending = client.callTool(
         { name: "phase1_wait", arguments: {} },
