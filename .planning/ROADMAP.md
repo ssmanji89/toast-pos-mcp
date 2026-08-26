@@ -2,7 +2,7 @@
 
 **Method:** GSD-style outcome planning over the binding `LOOP.md` slice ledger  
 **Authority:** `LOOP.md` + GitHub are canonical for atomic state; this ROADMAP is the outcome/verification projection  
-**Updated:** 2026-08-16
+**Updated:** 2026-08-26
 
 ## v1.0 — Public local Toast reporting MCP
 
