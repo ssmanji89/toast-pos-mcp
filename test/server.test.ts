@@ -25,34 +25,38 @@ test("constructs a server without starting process IO", async () => {
 });
 
 test(
-  "serves a legacy 2025 stdio client without advertising Toast tools",
-  { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
+  "serves retained legacy 2025 requests without advertising Toast tools",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS * 5 + 5_000 },
   async () => {
     const connection = createStdioClient("legacy");
 
     try {
       await connectWithTimeout(connection);
+      const pid = requireRetainedPid(connection);
       assertEmptyServerIdentity(connection.client);
+      await proveRetainedProcessRequests(connection, "legacy", pid);
     } finally {
-      await connection.client.close();
+      await closeWithTimeout(connection);
     }
   },
 );
 
 test(
-  "serves a pinned 2026-07-28 stdio client without advertising Toast tools",
-  { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
+  "serves retained pinned 2026-07-28 requests without advertising Toast tools",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS * 5 + 5_000 },
   async () => {
     const connection = createStdioClient("modern");
 
     try {
       await connectWithTimeout(connection);
+      const pid = requireRetainedPid(connection);
       // Pinned negotiation has no legacy fallback. Reaching the common server
       // assertions therefore proves that this executable served the modern
       // 2026-07-28 era rather than silently using the legacy handshake.
       assertEmptyServerIdentity(connection.client);
+      await proveRetainedProcessRequests(connection, "modern", pid);
     } finally {
-      await connection.client.close();
+      await closeWithTimeout(connection);
     }
   },
 );
@@ -62,21 +66,26 @@ test(
   { timeout: STDIO_CONNECT_TIMEOUT_MS * 2 + 10_000 },
   async () => {
     const first = createStdioClient("modern");
-    await connectWithTimeout(first);
-    const firstPid = first.transport.pid;
-    assert.ok(firstPid !== null);
-    assertEmptyServerIdentity(first.client);
-    await first.client.close();
+    let firstPid: number;
+
+    try {
+      await connectWithTimeout(first);
+      firstPid = requireRetainedPid(first);
+      assertEmptyServerIdentity(first.client);
+    } finally {
+      await closeWithTimeout(first);
+    }
 
     const second = createStdioClient("modern");
     try {
       await connectWithTimeout(second);
-      const secondPid = second.transport.pid;
-      assert.ok(secondPid !== null);
+      const secondPid = requireRetainedPid(second);
       assert.notEqual(secondPid, firstPid);
       assertEmptyServerIdentity(second.client);
+      await requestForEraWithTimeout(second, "modern");
+      assert.equal(second.transport.pid, secondPid);
     } finally {
-      await second.client.close();
+      await closeWithTimeout(second);
     }
   },
 );
@@ -153,6 +162,40 @@ async function connectWithTimeout(connection: TestConnection): Promise<void> {
     connection.client.connect(connection.transport),
     STDIO_CONNECT_TIMEOUT_MS,
     "Timed out connecting to the stdio MCP server",
+  );
+}
+
+async function closeWithTimeout(connection: TestConnection): Promise<void> {
+  await withTimeout(
+    connection.client.close(),
+    STDIO_CONNECT_TIMEOUT_MS,
+    "Timed out closing the stdio MCP client",
+  );
+}
+
+function requireRetainedPid(connection: TestConnection): number {
+  const pid = connection.transport.pid;
+  assert.ok(pid !== null, "expected a retained stdio child process PID");
+  return pid;
+}
+
+async function proveRetainedProcessRequests(
+  _connection: TestConnection,
+  _era: "legacy" | "modern",
+  _pid: number,
+): Promise<void> {
+  throw new Error("retained-process request proof is not implemented");
+}
+
+async function requestForEraWithTimeout(
+  connection: TestConnection,
+  era: "legacy" | "modern",
+): Promise<void> {
+  const request = era === "legacy" ? connection.client.ping() : connection.client.discover();
+  await withTimeout(
+    request,
+    STDIO_CONNECT_TIMEOUT_MS,
+    `Timed out sending a retained ${era} MCP request`,
   );
 }
 
