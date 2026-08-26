@@ -15,13 +15,17 @@ import {
   exactDecimalToString,
   type ExactDecimal,
 } from "./exact-decimal.js";
+import type { ToastLocationDiscoveryProvenance } from "./locations.js";
 import type {
   NormalizedOrder,
   NormalizedReference,
   NormalizedSelection,
 } from "./orders-normalization.js";
 import { normalizeOrdersPages } from "./orders-normalization.js";
-import { STANDARD_REPORT_SCHEMA_VERSION } from "./report-contract.js";
+import {
+  STANDARD_REPORT_SCHEMA_VERSION,
+  type ReportContextFreshness,
+} from "./report-contract.js";
 import {
   addMinorUnits,
   denialFromError,
@@ -67,9 +71,13 @@ export interface ItemSalesDimensionContextSummary {
   readonly menuState: DimensionContextState | "not_used";
   readonly menuPublishedAt: string | undefined;
   readonly menuCheckedAtEpochMs: number | undefined;
+  readonly menuRetrievedThroughEpochMs: number | undefined;
+  readonly menuSourceProvenance: ReportProvenance | undefined;
+  readonly menuFreshnessProvenance: ReportProvenance | undefined;
   readonly configurationState: DimensionContextState | "not_used";
   readonly configurationRetrievedThroughEpochMs: number | undefined;
   readonly configurationLastModifiedCursor: string | undefined;
+  readonly configurationProvenance: ReportProvenance | undefined;
 }
 
 export interface ItemSalesSummaryComplete {
@@ -85,14 +93,18 @@ export interface ItemSalesSummaryComplete {
   readonly currencyCode: string;
   readonly timezone: string;
   readonly generatedAtEpochMs: number;
+  readonly contextFreshness: ReportContextFreshness;
+  readonly contextProvenance: ToastLocationDiscoveryProvenance;
   readonly dimension: ItemSalesDimension;
   readonly metricBasis: ItemSalesMetricBasis;
   readonly nonAdditiveAcrossGroups: boolean;
   readonly pagesProcessed: number;
   readonly sourceOrdersProcessed: number;
   readonly modifierSelectionsTraversed: number;
-  readonly unresolvedReferenceCount: number;
+  /** Number of report contributions whose descriptive reference could not be resolved. */
+  readonly unresolvedContributionCount: number;
   readonly dimensionContext: ItemSalesDimensionContextSummary;
+  /** Orders-source provenance only; descriptive context has separate provenance fields. */
   readonly provenance: ReportProvenance;
   readonly groups: readonly ItemSalesGroup[];
   readonly formulaNotes: readonly string[];
@@ -110,6 +122,8 @@ export interface ItemSalesSummaryDenied {
   readonly requestedBusinessDate: number;
   readonly effectiveBusinessDate: number | undefined;
   readonly generatedAtEpochMs: number;
+  readonly contextFreshness?: ReportContextFreshness;
+  readonly contextProvenance?: ToastLocationDiscoveryProvenance;
   readonly dimension: ItemSalesDimension;
   readonly denial: ReportDenial;
   readonly missingScopes: readonly string[];
@@ -152,16 +166,19 @@ interface ItemSalesFoldState {
   pagesProcessed: number;
   sourceOrdersProcessed: number;
   modifierSelectionsTraversed: number;
-  unresolvedReferenceCount: number;
+  unresolvedContributionCount: number;
 }
 
-const ZERO_DECIMAL: ExactDecimal = Object.freeze({ coefficient: "0", scale: 0 });
+const ZERO_DECIMAL: ExactDecimal = Object.freeze({
+  coefficient: "0",
+  scale: 0,
+});
 
 const FORMULA_NOTES = Object.freeze([
-  "Orders are the historical fact source. Current Menus/Configuration data is descriptive enrichment only and never reassigns an historical GUID by display name.",
-  "Item dimension uses only top-level order selections for monetary facts because Toast Selection.price already includes quantity, discounts and modifier price adjustments. Nested modifiers are traversed for integrity/context but are not added again.",
+  "Orders are the historical fact source. Current Menus/Configuration data is descriptive enrichment only and never reassigns a historical GUID by display name.",
+  "Item dimension uses only top-level non-void/non-deferred order selections for monetary facts because Toast Selection.price already includes quantity, discounts and modifier price adjustments. Nested modifiers are traversed for integrity/context but are not added again.",
   "Selection refundDetails is surfaced as observedSelectionRefundAmountMinor and is not subtracted or re-dated here because Toast reporting applies refunds on the refund date, which Standard Orders selection refundDetails does not itself provide.",
-  "Sales-category, dining-option and item-tag dimensions attribute a check amount to each distinct dimension represented on that check; those group totals can be non-additive across groups by design.",
+  "Sales-category, dining-option and item-tag dimensions attribute check.amount to each distinct dimension represented on a check; those group totals can be non-additive across groups by design.",
   "Revenue-center, order-source and service-period dimensions attribute each eligible check once using the order-level historical reference/value.",
 ]);
 
@@ -178,6 +195,8 @@ export async function buildItemSalesSummaryReport(
   let restaurantGuid = input.restaurantGuid?.toLowerCase();
   let restaurantName: string | undefined;
   let effectiveBusinessDate: number | undefined;
+  let contextFreshness: ReportContextFreshness | undefined;
+  let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
   const warnings: string[] = [];
 
   try {
@@ -190,6 +209,8 @@ export async function buildItemSalesSummaryReport(
     const { location } = locationContext;
     restaurantGuid = location.restaurantGuid;
     restaurantName = location.name;
+    contextFreshness = locationContext.freshness;
+    contextProvenance = locationContext.provenance;
 
     const capabilityContext = await createCapabilityContext(
       runtime.tokenManager,
@@ -207,6 +228,8 @@ export async function buildItemSalesSummaryReport(
         location.name,
         ordersCapability,
         warnings,
+        contextFreshness,
+        contextProvenance,
       );
     }
 
@@ -237,6 +260,8 @@ export async function buildItemSalesSummaryReport(
           location.name,
           menuCapability,
           warnings,
+          contextFreshness,
+          contextProvenance,
         );
       } else {
         warnings.push(
@@ -265,7 +290,7 @@ export async function buildItemSalesSummaryReport(
     ) {
       throw new ReportComputationError(
         "item_tag_context_unavailable",
-        "Item-tag reporting requires validated current or stale menu context.",
+        "Item-tag reporting requires validated current or explicitly stale menu context.",
       );
     }
 
@@ -276,7 +301,7 @@ export async function buildItemSalesSummaryReport(
       pagesProcessed: 0,
       sourceOrdersProcessed: 0,
       modifierSelectionsTraversed: 0,
-      unresolvedReferenceCount: 0,
+      unresolvedContributionCount: 0,
     };
 
     await runtime.toastHttpClient.foldOrdersBulkPagesCancellable(
@@ -305,7 +330,6 @@ export async function buildItemSalesSummaryReport(
             foldState,
             order,
             input.dimension,
-            location.currencyCode,
             menuContext,
             configContext,
           );
@@ -334,13 +358,15 @@ export async function buildItemSalesSummaryReport(
       currencyCode: location.currencyCode,
       timezone: location.timezone,
       generatedAtEpochMs,
+      contextFreshness,
+      contextProvenance,
       dimension: input.dimension,
       metricBasis: metricBasis(input.dimension),
       nonAdditiveAcrossGroups: nonAdditive(input.dimension),
       pagesProcessed: state.pagesProcessed,
       sourceOrdersProcessed: state.sourceOrdersProcessed,
       modifierSelectionsTraversed: state.modifierSelectionsTraversed,
-      unresolvedReferenceCount: state.unresolvedReferenceCount,
+      unresolvedContributionCount: state.unresolvedContributionCount,
       dimensionContext: contextSummary(menuContext, configContext),
       provenance: state.provenance.snapshot(),
       groups,
@@ -359,6 +385,8 @@ export async function buildItemSalesSummaryReport(
       requestedBusinessDate: input.businessDate,
       effectiveBusinessDate,
       generatedAtEpochMs,
+      ...(contextFreshness === undefined ? {} : { contextFreshness }),
+      ...(contextProvenance === undefined ? {} : { contextProvenance }),
       dimension: input.dimension,
       denial: denialFromError(error),
       missingScopes: Object.freeze([]),
@@ -375,7 +403,6 @@ function aggregateOrder(
   state: ItemSalesFoldState,
   order: NormalizedOrder,
   dimension: ItemSalesDimension,
-  currencyCode: string,
   menuContext: MenuDimensionContext | undefined,
   configContext: ConfigurationDimensionContext | undefined,
 ): void {
@@ -393,7 +420,7 @@ function aggregateOrder(
         if (selection.voided || selection.deferred) continue;
         const descriptor = itemDescriptor(selection, menuContext);
         if (descriptor.enrichmentState === "unresolved") {
-          state.unresolvedReferenceCount += 1;
+          state.unresolvedContributionCount += 1;
         }
         const group = getGroup(state.groups, descriptor);
         group.selectionCount += 1;
@@ -433,7 +460,7 @@ function aggregateOrder(
     }
     for (const descriptor of descriptors) {
       if (descriptor.enrichmentState === "unresolved") {
-        state.unresolvedReferenceCount += 1;
+        state.unresolvedContributionCount += 1;
       }
       const group = getGroup(state.groups, descriptor);
       group.checkCount += 1;
@@ -443,8 +470,6 @@ function aggregateOrder(
       );
     }
   }
-
-  void currencyCode; // currency is attached at final group serialization.
 }
 
 function checkDimensionDescriptors(
@@ -457,55 +482,48 @@ function checkDimensionDescriptors(
   const unique = new Map<string, DimensionDescriptor>();
 
   if (dimension === "revenue_center") {
-    const descriptor = referenceDescriptor(
+    addDescriptor(unique, referenceDescriptor(
       dimension,
       order.revenueCenter,
       configContext?.revenueCenters,
       configContext?.state,
-    );
-    if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+    ));
   } else if (dimension === "order_source") {
-    const descriptor = valueDescriptor(dimension, order.source);
-    if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+    addDescriptor(unique, valueDescriptor(dimension, order.source));
   } else if (dimension === "service_period") {
-    const descriptor = referenceDescriptor(
+    addDescriptor(unique, referenceDescriptor(
       dimension,
       order.restaurantService,
       configContext?.restaurantServices,
       configContext?.state,
-    );
-    if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+    ));
   } else if (dimension === "sales_category") {
     for (const selection of selections) {
       if (selection.voided || selection.deferred) continue;
-      const descriptor = referenceDescriptor(
+      addDescriptor(unique, referenceDescriptor(
         dimension,
         selection.salesCategory,
         configContext?.salesCategories,
         configContext?.state,
-      );
-      if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+      ));
     }
   } else if (dimension === "dining_option") {
     for (const selection of selections) {
       if (selection.voided || selection.deferred) continue;
-      const reference = selection.diningOption ?? order.diningOption;
-      const descriptor = referenceDescriptor(
+      addDescriptor(unique, referenceDescriptor(
         dimension,
-        reference,
+        selection.diningOption ?? order.diningOption,
         configContext?.diningOptions,
         configContext?.state,
-      );
-      if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+      ));
     }
     if (unique.size === 0) {
-      const descriptor = referenceDescriptor(
+      addDescriptor(unique, referenceDescriptor(
         dimension,
         order.diningOption,
         configContext?.diningOptions,
         configContext?.state,
-      );
-      if (descriptor !== undefined) unique.set(descriptor.key, descriptor);
+      ));
     }
   } else if (dimension === "item_tag") {
     for (const selection of selections) {
@@ -535,6 +553,13 @@ function checkDimensionDescriptors(
   }
 
   return [...unique.values()];
+}
+
+function addDescriptor(
+  target: Map<string, DimensionDescriptor>,
+  descriptor: DimensionDescriptor | undefined,
+): void {
+  if (descriptor !== undefined) target.set(descriptor.key, descriptor);
 }
 
 function itemDescriptor(
@@ -572,7 +597,11 @@ function resolveMenuItem(
     || menuContext.ambiguousMultiLocationIds.has(reference.multiLocationId)
     ? undefined
     : menuContext.itemsByMultiLocationId.get(reference.multiLocationId);
-  if (byGuid !== undefined && byMulti !== undefined && byGuid.guid !== byMulti.guid) {
+  if (
+    byGuid !== undefined
+    && byMulti !== undefined
+    && byGuid.guid !== byMulti.guid
+  ) {
     return undefined;
   }
   return byGuid ?? byMulti;
@@ -581,7 +610,10 @@ function resolveMenuItem(
 function referenceDescriptor(
   dimension: string,
   reference: NormalizedReference | undefined,
-  current: ReadonlyMap<string, { readonly name: string | undefined; readonly behavior?: string | undefined }> | undefined,
+  current: ReadonlyMap<string, {
+    readonly name: string | undefined;
+    readonly behavior?: string | undefined;
+  }> | undefined,
   contextState: DimensionContextState | undefined,
 ): DimensionDescriptor | undefined {
   const key = referenceKey(reference);
@@ -634,7 +666,9 @@ function unresolvedDescriptor(dimension: string): DimensionDescriptor {
   });
 }
 
-function referenceKey(reference: NormalizedReference | undefined): string | undefined {
+function referenceKey(
+  reference: NormalizedReference | undefined,
+): string | undefined {
   if (reference?.guid !== undefined) return `guid:${reference.guid}`;
   if (reference?.multiLocationId !== undefined) {
     return `multi:${reference.multiLocationId}`;
@@ -663,7 +697,10 @@ function getGroup(
   return created;
 }
 
-function freezeGroup(group: MutableGroup, currencyCode: string): ItemSalesGroup {
+function freezeGroup(
+  group: MutableGroup,
+  currencyCode: string,
+): ItemSalesGroup {
   return Object.freeze({
     ...group.descriptor,
     selectionCount: group.selectionCount,
@@ -671,7 +708,8 @@ function freezeGroup(group: MutableGroup, currencyCode: string): ItemSalesGroup 
     quantity: exactDecimalToString(group.quantity),
     grossSelectionAmountMinor: group.grossSelectionAmountMinor,
     netSelectionAmountMinor: group.netSelectionAmountMinor,
-    observedSelectionRefundAmountMinor: group.observedSelectionRefundAmountMinor,
+    observedSelectionRefundAmountMinor:
+      group.observedSelectionRefundAmountMinor,
     selectionTaxAmountMinor: group.selectionTaxAmountMinor,
     attributedCheckAmountMinor: group.attributedCheckAmountMinor,
     currencyCode,
@@ -719,19 +757,28 @@ function contextSummary(
     menuState: menu?.state ?? "not_used",
     menuPublishedAt: menu?.publishedAt,
     menuCheckedAtEpochMs: menu?.checkedAtEpochMs,
+    menuRetrievedThroughEpochMs: menu?.retrievedThroughEpochMs,
+    menuSourceProvenance: menu?.sourceProvenance,
+    menuFreshnessProvenance: menu?.freshnessProvenance,
     configurationState: config?.state ?? "not_used",
     configurationRetrievedThroughEpochMs: config?.retrievedThroughEpochMs,
     configurationLastModifiedCursor: config?.lastModifiedCursor,
+    configurationProvenance: config?.provenance,
   });
 }
 
 function capabilityDenied(
-  input: { readonly businessDate: number; readonly dimension: ItemSalesDimension },
+  input: {
+    readonly businessDate: number;
+    readonly dimension: ItemSalesDimension;
+  },
   generatedAtEpochMs: number,
   restaurantGuid: string,
   restaurantName: string,
   denial: CapabilityDenial,
   warnings: readonly string[],
+  contextFreshness: ReportContextFreshness,
+  contextProvenance: ToastLocationDiscoveryProvenance,
 ): ItemSalesSummaryDenied {
   return Object.freeze({
     schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
@@ -744,6 +791,8 @@ function capabilityDenied(
     requestedBusinessDate: input.businessDate,
     effectiveBusinessDate: input.businessDate,
     generatedAtEpochMs,
+    contextFreshness,
+    contextProvenance,
     dimension: input.dimension,
     denial: Object.freeze({
       code: `capability_${denial.reason}`,
