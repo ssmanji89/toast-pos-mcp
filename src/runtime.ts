@@ -28,6 +28,7 @@ import {
   ToastHttpError,
   type ToastHttpClientOptions,
 } from "./transport.js";
+import { createServer } from "./server.js";
 
 export interface ApplicationRuntimeOptions {
   readonly env?: RuntimeConfigSource;
@@ -294,6 +295,20 @@ export function createApplicationRuntime(
     now,
     options.locationContextMaxAgeMs ?? DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
   );
+}
+
+/** Compatibility factory for transport-composition tests without report tools. */
+export function createRuntime(
+  config: RuntimeConfig,
+  tokenManager: OAuthTokenManager,
+  options: ToastHttpClientOptions = {},
+) {
+  const toastHttpClient = createRateLimitAwareToastHttpClient(
+    config,
+    tokenManager,
+    options,
+  );
+  return Object.freeze({ toastHttpClient, server: createServer() });
 }
 
 async function waitForSharedDiscovery(

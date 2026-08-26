@@ -341,11 +341,11 @@ function aggregateOrder(
     bucket.checkCount += 1;
     bucket.grossCheckAmountMinor = addMinorUnits(
       bucket.grossCheckAmountMinor,
-      check.amountMinor,
+      check.amountHundredths,
     );
     bucket.taxAmountMinor = addMinorUnits(
       bucket.taxAmountMinor,
-      check.taxAmountMinor,
+      check.taxAmountHundredths,
     );
     if (check.taxExempt) {
       bucket.taxExemptCheckCount += 1;
@@ -354,13 +354,13 @@ function aggregateOrder(
     const fundraisingContributionAmountMinor = check.appliedServiceCharges
       .filter((charge) => charge.serviceChargeCategory === "FUNDRAISING_CAMPAIGN")
       .reduce(
-        (sum, charge) => addMinorUnits(sum, charge.chargeAmountMinor),
+        (sum, charge) => addMinorUnits(sum, charge.chargeAmountHundredths),
         0,
       );
     const serviceChargeAmountMinor = check.appliedServiceCharges
       .filter((charge) => charge.serviceChargeCategory !== "FUNDRAISING_CAMPAIGN")
       .reduce(
-        (sum, charge) => addMinorUnits(sum, charge.chargeAmountMinor),
+        (sum, charge) => addMinorUnits(sum, charge.chargeAmountHundredths),
         0,
       );
 
@@ -377,19 +377,19 @@ function aggregateOrder(
       if (deferred || houseAccount) {
         selectionExclusionAmountMinor = addMinorUnits(
           selectionExclusionAmountMinor,
-          selection.priceMinor,
+          selection.priceHundredths,
         );
       }
       if (deferred) {
         deferredSelectionAmountMinor = addMinorUnits(
           deferredSelectionAmountMinor,
-          selection.priceMinor,
+          selection.priceHundredths,
         );
       }
       if (houseAccount) {
         houseAccountBalancePaymentAmountMinor = addMinorUnits(
           houseAccountBalancePaymentAmountMinor,
-          selection.priceMinor,
+          selection.priceHundredths,
         );
       }
     }
@@ -397,19 +397,19 @@ function aggregateOrder(
     const embeddedRefundAmountMinor = check.payments.reduce(
       (sum, payment) => addMinorUnits(
         sum,
-        payment.refund?.refundAmountMinor ?? 0,
+        payment.refund?.refundAmountHundredths ?? 0,
       ),
       0,
     );
 
     bucket.netOrderAmountMinor = addMinorUnits(
       bucket.netOrderAmountMinor,
-      check.amountMinor,
+      check.amountHundredths,
       -fundraisingContributionAmountMinor,
     );
     bucket.netSalesMinor = addMinorUnits(
       bucket.netSalesMinor,
-      check.amountMinor,
+      check.amountHundredths,
       -fundraisingContributionAmountMinor,
       -selectionExclusionAmountMinor,
       -embeddedRefundAmountMinor,
@@ -450,7 +450,7 @@ function discountsForCheck(
   selections: readonly NormalizedSelection[],
 ): number {
   let total = checkDiscounts.reduce(
-    (sum, discount) => addMinorUnits(sum, discount.discountAmountMinor),
+    (sum, discount) => addMinorUnits(sum, discount.discountAmountHundredths),
     0,
   );
   const stack = [...selections];
@@ -466,7 +466,7 @@ function discountsForCheck(
     }
     total = addMinorUnits(
       total,
-      ...selection.appliedDiscounts.map((discount) => discount.discountAmountMinor),
+      ...selection.appliedDiscounts.map((discount) => discount.discountAmountHundredths),
     );
     stack.push(...selection.modifiers);
   }

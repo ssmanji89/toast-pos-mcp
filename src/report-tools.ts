@@ -78,7 +78,9 @@ export function registerStandardReportTools(
     },
     async (input, ctx) => toolResult(await buildSalesSummaryReport(
       runtime,
-      input,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
     )),
   );
@@ -100,7 +102,9 @@ export function registerStandardReportTools(
     },
     async (input, ctx) => toolResult(await buildPaymentSummaryReport(
       runtime,
-      input,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
     )),
   );
