@@ -26,6 +26,11 @@ const LOCATION: ToastLocation = Object.freeze({
 test("retains guest count and selection-level dining option without retaining free text", () => {
   const raw = baseOrder();
   raw.numberOfGuests = 7;
+  raw.diningOption = {
+    guid: null,
+    multiLocationId: "synthetic-order-dining-option",
+    name: "must-not-be-copied",
+  };
   raw.checks[0].selections[0].diningOption = {
     guid: null,
     multiLocationId: "synthetic-selection-dining-option",
@@ -37,6 +42,10 @@ test("retains guest count and selection-level dining option without retaining fr
   const selection = order?.checks[0]?.selections[0];
 
   assert.equal(order?.numberOfGuests, 7);
+  assert.deepEqual(order?.diningOption, {
+    guid: undefined,
+    multiLocationId: "synthetic-order-dining-option",
+  });
   assert.deepEqual(selection?.diningOption, {
     guid: undefined,
     multiLocationId: "synthetic-selection-dining-option",
