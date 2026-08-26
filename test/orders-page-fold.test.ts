@@ -10,12 +10,20 @@ import {
 } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID =
-  SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_GUID = requiredString(
+  SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID,
+  "The synthetic runtime environment must define a restaurant GUID.",
+);
 
 interface FoldHarness {
   readonly client: ToastHttpClient;
   readonly getFetchCount: () => number;
+}
+
+interface FoldState {
+  readonly pages: number;
+  readonly records: number;
+  readonly checksum: number;
 }
 
 test("fold consumes 150 raw pages sequentially before requesting the next page", async () => {
@@ -39,7 +47,7 @@ test("fold consumes 150 raw pages sequentially before requesting the next page",
       pageSize: 2,
       maxPages: totalPages,
     },
-    Object.freeze({ pages: 0, records: 0, checksum: 0 }),
+    Object.freeze<FoldState>({ pages: 0, records: 0, checksum: 0 }),
     async (state, page, pageNumber) => {
       activeConsumers += 1;
       maxActiveConsumers = Math.max(maxActiveConsumers, activeConsumers);
@@ -244,4 +252,9 @@ function jsonResponse(
       ...headers,
     },
   });
+}
+
+function requiredString(value: string | undefined, message: string): string {
+  assert.ok(value, message);
+  return value;
 }

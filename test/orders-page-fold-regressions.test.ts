@@ -6,7 +6,10 @@ import { loadRuntimeConfig } from "../src/config.js";
 import { createToastHttpClient } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_GUID = requiredString(
+  SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID,
+  "The synthetic runtime environment must define a restaurant GUID.",
+);
 const PARTNERS_LIMITER_KEY = "partnersAccessibleRestaurants";
 
 test("credential-scoped Partners detailed read remains headerless, provenance-bearing, and limiter-isolated", async () => {
@@ -106,33 +109,31 @@ test("success provenance timestamp is sampled after JSON body parsing completes"
   });
   let now = 100;
   let parsed = false;
+  const parsedAtTimeSamples: boolean[] = [];
   const client = createToastHttpClient(config, tokenManager, {
     now: () => {
-      assert.equal(parsed, true, "retrieval timestamp must be sampled after body parsing");
+      parsedAtTimeSamples.push(parsed);
       return ++now;
     },
-    fetch: async () => new Response("{}", {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
+    fetch: async () => new ParsingResponse(
+      "{}",
+      () => {
+        parsed = true;
+      },
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    ),
   });
 
-  const originalJson = Response.prototype.json;
-  Response.prototype.json = async function patchedJson(this: Response) {
-    const result = await originalJson.call(this);
-    parsed = true;
-    return result;
-  };
-  try {
-    const result = await client.getJsonDetailed({
-      path: "/restaurants/v1/restaurants/example",
-      restaurantGuid: RESTAURANT_GUID,
-      rateLimitKey: "provenance-test",
-    });
-    assert.equal(result.retrievedAtEpochMs, 101);
-  } finally {
-    Response.prototype.json = originalJson;
-  }
+  const result = await client.getJsonDetailed({
+    path: "/restaurants/v1/restaurants/example",
+    restaurantGuid: RESTAURANT_GUID,
+    rateLimitKey: "provenance-test",
+  });
+  assert.equal(result.retrievedAtEpochMs, 102);
+  assert.deepEqual(parsedAtTimeSamples, [false, true]);
 });
 
 test("legacy body-only ordersBulk wrapper remains a mutable array", async () => {
@@ -173,4 +174,24 @@ function jsonResponse(
       ...headers,
     },
   });
+}
+
+function requiredString(value: string | undefined, message: string): string {
+  assert.ok(value, message);
+  return value;
+}
+
+class ParsingResponse extends Response {
+  readonly #afterJson: () => void;
+
+  constructor(body: string, afterJson: () => void, init: ResponseInit) {
+    super(body, init);
+    this.#afterJson = afterJson;
+  }
+
+  override json = async (): Promise<unknown> => {
+    const result = await Response.prototype.json.call(this);
+    this.#afterJson();
+    return result;
+  };
 }
