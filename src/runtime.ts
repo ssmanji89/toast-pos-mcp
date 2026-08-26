@@ -21,6 +21,10 @@ import {
   type RateLimitAwareToastHttpClient,
 } from "./rate-limited-client.js";
 import {
+  DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
+  type ReportContextFreshness,
+} from "./report-contract.js";
+import {
   ToastHttpError,
   type ToastHttpClientOptions,
 } from "./transport.js";
@@ -35,11 +39,13 @@ export interface ApplicationRuntimeOptions {
   readonly maxAttempts?: number;
   readonly maxOrdersBulkPages?: number;
   readonly maxRateLimitWaitMs?: number;
+  readonly locationContextMaxAgeMs?: number;
 }
 
 export interface ApplicationLocationContext {
   readonly location: ToastLocation;
   readonly provenance: ToastLocationDiscoveryProvenance;
+  readonly freshness: ReportContextFreshness;
 }
 
 export interface ApplicationLocationContextOptions {
@@ -80,6 +86,7 @@ export class ApplicationRuntimeError extends Error {
  */
 export class ApplicationRuntime {
   readonly config: RuntimeConfig;
+  readonly locationContextMaxAgeMs: number;
   readonly locationRegistry: ToastLocationRegistry;
   readonly now: () => number;
   readonly toastHttpClient: RateLimitAwareToastHttpClient;
@@ -88,8 +95,8 @@ export class ApplicationRuntime {
   /**
    * This promise is not the raw discovery promise. It resolves only after the
    * discovered registry generation and its provenance have both been bound to
-   * this runtime, so every concurrent first-use waiter observes one atomic
-   * context publication.
+   * this runtime, so every concurrent first-use/refresh waiter observes one
+   * atomic context publication.
    */
   #locationDiscoveryInFlight: Promise<ToastLocationDiscovery> | undefined;
   #locationProvenance: ToastLocationDiscoveryProvenance | undefined;
@@ -100,12 +107,23 @@ export class ApplicationRuntime {
     toastHttpClient: RateLimitAwareToastHttpClient,
     locationRegistry: ToastLocationRegistry,
     now: () => number,
+    locationContextMaxAgeMs = DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
   ) {
+    if (
+      !Number.isSafeInteger(locationContextMaxAgeMs)
+      || locationContextMaxAgeMs <= 0
+    ) {
+      throw new RangeError(
+        "ApplicationRuntime locationContextMaxAgeMs must be a positive safe integer.",
+      );
+    }
+
     this.config = config;
     this.tokenManager = tokenManager;
     this.toastHttpClient = toastHttpClient;
     this.locationRegistry = locationRegistry;
     this.now = now;
+    this.locationContextMaxAgeMs = locationContextMaxAgeMs;
   }
 
   async getLocation(
@@ -135,12 +153,21 @@ export class ApplicationRuntime {
     // Never serve a registry generation while its owning discovery is still
     // publishing provenance. discoverStandardLocations() replaces the registry
     // just before its promise resolves, so consulting the registry first would
-    // expose a small but real registry-without-provenance race window.
+    // expose a registry-without-provenance race window.
     if (this.#locationDiscoveryInFlight !== undefined) {
       await waitForSharedDiscovery(
         this.#locationDiscoveryInFlight,
         options.signal,
       );
+      throwIfRuntimeRequestCancelled(options.signal);
+    }
+
+    // Toast recommends polling Partners connections a few times per day and
+    // Restaurants configuration at least daily. A stale generation is not
+    // allowed to back a `complete` report: refresh first, and propagate a
+    // refresh failure rather than silently serving the older context.
+    if (this.#locationContextIsStale()) {
+      await waitForSharedDiscovery(this.#ensureLocationDiscovery(), options.signal);
       throwIfRuntimeRequestCancelled(options.signal);
     }
 
@@ -160,7 +187,8 @@ export class ApplicationRuntime {
         "The requested Toast restaurant is not present in the validated active location context.",
       );
     }
-    if (this.#locationProvenance === undefined) {
+    const provenance = this.#locationProvenance;
+    if (provenance === undefined) {
       // A location without provenance could only be introduced through a
       // future/manual registry mutation outside the reviewed runtime path.
       // Do not silently bless it as production report context.
@@ -172,7 +200,30 @@ export class ApplicationRuntime {
 
     return Object.freeze({
       location,
-      provenance: this.#locationProvenance,
+      provenance,
+      freshness: this.#freshness(provenance),
+    });
+  }
+
+  #locationContextIsStale(): boolean {
+    const provenance = this.#locationProvenance;
+    if (provenance === undefined) {
+      return false;
+    }
+    const ageMs = this.now() - provenance.retrievedThroughEpochMs;
+    // A clock rollback invalidates the age calculation; one fresh discovery
+    // re-bases provenance to the same injected clock rather than declaring an
+    // unprovable negative age current.
+    return ageMs < 0 || ageMs >= this.locationContextMaxAgeMs;
+  }
+
+  #freshness(
+    provenance: ToastLocationDiscoveryProvenance,
+  ): ReportContextFreshness {
+    return Object.freeze({
+      retrievedThroughEpochMs: provenance.retrievedThroughEpochMs,
+      ageMs: Math.max(0, this.now() - provenance.retrievedThroughEpochMs),
+      maxAgeMs: this.locationContextMaxAgeMs,
     });
   }
 
@@ -241,6 +292,7 @@ export function createApplicationRuntime(
     toastHttpClient,
     createLocationRegistry(),
     now,
+    options.locationContextMaxAgeMs ?? DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
   );
 }
 
