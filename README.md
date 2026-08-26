@@ -2,7 +2,7 @@
 
 A public, read-only Model Context Protocol server for deterministic reporting over authorized Toast POS data.
 
-> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative for exact slice state. The MCP TypeScript SDK v2 stdio migration remains under review. No public release exists.
+> **Status:** implementation campaign in progress. `LOOP.md` and GitHub are authoritative. The MCP v2 stdio baseline is merged. Location discovery is under repair. Standard credential support for its credential-wide source is an explicit release gate. No public release exists.
 
 ## What this project is
 
@@ -53,11 +53,13 @@ Toast also uses more than one retrieval model:
 
 ## Runtime foundation
 
-The current merged runtime includes Node.js 20-or-later ESM TypeScript, a local MCP `stdio` process, a fail-closed configuration and consent gate, OAuth lifecycle, read-only Standard transport, both Standard pagination families, and synthetic fixture tests.
+The current runtime uses Node.js 20-or-later ESM TypeScript, local MCP `stdio`, a fail-closed configuration and consent gate, OAuth, read-only Standard transport, bounded Standard pagination, and synthetic fixture tests.
 
-This migration tests the MCP v2 package split: `@modelcontextprotocol/server` in production and `@modelcontextprotocol/client` in executable compatibility tests. It uses `serveStdio(factory)` for supported legacy 2025 and 2026-07-28 clients. It owns asynchronous transport errors through a sanitized, terminal, process-owned stdio wrapper.
+The merged MCP v2 runtime uses `@modelcontextprotocol/server` in production and `@modelcontextprotocol/client` in executable tests. It uses `serveStdio(factory)` for legacy 2025 and 2026-07-28 clients. It owns asynchronous transport errors through a sanitized terminal wrapper.
 
-Runtime-config identity, OAuth cache, rate-limit state, location/capability state, and report state remain explicit application-owned dependencies. Future handlers must use this same graph. No user-facing reporting tool is registered by this migration.
+The branch adds a two-stage location context. It discovers credential-accessible restaurant connections and hydrates report-critical restaurant detail when the credential-wide source is available.
+
+This PR repairs location discovery through credential-wide Partners connection discovery and restaurant-scoped detail hydration. Reporting tools remain unavailable.
 
 ## Runtime configuration
 
@@ -77,13 +79,17 @@ Optional:
 
 | Variable | Purpose |
 |---|---|
-| `TOAST_DEFAULT_RESTAURANT_GUID` | Default restaurant GUID (UUID) for location-scoped reporting context |
+| `TOAST_DEFAULT_RESTAURANT_GUID` | Bootstrap restaurant GUID. It fails closed when the configured location is not accessible to the credential. |
 
 If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
 
 The OAuth token lifecycle uses these credentials only through the named runtime-configuration accessor. The token manager posts the documented client-credentials body to `https://[toast-api-hostname]/authentication/v1/authentication/login`, caches the returned bearer token according to Toast's `expiresIn` value, refreshes within the final minute of validity, deduplicates simultaneous token requests behind one exchange, and returns structured authentication errors without including credentials, bearer tokens, or upstream response bodies.
 
-The shared Toast HTTP transport is constructed from one validated configuration and token manager. Restaurant-scoped Standard reads use a bearer token and restaurant GUID, isolate rate-limit state, use bounded waits/backoff, and return sanitized errors.
+The shared Toast HTTP transport uses one validated configuration and token manager. Restaurant-scoped reads use an explicit restaurant GUID and isolated rate-limit state. The credential-scoped discovery path is structurally allowlisted to `GET /partners/v1/restaurants`, omits the restaurant header, and uses a separate credential-scoped rate-limit bucket. Both paths use the same OAuth, bounded retries, wait ceiling, parsing, and error sanitization.
+
+The location layer consumes the Partners accessible-restaurants source when it is authorized. It retains only active restaurant GUID/group/scope context. It hydrates each active restaurant with `GET /restaurants/v1/restaurants/{restaurantGUID}`, a matching restaurant header, and `includeArchived=false`. Invalid or incomplete results fail closed without publishing partial state.
+
+Toast documentation conflicts on Standard credential access to `/partners/v1/restaurants`. An authorization failure returns static `location_discovery_source_unavailable`. The runtime never falls back to every management-group location. Issue #28 records the required live release proof.
 
 ## MCP stdio failure behavior
 
@@ -129,7 +135,7 @@ TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true \
 node dist/index.js
 ```
 
-It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates configuration and consent, constructs one OAuth manager and shared transport, then serves the v2 protocol boundary. No startup Toast data request is made and no reporting tool is registered by this migration.
+It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Startup validates configuration and consent, constructs one OAuth manager and shared transport, then serves the v2 protocol boundary. No startup Toast data request is made and no reporting tool is registered.
 
 ## Planning and execution control plane
 
@@ -144,11 +150,12 @@ It waits for MCP JSON-RPC on stdin and reserves stdout for protocol framing. Sta
 - [`docs/research/toast-api-reporting-landscape.md`](docs/research/toast-api-reporting-landscape.md): Toast API findings and report-source map
 - [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md): initial distribution, AI-processing, and security decision
 - [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md): historical/current threat catalog for the broader product boundary
-- [`docs/architecture/threat-model-mcp-v2-runtime.md`](docs/architecture/threat-model-mcp-v2-runtime.md): superseding MCP v2 local-runtime addendum for this migration
+- [`docs/architecture/threat-model-mcp-v2-runtime.md`](docs/architecture/threat-model-mcp-v2-runtime.md): MCP v2 local-runtime addendum
+- [`docs/architecture/standard-location-discovery-compatibility.md`](docs/architecture/standard-location-discovery-compatibility.md): Standard credential source ambiguity and live release gate
 
 ## Current work
 
-The campaign is reconciling location authority, capability scope intersection, success provenance, bounded order-page consumption, MCP SDK v2/runtime compatibility, and real stdio wiring before reporting tools. Use `LOOP.md` and GitHub for the current state.
+The campaign repairs location authority before capability preflight, provenance, bounded page folding, normalization, and reporting tools. Standard support for the credential-wide source remains a live release gate. Use `LOOP.md` and GitHub for the current state.
 
 ## Important legal and operational note
 
@@ -161,6 +168,11 @@ This repository's interpretation is engineering guidance, not legal advice.
 ## Primary sources
 
 - Toast API overview: https://doc.toasttab.com/doc/devguide/apiOverview.html
+- Toast Standard API access overview: https://doc.toasttab.com/doc/devguide/devApiAccessUserGuide.html
+- Toast Standard API credentials: https://doc.toasttab.com/doc/devguide/devApiAccessCredentials.html
+- Toast Partners location access: https://doc.toasttab.com/doc/devguide/apiPartnersGettingAccessibleRestaurants.html
+- Toast Partners API: https://doc.toasttab.com/openapi/partners/operation/restaurantsGet/
+- Toast Restaurants API: https://doc.toasttab.com/openapi/restaurants/operation/restaurantsGuidGet/
 - Toast reporting integration checklist: https://doc.toasttab.com/doc/cookbook/apiIntegrationChecklistTemplate.html
 - Toast pagination: https://doc.toasttab.com/doc/devguide/apiResponseDataPagination.html
 - Toast `/ordersBulk` pagination: https://doc.toasttab.com/doc/devguide/apiOrdersGetDetailedInfoAboutMultipleOrders.html

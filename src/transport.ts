@@ -3,6 +3,8 @@ import type { RuntimeConfig } from "./config.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_RETRY_DELAY_MS = 250;
+const PARTNERS_ACCESSIBLE_RESTAURANTS_PATH = "/partners/v1/restaurants";
+const PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY = "partnersAccessibleRestaurants";
 
 /**
  * `DEFAULT_MAX_CONFIGURATION_PAGE_COUNT` and `DEFAULT_MAX_CONFIGURATION_RESTARTS`
@@ -115,6 +117,25 @@ export interface ToastGetJsonRequest {
   readonly apiFamily?: ToastApiFamily;
 }
 
+/**
+ * This private request shape is the only route that may omit a restaurant
+ * GUID. Both its path and limiter key are literal types. Do not generalize it
+ * into a public headerless GET helper: restaurant-scoped requests are the
+ * default Toast boundary, and the one credential-scoped discovery source is
+ * deliberately allowlisted while Toast's Standard/Partners documentation
+ * conflict remains release-gated by issue #28.
+ */
+interface ToastCredentialScopedGetJsonRequest {
+  readonly path: typeof PARTNERS_ACCESSIBLE_RESTAURANTS_PATH;
+  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  readonly rateLimitKey: typeof PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY;
+  readonly apiFamily?: ToastApiFamily;
+}
+
+type ToastInternalGetJsonRequest =
+  | ToastGetJsonRequest
+  | ToastCredentialScopedGetJsonRequest;
+
 export interface ToastConfigurationPagesRequest {
   readonly path: `/${string}`;
   readonly restaurantGuid: string;
@@ -146,6 +167,21 @@ export interface ToastRateLimitSnapshot {
   readonly retryAfterEpochMs: number | undefined;
   readonly updatedAtEpochMs: number;
 }
+
+export interface ToastCredentialRateLimitSnapshot {
+  readonly apiFamily: ToastApiFamily;
+  readonly scope: "credential";
+  readonly key: string;
+  readonly limit: number | undefined;
+  readonly remaining: number | undefined;
+  readonly resetAtEpochMs: number | undefined;
+  readonly retryAfterEpochMs: number | undefined;
+  readonly updatedAtEpochMs: number;
+}
+
+type StoredRateLimitSnapshot =
+  | ToastRateLimitSnapshot
+  | ToastCredentialRateLimitSnapshot;
 
 export type ToastHttpErrorCode =
   | "configuration_page_bound_exceeded"
@@ -217,7 +253,7 @@ export class ToastHttpClient {
   #maxRetryDelayMs: number;
   #now: () => number;
   #random: () => number;
-  #rateLimits = new Map<string, ToastRateLimitSnapshot>();
+  #rateLimits = new Map<string, StoredRateLimitSnapshot>();
   #sleep: (milliseconds: number) => Promise<void>;
   #tokenManager: OAuthTokenManager;
 
@@ -278,6 +314,26 @@ export class ToastHttpClient {
 
   async getJson(request: ToastGetJsonRequest): Promise<unknown> {
     return (await this.#requestJson(request)).body;
+  }
+
+  /**
+   * The only credential-scoped Standard-family read currently authorized by
+   * the repository. The path and limiter key are hard-coded so callers
+   * cannot turn this into a generic headerless Toast request primitive.
+   *
+   * It intentionally omits `Toast-Restaurant-External-ID`; otherwise it
+   * reuses the exact OAuth, retry, rate-limit, status, JSON, and sanitization
+   * path used by every restaurant-scoped Standard read. Whether Standard API
+   * credentials are actually authorized for this Partners endpoint is
+   * explicitly release-gated by issue #28 because Toast's current public
+   * documentation contradicts itself on that point.
+   */
+  async getAccessibleRestaurantsJson(): Promise<unknown> {
+    return (await this.#requestJson({
+      path: PARTNERS_ACCESSIBLE_RESTAURANTS_PATH,
+      rateLimitKey: PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY,
+      apiFamily: "standard",
+    })).body;
   }
 
   async getConfigurationPagesJson(
@@ -494,13 +550,15 @@ export class ToastHttpClient {
     }
   }
 
-  async #requestJson(request: ToastGetJsonRequest): Promise<JsonResponseResult> {
+  async #requestJson(
+    request: ToastInternalGetJsonRequest,
+  ): Promise<JsonResponseResult> {
     const apiFamily = request.apiFamily ?? "standard";
-    const stateKey = rateLimitStateKey(
-      apiFamily,
-      request.restaurantGuid,
-      request.rateLimitKey,
-    );
+    const restaurantGuid =
+      "restaurantGuid" in request ? request.restaurantGuid : undefined;
+    const stateKey = restaurantGuid === undefined
+      ? credentialRateLimitStateKey(apiFamily, request.rateLimitKey)
+      : rateLimitStateKey(apiFamily, restaurantGuid, request.rateLimitKey);
     let lastError: ToastHttpError | undefined;
 
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
@@ -530,13 +588,17 @@ export class ToastHttpClient {
       let response: Response;
       const url = this.#buildUrl(request);
       try {
+        const headers: Record<string, string> = {
+          accept: "application/json",
+          authorization: authorizationHeader,
+        };
+        if (restaurantGuid !== undefined) {
+          headers["toast-restaurant-external-id"] = restaurantGuid;
+        }
+
         response = await this.#fetch(url, {
           method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: authorizationHeader,
-            "toast-restaurant-external-id": request.restaurantGuid,
-          },
+          headers,
         });
       } catch {
         lastError = new ToastHttpError(
@@ -549,13 +611,22 @@ export class ToastHttpClient {
         continue;
       }
 
-      this.#recordRateLimit(
-        stateKey,
-        apiFamily,
-        request.restaurantGuid,
-        request.rateLimitKey,
-        response,
-      );
+      if (restaurantGuid === undefined) {
+        this.#recordCredentialRateLimit(
+          stateKey,
+          apiFamily,
+          request.rateLimitKey,
+          response,
+        );
+      } else {
+        this.#recordRateLimit(
+          stateKey,
+          apiFamily,
+          restaurantGuid,
+          request.rateLimitKey,
+          response,
+        );
+      }
 
       if (!response.ok) {
         const retryable = RETRYABLE_STATUSES.has(response.status);
@@ -614,12 +685,27 @@ export class ToastHttpClient {
     restaurantGuid: string,
     key: string,
   ): ToastRateLimitSnapshot | undefined {
-    return this.#rateLimits.get(
+    const snapshot = this.#rateLimits.get(
       rateLimitStateKey(apiFamily, restaurantGuid, key),
     );
+    return snapshot !== undefined && "restaurantGuid" in snapshot
+      ? snapshot
+      : undefined;
   }
 
-  #buildUrl(request: ToastGetJsonRequest): string {
+  getCredentialRateLimitSnapshot(
+    apiFamily: ToastApiFamily,
+    key: string,
+  ): ToastCredentialRateLimitSnapshot | undefined {
+    const snapshot = this.#rateLimits.get(
+      credentialRateLimitStateKey(apiFamily, key),
+    );
+    return snapshot !== undefined && "scope" in snapshot
+      ? snapshot
+      : undefined;
+  }
+
+  #buildUrl(request: ToastInternalGetJsonRequest): string {
     const url = new URL(`https://${this.#config.apiHostname}${request.path}`);
 
     for (const [key, value] of Object.entries(request.query ?? {})) {
@@ -643,6 +729,28 @@ export class ToastHttpClient {
     const snapshot: ToastRateLimitSnapshot = Object.freeze({
       apiFamily,
       restaurantGuid,
+      key,
+      limit: numericHeader(response, "toast-ratelimit-limit"),
+      remaining: numericHeader(response, "toast-ratelimit-remaining"),
+      resetAtEpochMs: epochHeader(response, "toast-ratelimit-reset"),
+      retryAfterEpochMs,
+      updatedAtEpochMs: now,
+    });
+
+    this.#rateLimits.set(stateKey, snapshot);
+  }
+
+  #recordCredentialRateLimit(
+    stateKey: string,
+    apiFamily: ToastApiFamily,
+    key: string,
+    response: Response,
+  ): void {
+    const now = this.#now();
+    const retryAfterEpochMs = retryAfterEpochMsFromHeaders(response, now);
+    const snapshot: ToastCredentialRateLimitSnapshot = Object.freeze({
+      apiFamily,
+      scope: "credential",
       key,
       limit: numericHeader(response, "toast-ratelimit-limit"),
       remaining: numericHeader(response, "toast-ratelimit-remaining"),
@@ -1065,27 +1173,35 @@ function epochHeader(response: Response, name: string): number | undefined {
 }
 
 /**
- * Sole constructor of rate-limit map keys.
+ * Restaurant-scoped rate-limit keys remain structurally bound to restaurant
+ * GUID, closing T1-004-R1-S1/F7. The `:restaurant:` namespace added by this
+ * repair is intentionally disjoint from the one allowlisted credential-wide
+ * source's `:credential:` namespace below, so credential-scoped discovery
+ * can never block or inherit a restaurant bucket.
  *
- * AGENTS.md rule 6 ("Location isolation is mandatory") requires every cache
- * key to be explicitly bound to a restaurant GUID. `restaurantGuid` was
- * previously used only for the outbound `toast-restaurant-external-id`
- * header and never entered the key derived here, so two distinct
- * restaurants sharing a `rateLimitKey` (for example `"ordersBulk"`) shared
- * one rate-limit bucket: location A's exhausted quota blocked location B.
- * See T1-004-R1-S1 / T1-004-R1-F7.
- *
- * `restaurantGuid` is a required, non-optional parameter — not a caller
- * convention — so a bare `apiFamily:key` state key can no longer be
- * constructed from this module at all. Every caller of this function (both
- * within this file) must supply it.
+ * Do not remove restaurant GUID from this key when adding future transports:
+ * AGENTS.md rule 6 requires location isolation for every cache/state key.
  */
 function rateLimitStateKey(
   apiFamily: ToastApiFamily,
   restaurantGuid: string,
   key: string,
 ): string {
-  return `${apiFamily}:${restaurantGuid}:${key}`;
+  return `${apiFamily}:restaurant:${restaurantGuid}:${key}`;
+}
+
+/**
+ * Credential-scoped state is safe only because each ToastHttpClient instance
+ * is permanently bound to one RuntimeConfig/token-manager identity and this
+ * namespace cannot collide with `rateLimitStateKey`. A future generic shared
+ * limiter would need an explicit credential identity in the key instead of
+ * inheriting this instance-local assumption.
+ */
+function credentialRateLimitStateKey(
+  apiFamily: ToastApiFamily,
+  key: string,
+): string {
+  return `${apiFamily}:credential:${key}`;
 }
 
 async function defaultSleep(milliseconds: number): Promise<void> {
