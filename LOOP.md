@@ -80,7 +80,26 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking finding; see below.
+T2-002 is the next dependency-safe executable slice. PR #12 must rebase on the repaired T2-001 authority boundary before exact-head validation and independent review.
+
+### Pre-T3 MCP SDK v2 gate — CLOSED
+
+- Owning issue / PR: #17 / PR #24.
+- Reviewed source head: `5b355dce83576b65e1f2ff43d51aa9d56ab0b10c`.
+- Squash merge: `4bcb2a5ada264beffde97804f43daa69893f93cd`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 7 test files and 132 tests passed on each runtime. `npm pack --dry-run --json` passed with 31 package files.
+- Independent exact-head review: CLEAN. The runtime uses stable MCP v2 server and stdio packages only. The test-only client remains outside production imports.
+- DOX: updated.
+
+### T2-001 production location-source repair — CLOSED
+
+- Owning issue / PR: #16 / PR #27.
+- Reviewed source head: `cc804083f8954e3bc30bc2dbf898a1ff8ceb8e3d`.
+- Squash merge: `bde1546c89825e9435b274f3f49ef02f266cb65c`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 9 test files and 165 tests passed on each runtime. `npm pack --dry-run --json` passed with 31 package files.
+- Negative verification: all 30 location-schema mutations and all 5 Partners transport mutations failed their focused test. No mutation survivor remained.
+- Independent exact-head review: CLEAN. The live Standard-credential compatibility gate remains issue #28; no local fixture result closes it.
+- DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
 
@@ -327,7 +346,7 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next role:** REVIEWER, once T2-002 reports
-- **Slice:** T2-002 — Decode scopes and expose deterministic capability denials, currently building on `main`
-- **Dependency note:** T2-002's declared dependency on T2-001 was assessed rather than assumed. Scope decoding reads what a credential is authorized for, which needs the transport rather than the location registry, so it was launched in parallel off `main` in a new file. T2-001 has since merged, so the question is moot.
-- **After T2-002:** T3-001 normalization is the next gate. It unlocks four genuinely independent report domains — sales, items, cash, and labor — in separate files, which is the first point where parallel builds earn more than they cost in rebases.
+- **Next slice:** T2-002 / PR #12 — decode scopes and expose deterministic capability denials.
+- **Required action:** rebase on `main` at `bde1546c89825e9435b274f3f49ef02f266cb65c`, then run Node 20/22 exact-head validation and an independent review.
+- **Next stacked prerequisite:** PR #29 — successful transport provenance. Rebase after PR #12 or as a separately verified child of the repaired T2-001 boundary.
+- **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.

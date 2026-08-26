@@ -1,8 +1,8 @@
 # GSD execution state snapshot
 
-**Generated:** 2026-08-16  
+**Generated:** 2026-08-26
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `559dfd41dfbb3f45c404046a6ef2c77594991d04`
+**Observed `main`:** `bde1546c89825e9435b274f3f49ef02f266cb65c`
 
 ## Canonical campaign position
 
@@ -10,8 +10,8 @@
 
 - T0-001 CLOSED;
 - T1-001 through T1-006 CLOSED;
-- T2-001 CLOSED in the ledger but under a production regression repair because its merged source assumption was later disproved;
-- T2-002 is the next logical capability slice but is blocked on corrected restaurant-level scope authority;
+- T2-001 production location-source repair is CLOSED after PR #27 merged and passed its Node 20/22 and mutation gates;
+- T2-002 is the next logical capability slice and must rebase on the corrected restaurant-level scope authority;
 - T3/T4/T5 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
@@ -19,44 +19,29 @@
 
 | Work | PR / issue | Exact observed head | State at snapshot |
 |---|---|---|---|
-| T2-001 production location-source regression repair | #16 / PR #27 | `9606eb811dd6fab60e2f6749bc78fc0fe7d078bd` | source/design reviewed clean through R3; authentic Node20/22 + enumerated mutation execution still required before CLEAN |
-| T2-002 capability preflight | PR #12 | `640cbef778ea1a8029db1479fec4c3618258b224` | blocked on #16; must intersect token provisioned scopes with selected location connection scopes |
-| successful transport provenance | #15 / PR #29 | `6c6082e6dba182f95a1cf121b0983ab9eb381c26` | stacked on PR #27; source design reviewed clean, exact-head/base validation pending |
+| T2-001 production location-source regression repair | #16 / PR #27 | merged as `bde1546c89825e9435b274f3f49ef02f266cb65c` | CLOSED; Node 20/22 gates passed, 35/35 required mutations caught, independent review CLEAN; issue #28 remains the live Standard credential gate |
+| T2-002 capability preflight | PR #12 | `79ec47628aa4d4e9b6e3f1675b74ac45033c6022` | stacked on the prior #27 head; rebase on `main`, then validate the token-scope and location-scope intersection |
+| successful transport provenance | #15 / PR #29 | `6c6082e6dba182f95a1cf121b0983ab9eb381c26` | stacked on the prior #27 head; rebase and exact-head validation pending |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
-| MCP SDK v2 migration | #17 | no implementation branch observed at snapshot | pre-T3 prerequisite, authentic package resolution required |
+| MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
 | stateless/reconnect/cancellation compatibility | #4 | research intake | must be resliced/reconciled before user-facing tool lifecycle is considered production-proven |
 | ordersBulk bounded-memory/page-fold prerequisite | #31 | newly opened | pre-T3 report-tool prerequisite |
 | Toast rate-limit reset semantics | #32 | newly opened | release proof gate |
 | T3 normalization | #18 | planning issue | waits on corrected authority/provenance primitives |
 | real Standard MCP report tool wiring | #19 | planning issue | waits on T3 normalization and pre-T3 production prerequisites |
 
-## Current executor limitations
+## Current executor capability
 
-The current execution container cannot reach an authorized npm registry or public package source and has no authentic dependency cache for this repository. Therefore:
-
-- no changed-head `npm ci` / `npm run check` result from this executor is valid evidence;
-- no validation doubles, copied third-party caches, hand-built lockfiles, or reconstructed dependencies may substitute;
-- source/review/docs/control-plane work can continue;
-- exact-head CLEAN remains unavailable for changed executable branches until an authentic dependency-backed executor runs the gates.
-
-This is an execution-path limitation, not a human product decision and not permission to weaken a gate.
+This executor can complete authentic registry-backed `npm ci` and package validation on Node 20.20.2 and Node 22.22.2. It does not have authorized live Toast credentials. The campaign must continue to reject validation doubles, copied package caches, hand-built lockfiles, and reconstructed results.
 
 ## Dependency frontier
 
-### Executable without npm/live Toast
+### Executable now
 
-- complete/review/merge this GSD control-plane documentation slice;
-- review source architecture and planning issues;
-- prepare SDK-v2 source migration against official upstream contracts, while leaving lockfile/install evidence pending;
-- refine #4 into a bounded protocol verification slice;
-- design/implement page-fold API structurally on the existing stacked transport chain, with authentic validation deferred.
-
-### Blocked on authentic npm execution
-
-- PR #27 CLEAN;
-- PR #29 CLEAN;
-- any SDK-v2 package/lockfile exact-head proof;
-- executable T3 source gates.
+- rebase, validate, independently review, and merge T2-002 / PR #12;
+- flatten the transport/provenance and page-fold prerequisite stack in dependency order;
+- rebase PR #40 after its prerequisites, then prove the complete stdio-to-report response path;
+- review PR #41 in parallel without rebuilding it.
 
 ### Human/external gates
 
@@ -66,13 +51,11 @@ This is an execution-path limitation, not a human product decision and not permi
 
 ## Immediate autonomous order
 
-1. Land the GSD ROADMAP/STATE precedence bridge after independent review.
-2. Continue source-level pre-T3 hardening on independent/explicitly stacked branches while preserving validation blockers.
-3. Reconcile #4 with current SDK/runtime architecture and #17.
-4. Resolve #27 in the first authentic npm-capable executor; merge it before retargeting/validating #29.
-5. Rebase/finalize T2-002 on corrected location authority.
-6. Complete #31 page-fold path and #17 SDK v2 before T3 user-facing tool registration.
-7. Execute T3 production chain through stdio, then T4, T5, and T6 in ROADMAP order.
+1. Rebase and finalize T2-002 / PR #12 on the repaired location authority.
+2. Rebase and finalize PR #29, then PR #35, PR #37, and PR #39 in order.
+3. Rebase and finalize PR #34 when PR #29 stabilizes.
+4. Rebase PR #40 after all prerequisites land, then run its complete production-chain validation and independent review.
+5. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.
 
 ## Refresh rule
 
