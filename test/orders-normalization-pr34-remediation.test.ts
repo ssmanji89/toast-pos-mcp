@@ -48,7 +48,7 @@ test("rejects an empty successful request ID and an invalid selected location GU
   assertSourceInvalid(() => normalizeOrdersPages({
     location: { ...LOCATION, restaurantGuid: "not-a-guid" },
     query: { mode: "business_date", businessDate: 20260816 },
-    pages: [page()],
+    pages: [page({ scope: { kind: "restaurant", restaurantGuid: "not-a-guid" } })],
   }));
 });
 
@@ -95,6 +95,14 @@ test("enforces each supported source identity boundary independently", () => {
   const discounts = selectionDiscounts.checks[0].selections[0].appliedDiscounts;
   discounts.push({ ...discounts[0] });
   assertDuplicate(() => normalize(page({ body: [selectionDiscounts] })));
+});
+
+test("rejects a duplicate order GUID before independent child identities can mask it", () => {
+  const first = detailedOrder(1070);
+  const second = detailedOrder(1080);
+  second.guid = first.guid;
+
+  assertDuplicate(() => normalize(page({ body: [first, second] })));
 });
 
 test("retains required applied-tax GUIDs and rejects cross-surface duplicates", () => {
