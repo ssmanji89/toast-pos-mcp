@@ -7,6 +7,10 @@ import {
 } from "./capabilities.js";
 import type { ToastLocationDiscoveryProvenance } from "./locations.js";
 import {
+  STANDARD_REPORT_SCHEMA_VERSION,
+  type ReportContextFreshness,
+} from "./report-contract.js";
+import {
   addMinorUnits,
   denialFromError,
   moneyToMinorUnits,
@@ -72,15 +76,22 @@ export interface PaymentStatusCount {
 }
 
 export interface PaymentSummaryComplete {
+  readonly schemaVersion: typeof STANDARD_REPORT_SCHEMA_VERSION;
   readonly status: "complete";
   readonly report: "payment_summary";
   readonly source: "standard_api";
   readonly restaurantGuid: string;
+  readonly restaurantName: string;
+  /** Compatibility alias for effectiveBusinessDate. */
   readonly businessDate: number;
+  readonly requestedBusinessDate: number;
+  readonly effectiveBusinessDate: number;
   readonly timezone: string;
   readonly closeoutHour: number;
   readonly currencyCode: string;
   readonly generatedAtEpochMs: number;
+  readonly eventListCount: 3;
+  readonly paymentDetailsProcessed: number;
   readonly uniquePaymentCount: number;
   readonly paid: {
     readonly paymentCount: number;
@@ -99,28 +110,44 @@ export interface PaymentSummaryComplete {
   readonly paidByType: readonly PaymentTypeTotal[];
   readonly paymentStatusCounts: readonly PaymentStatusCount[];
   readonly refundStatusCounts: readonly PaymentStatusCount[];
+  readonly contextFreshness: ReportContextFreshness;
   readonly contextProvenance: ToastLocationDiscoveryProvenance;
   readonly provenance: ReportProvenance;
+  readonly formulaNotes: readonly string[];
   readonly warnings: readonly string[];
 }
 
 export interface PaymentSummaryDenied {
+  readonly schemaVersion: typeof STANDARD_REPORT_SCHEMA_VERSION;
   readonly status: "denied";
   readonly report: "payment_summary";
   readonly source: "standard_api";
   readonly restaurantGuid: string | undefined;
+  readonly restaurantName: string | undefined;
+  /** Compatibility alias for requestedBusinessDate on denied results. */
   readonly businessDate: number;
+  readonly requestedBusinessDate: number;
+  readonly effectiveBusinessDate: number | undefined;
   readonly generatedAtEpochMs: number;
+  readonly contextFreshness?: ReportContextFreshness;
   readonly contextProvenance?: ToastLocationDiscoveryProvenance;
   readonly denial: ReportDenial;
   readonly missingScopes: readonly string[];
   readonly missingProvisionedScopes: readonly string[];
   readonly missingConnectionScopes: readonly string[];
   readonly excludedScopes: readonly string[];
+  readonly formulaNotes: readonly string[];
   readonly warnings: readonly string[];
 }
 
 export type PaymentSummaryResult = PaymentSummaryComplete | PaymentSummaryDenied;
+
+const PAYMENT_FORMULA_NOTES = Object.freeze([
+  "Source mode uses three independent Orders API /payments business-date event lists: paidBusinessDate, refundBusinessDate, and voidBusinessDate; Standard and Analytics metrics are never mixed.",
+  "Each unique payment GUID is hydrated once; a payment may contribute to more than one lifecycle event group when Toast reports matching dates.",
+  "Paid amount/tip, refund amount/tip refund, and voided payment amount remain separate deterministic minor-unit totals.",
+  "Payment detail parsing strips guest/card/tender fields that are outside this report contract before aggregation or serialization.",
+]);
 
 const PAYMENT_WARNINGS = Object.freeze([
   "Payment events are sourced independently by paidBusinessDate, refundBusinessDate, and voidBusinessDate; one payment can legitimately appear in more than one event group.",
@@ -137,17 +164,23 @@ export async function buildPaymentSummaryReport(
 ): Promise<PaymentSummaryResult> {
   const generatedAtEpochMs = runtime.now();
   let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
+  let restaurantName: string | undefined;
+  let contextFreshness: ReportContextFreshness | undefined;
   let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
+  let effectiveBusinessDate: number | undefined;
 
   try {
     assertValidBusinessDate(input.businessDate);
+    effectiveBusinessDate = input.businessDate;
     const locationContext = await runtime.getLocationContext(
       input.restaurantGuid,
       { signal: options.signal },
     );
     const { location } = locationContext;
+    contextFreshness = locationContext.freshness;
     contextProvenance = locationContext.provenance;
     resolvedRestaurantGuid = location.restaurantGuid;
+    restaurantName = location.name;
     const capabilityContext = await createCapabilityContext(
       runtime.tokenManager,
       location,
@@ -161,7 +194,9 @@ export async function buildPaymentSummaryReport(
         input.businessDate,
         generatedAtEpochMs,
         location.restaurantGuid,
+        location.name,
         capability,
+        contextFreshness,
         contextProvenance,
       );
     }
@@ -299,15 +334,21 @@ export async function buildPaymentSummaryReport(
     }
 
     return Object.freeze({
+      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
       status: "complete" as const,
       report: "payment_summary" as const,
       source: "standard_api" as const,
       restaurantGuid: location.restaurantGuid,
+      restaurantName: location.name,
       businessDate: input.businessDate,
+      requestedBusinessDate: input.businessDate,
+      effectiveBusinessDate: input.businessDate,
       timezone: location.timezone,
       closeoutHour: location.closeoutHour,
       currencyCode: location.currencyCode,
       generatedAtEpochMs,
+      eventListCount: 3 as const,
+      paymentDetailsProcessed: uniqueIds.length,
       uniquePaymentCount: uniqueIds.length,
       paid: Object.freeze({
         paymentCount: paidIds.length,
@@ -330,24 +371,32 @@ export async function buildPaymentSummaryReport(
       ),
       paymentStatusCounts: freezeStatusCounts(paymentStatusCounts),
       refundStatusCounts: freezeStatusCounts(refundStatusCounts),
+      contextFreshness,
       contextProvenance,
       provenance: provenance.snapshot(),
+      formulaNotes: PAYMENT_FORMULA_NOTES,
       warnings: PAYMENT_WARNINGS,
     });
   } catch (error) {
     return Object.freeze({
+      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
       status: "denied" as const,
       report: "payment_summary" as const,
       source: "standard_api" as const,
       restaurantGuid: resolvedRestaurantGuid,
+      restaurantName,
       businessDate: input.businessDate,
+      requestedBusinessDate: input.businessDate,
+      effectiveBusinessDate,
       generatedAtEpochMs,
+      ...(contextFreshness === undefined ? {} : { contextFreshness }),
       ...(contextProvenance === undefined ? {} : { contextProvenance }),
       denial: denialFromError(error),
       missingScopes: Object.freeze([]),
       missingProvisionedScopes: Object.freeze([]),
       missingConnectionScopes: Object.freeze([]),
       excludedScopes: Object.freeze([]),
+      formulaNotes: PAYMENT_FORMULA_NOTES,
       warnings: PAYMENT_WARNINGS,
     });
   }
@@ -443,16 +492,23 @@ function capabilityDenied(
   businessDate: number,
   generatedAtEpochMs: number,
   restaurantGuid: string,
+  restaurantName: string,
   denial: CapabilityDenial,
+  contextFreshness: ReportContextFreshness,
   contextProvenance: ToastLocationDiscoveryProvenance,
 ): PaymentSummaryDenied {
   return Object.freeze({
+    schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
     status: "denied" as const,
     report: "payment_summary" as const,
     source: "standard_api" as const,
     restaurantGuid,
+    restaurantName,
     businessDate,
+    requestedBusinessDate: businessDate,
+    effectiveBusinessDate: businessDate,
     generatedAtEpochMs,
+    contextFreshness,
     contextProvenance,
     denial: Object.freeze({
       code: `capability_${denial.reason}`,
@@ -464,6 +520,7 @@ function capabilityDenied(
     missingProvisionedScopes: denial.missingProvisionedScopes,
     missingConnectionScopes: denial.missingConnectionScopes,
     excludedScopes: denial.excludedScopes,
+    formulaNotes: PAYMENT_FORMULA_NOTES,
     warnings: PAYMENT_WARNINGS,
   });
 }
