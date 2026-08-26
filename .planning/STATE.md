@@ -18,7 +18,7 @@ milestone_name: Public local Toast reporting MCP
 - T3/T4/T5 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
-## Active implementation/review branches observed
+## Campaign work observed
 
 | Work | PR / issue | Exact observed head | State at snapshot |
 |---|---|---|---|
@@ -30,8 +30,12 @@ milestone_name: Public local Toast reporting MCP
 | stateless/reconnect/cancellation compatibility | #4 | research intake | must be resliced/reconciled before user-facing tool lifecycle is considered production-proven |
 | ordersBulk bounded-memory/page-fold prerequisite | #31 | newly opened | pre-T3 report-tool prerequisite |
 | Toast rate-limit reset semantics | #32 | newly opened | release proof gate |
-| T3 normalization | #18 | planning issue | waits on corrected authority/provenance primitives |
-| real Standard MCP report tool wiring | #19 | planning issue | waits on T3 normalization and pre-T3 production prerequisites |
+| bounded orders page fold | #31 / PR #35 | `60a601b12f0e75a6bb40e6740be65ba85b90ea11` | open draft; rebase on merged PR #29 is active |
+| current rate-limit hierarchy | PR #37 | `a2c86f16e4f3994389c4a0daf396abee0c2ec0d1` | open draft; stacked on PR #35 |
+| Standard request cancellation | PR #39 | `6d372c484a93b3f93430c7722884d782d83bc891` | open draft; stacked on PR #37 |
+| T3 normalization | #18 / PR #34 | `a1dafa3ed300f7c5b687cf9105d773d2c914f0ff` | open draft; authority and provenance prerequisites are merged; rebase and exact-head review remain |
+| Standard sales/payment MCP tools | #19 / PR #40 | `67239a7788418df3cd2e6a7db1c9c234352171da` | open draft; waits on PR #34 and the PR #35 → #37 → #39 chain |
+| item/dimension sales MCP tools | PR #41 | `a48ed600aa0827de8a223b4e0f576fda0e386035` | open draft; reviewed findings remain; rebase only after PR #40 stabilizes |
 
 ## Current executor capability
 

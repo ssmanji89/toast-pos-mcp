@@ -69,6 +69,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 ### Implemented/wired evidence
 
 - process startup → `RuntimeConfig` → OAuth token manager → shared `ToastHttpClient` → local MCP server;
+- #17 / PR #24 migrated the runtime to stable MCP v2 and proved legacy 2025 plus 2026-07-28 stdio clients on Node 20 and Node 22;
 - configuration page-token traversal owns duplicate-token and scoped-409 restart behavior;
 - `/ordersBulk` owns Link traversal, bounded query/pageSize/path/+1 integrity checks;
 - no Toast reporting tool is yet registered, so transport reachability is internal rather than user-visible.
@@ -77,7 +78,6 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - #32 — verify real Toast `Toast-RateLimit-Reset` semantics before release claims;
 - #4 — bounded MCP protocol/stateless/reconnect/cancellation compatibility assessment;
-- #17 — migrate the local runtime to stable MCP TypeScript SDK v2 before user-facing T3 tool registration, then re-prove stdio behavior.
 
 ---
 
@@ -138,7 +138,7 @@ Exit behavior:
 
 Owner:
 
-- #15 / PR #29, intentionally stacked on #27 while the shared transport repair is open.
+- #15 / PR #29 — merged and closed on `main` as `afdffee57a43207bc045b08e2be1eae2e6d4bd23`.
 
 Exit behavior:
 
@@ -167,8 +167,8 @@ Exit behavior before T3 report tools:
 Phase 2 is ready for user-facing T3 tool registration only when:
 
 - #16 is CLEAN/merged and T2-002 is rebased onto the corrected location authority;
-- #15 provenance and #31 page-fold primitives are available on the same production transport;
-- #17 SDK v2 migration is exact-head validated/reviewed;
+- #15 provenance is merged; #31 page-fold primitives remain required on the same production transport;
+- #17 SDK v2 migration is exact-head validated, independently reviewed, merged, and closed;
 - #4's protocol compatibility concerns that affect local stdio tool lifecycle/cancellation are either closed or owned by an explicit bounded follow-up;
 - all paths use the same runtime identities rather than reconstructed lookalikes.
 
