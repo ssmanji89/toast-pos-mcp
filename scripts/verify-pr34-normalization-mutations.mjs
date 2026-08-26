@@ -87,7 +87,7 @@ guard("A03", "src/orders-normalization-traversal.ts", "serviceChargeCategory: so
 guard("C01", "src/exact-decimal.ts", "/^-?0\\d/u.test(value.coefficient)", "false", "orders-normalization-pr34-remediation.test");
 guard("C02", "src/exact-decimal.ts", "value.coefficient === \"-0\"", "false", "orders-normalization-pr34-remediation.test");
 guard("C03", "src/exact-decimal.ts", "value.scale > 0 && value.coefficient.endsWith(\"0\")", "false", "orders-normalization-pr34-remediation.test");
-guard("H01", "src/orders-normalization-types.ts", "amountHundredths", "amountMinor", "orders-normalization-pr34-remediation.test");
+guard("H01", "src/orders-normalization-types.ts", "export interface NormalizedCheck { readonly guid: string; readonly amountHundredths", "export interface NormalizedCheck { readonly guid: string; readonly amountMinor", "orders-normalization-pr34-remediation.test");
 
 if (guards.length !== 64) throw new Error(`guard map has ${guards.length} entries, expected 64`);
 if (!process.versions.node.startsWith("22.22.2")) throw new Error(`Node 22.22.2 is required; found ${process.version}`);
