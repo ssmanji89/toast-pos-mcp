@@ -405,6 +405,7 @@ export function normalizeOrdersPages(options: {
     if (page === undefined) {
       throw sourceInvalid();
     }
+    assertStandardRestaurantScope(page, restaurantGuid);
     assertRetrievalMetadata(page);
 
     const rawOrders = z.array(z.unknown()).safeParse(page.body);
@@ -790,6 +791,18 @@ function assertRetrievalMetadata(page: ToastDetailedJsonResult): void {
       && page.upstreamRequestId.length === 0
     )
   ) {
+    throw sourceInvalid();
+  }
+}
+
+function assertStandardRestaurantScope(
+  page: ToastDetailedJsonResult,
+  restaurantGuid: string,
+): void {
+  if (page.apiFamily !== "standard" || page.scope.kind !== "restaurant") {
+    throw sourceInvalid();
+  }
+  if (normalizeRestaurantGuid(page.scope.restaurantGuid) !== restaurantGuid) {
     throw sourceInvalid();
   }
 }
