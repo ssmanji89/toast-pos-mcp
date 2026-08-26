@@ -97,6 +97,40 @@ test("exact decimal operations retain exponent, mixed scale, negative, and empty
   assert.deepEqual(addExactDecimals([]), { coefficient: "0", scale: 0 });
 });
 
+test("exact decimal conversion expands Number exponent notation", () => {
+  const positiveExponent = 1e21;
+  const negativeExponent = 1e-7;
+  assert.match(String(positiveExponent), /e/u);
+  assert.match(String(negativeExponent), /e/u);
+  assert.deepEqual(exactDecimalFromNumber(positiveExponent), {
+    coefficient: "1000000000000000000000",
+    scale: 0,
+  });
+  assert.deepEqual(exactDecimalFromNumber(negativeExponent), {
+    coefficient: "1",
+    scale: 7,
+  });
+});
+
+test("exact decimal addition removes trailing coefficient zeroes", () => {
+  assert.deepEqual(addExactDecimals([
+    { coefficient: "1200", scale: 3 },
+    { coefficient: "0", scale: 3 },
+  ]), { coefficient: "12", scale: 1 });
+});
+
+test("exact decimal rendering prefixes a positive fraction with zero", () => {
+  assert.equal(exactDecimalToString({ coefficient: "5", scale: 2 }), "0.05");
+});
+
+test("exact decimal addition returns frozen values", () => {
+  assert.ok(Object.isFrozen(addExactDecimals([
+    { coefficient: "1", scale: 1 },
+    { coefficient: "2", scale: 1 },
+  ])));
+  assert.ok(Object.isFrozen(addExactDecimals([])));
+});
+
 test("exact decimal operations reject non-canonical inputs", () => {
   for (const value of [
     { coefficient: "1.2", scale: 1 },
