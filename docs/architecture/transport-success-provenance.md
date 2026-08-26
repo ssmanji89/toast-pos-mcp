@@ -11,7 +11,9 @@ The original `ToastHttpClient` preserved useful metadata only on error paths. Su
 
 `ToastDetailedJsonResult` contains exactly:
 
+- `apiFamily`: the fixed source family, currently `standard`;
 - `body`: the parsed JSON body;
+- `scope`: immutable request authority. Restaurant reads retain a normalized restaurant GUID. The allowlisted Partners read retains `credential` scope and no restaurant GUID;
 - `retrievedAtEpochMs`: a local clock sample taken after the successful body has been parsed;
 - `upstreamRequestId`: the successful response's `Toast-Request-Id` when present, otherwise `undefined`.
 
@@ -28,7 +30,7 @@ Existing body-only methods remain compatibility projections over the detailed im
 
 ## Pagination provenance
 
-Detailed pagination returns one immutable detailed entry per **retained, proven page** in traversal order.
+Detailed pagination returns one immutable detailed entry per **retained, proven page** in traversal order. Every configuration and `/ordersBulk` entry has `standard` API family and the normalized selected restaurant scope. Partners discovery has `standard` API family and credential scope.
 
 For configuration page-token traversal, a scoped HTTP 409 restarts from page one. The partial attempt's body entries and their successful request metadata share the same attempt-local array and are discarded together. A stale page request ID must never survive into the final successful detailed result.
 
@@ -88,10 +90,10 @@ No duplicate HTTP traversal exists between detailed and legacy methods.
 
 Before CLEAN:
 
-1. detailed single-request result includes body, local retrieval timestamp, and successful request ID when supplied;
+1. detailed single-request result includes API family, immutable authority scope, body, local retrieval timestamp, and successful request ID when supplied;
 2. missing success request ID remains `undefined`, never fabricated;
 3. a retryable failed request ID cannot contaminate a later successful result;
-4. configuration and orders pagination retain one metadata entry per final page;
+4. configuration and orders pagination retain one metadata entry per final page with the normalized restaurant scope; Partners discovery retains credential scope;
 5. configuration 409 restart discards stale body and metadata entries together;
 6. legacy wrappers preserve their prior return shapes;
 7. detailed objects/page arrays are immutable while body semantics remain unchanged;
