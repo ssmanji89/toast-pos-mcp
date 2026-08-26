@@ -1,8 +1,8 @@
 # Threat-model addendum: T2 location-discovery regression repair
 
-**Status:** current for PR #27 / issue #16  
-**Last reviewed:** 2026-08-16  
-**Supersedes:** the location-discovery and location-source statements in [`threat-model.md`](threat-model.md) until that historical baseline is fully regenerated after merge  
+**Status:** current for PR #27 / issue #16
+**Last reviewed:** 2026-08-16
+**Supersedes:** the location-discovery and location-source statements in [`threat-model.md`](threat-model.md) until that historical baseline is fully regenerated after merge
 **Release gate:** issue #28
 
 ## Why this addendum exists

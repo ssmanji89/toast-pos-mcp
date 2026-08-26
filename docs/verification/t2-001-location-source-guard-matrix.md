@@ -1,7 +1,7 @@
 # T2-001 location-source guard matrix
 
-**Slice:** regression repair #16 / PR #27  
-**Rule:** enumerate first, then mutate every guard  
+**Slice:** regression repair #16 / PR #27
+**Rule:** enumerate first, then mutate every guard
 **Exact mutation execution:** pending an authentic dependency-backed executor
 
 This matrix exists because the original T2-001 review proved that self-selected mutation samples systematically miss ordinary-looking schema guards. A green aggregate test count is not evidence that every guard is load-bearing.

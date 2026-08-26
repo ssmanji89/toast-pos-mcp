@@ -1,8 +1,8 @@
 # Standard API location-discovery compatibility
 
-**Status:** implementation-safe; live Standard-credential compatibility unproven  
-**Last reviewed:** 2026-08-16  
-**Release gate:** GitHub issue #28  
+**Status:** implementation-safe; live Standard-credential compatibility unproven
+**Last reviewed:** 2026-08-16
+**Release gate:** GitHub issue #28
 **Current security model:** [`threat-model-t2-location-repair.md`](threat-model-t2-location-repair.md)
 
 ## Decision
