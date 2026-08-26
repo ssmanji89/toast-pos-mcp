@@ -57,7 +57,7 @@ guard("N34", "src/orders-normalization-traversal.ts", "return guid === undefined
 guard("N35", "src/orders-normalization-source.ts", "quantity: z.number().finite()", "quantity: z.number().int()", "orders-normalization.test");
 guard("N36", "src/orders-normalization-traversal.ts", "return Object.freeze({ source: \"standard_api\"", "return { source: \"standard_api\"", "orders-normalization.test");
 guard("N37", "src/orders-normalization-traversal.ts", "refund: source.refund == null ? undefined", "refund: undefined", "orders-normalization.test");
-guard("N38", "src/orders-normalization-traversal.ts", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\"", "serviceChargeCategory: \"SERVICE_CHARGE\"", "orders-normalization.test");
+guard("N38", "src/orders-normalization-traversal.ts", "serviceChargeCategory: source.serviceChargeCategory ?? \"SERVICE_CHARGE\"", "serviceChargeCategory: \"SERVICE_CHARGE\"", "orders-normalization-pr34-remediation.test");
 guard("N39", "src/orders-normalization-traversal.ts", "recordCount: rawOrders.data.length", "recordCount: 0", "orders-normalization.test");
 guard("N40", "src/orders-normalization-traversal.ts", "pageNumber: pageIndex + 1", "pageNumber: pageIndex", "orders-normalization.test");
 guard("N41", "src/orders-normalization-traversal.ts", "upstreamRequestId: page.upstreamRequestId", "upstreamRequestId: undefined", "orders-normalization.test");

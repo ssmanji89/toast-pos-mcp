@@ -105,6 +105,14 @@ test("rejects a duplicate order GUID before independent child identities can mas
   assertDuplicate(() => normalize(page({ body: [first, second] })));
 });
 
+test("retains an unknown service-charge category", () => {
+  const raw = detailedOrder(1090);
+  raw.checks[0].appliedServiceCharges[0].serviceChargeCategory = "FUTURE_CATEGORY";
+
+  const batch = normalize(page({ body: [raw] }));
+  assert.equal(batch.orders[0]?.checks[0]?.appliedServiceCharges[0]?.serviceChargeCategory, "FUTURE_CATEGORY");
+});
+
 test("retains required applied-tax GUIDs and rejects cross-surface duplicates", () => {
   const raw = detailedOrder(1050);
   const appliedTaxGuid = guid(1058);
