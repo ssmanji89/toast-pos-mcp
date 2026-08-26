@@ -1,8 +1,8 @@
 # Threat Model Addendum: MCP v2 Local Stdio Runtime
 
-**Status:** current for the pre-T3 MCP v2 migration branch  
-**Last reviewed:** 2026-08-16  
-**Scope:** local MCP process/runtime boundary only  
+**Status:** current for the pre-T3 MCP v2 migration branch
+**Last reviewed:** 2026-08-16
+**Scope:** local MCP process/runtime boundary only
 **Supersedes:** the MCP SDK/package/runtime-currentness statements in `threat-model.md` §§0, 2.2, and 6 when this migration is merged. The rest of the accepted threat model remains in force.
 
 ## Why this addendum exists
