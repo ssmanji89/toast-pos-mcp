@@ -40,7 +40,9 @@ type FixtureScenario =
   | "cancel-active-report"
   | "rate-limit-wait"
   | "missing-menu-item"
-  | "menu-refresh-fails-after-cache";
+  | "menu-refresh-fails-after-cache"
+  | "menu-unavailable-no-cache"
+  | "missing-config-category";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
@@ -51,6 +53,7 @@ const tokenScopes = scenario === "missing-scope"
 let menuMetadataCalls = 0;
 let fullMenuCalls = 0;
 let salesCategoryCalls = 0;
+const configSuccessCalls = new Map<string, number>();
 
 const runtime = createApplicationRuntime({
   env: SYNTHETIC_VALID_RUNTIME_ENV,
@@ -123,8 +126,11 @@ async function syntheticToastFetch(
     assertRestaurantHeader(headers);
     menuMetadataCalls += 1;
     if (
-      scenario === "menu-refresh-fails-after-cache"
-      && menuMetadataCalls > 1
+      scenario === "menu-unavailable-no-cache"
+      || (
+        scenario === "menu-refresh-fails-after-cache"
+        && menuMetadataCalls > 1
+      )
     ) {
       return new Response("{}", {
         status: 503,
@@ -163,13 +169,22 @@ async function syntheticToastFetch(
         },
       });
     }
-    return jsonResponse([
-      { guid: SALES_CATEGORY_GUID, name: "Current Entrees" },
-    ], "fixture-config-sales-category-success");
+    if (salesCategoryCalls > 2) {
+      throw new Error(
+        "fixture configuration snapshot must be cached for the same local day",
+      );
+    }
+    return jsonResponse(
+      scenario === "missing-config-category"
+        ? []
+        : [{ guid: SALES_CATEGORY_GUID, name: "Current Entrees" }],
+      "fixture-config-sales-category-success",
+    );
   }
 
   if (url.pathname === "/config/v2/revenueCenters") {
     assertRestaurantHeader(headers);
+    assertSingleConfigSuccess(url.pathname);
     return jsonResponse([
       { guid: REVENUE_CENTER_GUID, name: "Current Main Dining" },
     ], "fixture-config-revenue-center");
@@ -177,6 +192,7 @@ async function syntheticToastFetch(
 
   if (url.pathname === "/config/v2/diningOptions") {
     assertRestaurantHeader(headers);
+    assertSingleConfigSuccess(url.pathname);
     return jsonResponse([
       {
         guid: DINING_OPTION_GUID,
@@ -188,6 +204,7 @@ async function syntheticToastFetch(
 
   if (url.pathname === "/config/v2/restaurantServices") {
     assertRestaurantHeader(headers);
+    assertSingleConfigSuccess(url.pathname);
     return jsonResponse([
       { guid: RESTAURANT_SERVICE_GUID, name: "Current Dinner" },
     ], "fixture-config-restaurant-service");
@@ -484,6 +501,16 @@ function menuItem(
   };
 }
 
+function assertSingleConfigSuccess(pathname: string): void {
+  const next = (configSuccessCalls.get(pathname) ?? 0) + 1;
+  configSuccessCalls.set(pathname, next);
+  if (next > 1) {
+    throw new Error(
+      "fixture configuration snapshot must be cached for the same local day",
+    );
+  }
+}
+
 function assertDataAllowedByScenario(): void {
   if (scenario === "missing-scope") {
     throw new Error("missing-scope fixture must not reach Orders data source");
@@ -513,6 +540,8 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "rate-limit-wait"
     || value === "missing-menu-item"
     || value === "menu-refresh-fails-after-cache"
+    || value === "menu-unavailable-no-cache"
+    || value === "missing-config-category"
   ) {
     return value ?? "success";
   }
