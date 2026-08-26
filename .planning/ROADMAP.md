@@ -2,7 +2,17 @@
 
 **Method:** GSD-style outcome planning over the binding `LOOP.md` slice ledger  
 **Authority:** `LOOP.md` + GitHub are canonical for atomic state; this ROADMAP is the outcome/verification projection  
-**Updated:** 2026-08-16
+**Updated:** 2026-08-26
+
+## v1.0 — Public local Toast reporting MCP
+
+- [x] **Phase 0: Product and safety foundation**
+- [ ] **Phase 1: Local runtime and Standard transport foundation**
+- [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
+- [ ] **Phase 3: Core Standard reporting and real MCP tool wiring**
+- [ ] **Phase 4: Cash and labor reporting**
+- [ ] **Phase 5: Source-distinct Analytics adapter and tools**
+- [ ] **Phase 6: Release hardening and public compatibility proof**
 
 ## How to read this file
 
@@ -16,7 +26,9 @@ A phase is not complete merely because code exists or tests pass. Each phase dis
 
 `LOOP.md` remains the canonical state machine for `OPEN`, `CLAIMED`, `BUILT`, `FINDINGS`, `FIXED`, `CLEAN`, `MERGED`, and `CLOSED`. This file must not duplicate those mutable states as a second ledger.
 
-## Phase 0 — Product and safety foundation
+## Phase 0: Product and safety foundation
+
+**Goal:** Establish the reviewed public-use, security, data-processing, and deterministic-report contract.
 
 ### Outcome
 
@@ -42,7 +54,9 @@ A public, local, structurally read-only Toast reporting MCP has a reviewed produ
 
 ---
 
-## Phase 1 — Local runtime and Standard transport foundation
+## Phase 1: Local runtime and Standard transport foundation
+
+**Goal:** Prove the local MCP v2 stdio runtime and read-only Standard transport across supported Node versions and unresolved external semantics.
 
 ### Outcome
 
@@ -55,6 +69,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 ### Implemented/wired evidence
 
 - process startup → `RuntimeConfig` → OAuth token manager → shared `ToastHttpClient` → local MCP server;
+- #17 / PR #24 migrated the runtime to stable MCP v2 and proved legacy 2025 plus 2026-07-28 stdio clients on Node 20 and Node 22;
 - configuration page-token traversal owns duplicate-token and scoped-409 restart behavior;
 - `/ordersBulk` owns Link traversal, bounded query/pageSize/path/+1 integrity checks;
 - no Toast reporting tool is yet registered, so transport reachability is internal rather than user-visible.
@@ -63,11 +78,12 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - #32 — verify real Toast `Toast-RateLimit-Reset` semantics before release claims;
 - #4 — bounded MCP protocol/stateless/reconnect/cancellation compatibility assessment;
-- #17 — migrate the local runtime to stable MCP TypeScript SDK v2 before user-facing T3 tool registration, then re-prove stdio behavior.
 
 ---
 
-## Phase 2 — Production authority, location isolation, capability integrity, and provenance
+## Phase 2: Production authority, location isolation, capability integrity, and provenance
+
+**Goal:** Complete one location-bound authority, capability, cancellation, page-fold, rate-limit, and provenance chain before report registration.
 
 ### Outcome
 
@@ -122,7 +138,7 @@ Exit behavior:
 
 Owner:
 
-- #15 / PR #29, intentionally stacked on #27 while the shared transport repair is open.
+- #15 / PR #29 — merged and closed on `main` as `afdffee57a43207bc045b08e2be1eae2e6d4bd23`.
 
 Exit behavior:
 
@@ -151,14 +167,16 @@ Exit behavior before T3 report tools:
 Phase 2 is ready for user-facing T3 tool registration only when:
 
 - #16 is CLEAN/merged and T2-002 is rebased onto the corrected location authority;
-- #15 provenance and #31 page-fold primitives are available on the same production transport;
-- #17 SDK v2 migration is exact-head validated/reviewed;
+- #15 provenance is merged; #31 page-fold primitives remain required on the same production transport;
+- #17 SDK v2 migration is exact-head validated, independently reviewed, merged, and closed;
 - #4's protocol compatibility concerns that affect local stdio tool lifecycle/cancellation are either closed or owned by an explicit bounded follow-up;
 - all paths use the same runtime identities rather than reconstructed lookalikes.
 
 ---
 
-## Phase 3 — Core Standard reporting and real MCP tool wiring
+## Phase 3: Core Standard reporting and real MCP tool wiring
+
+**Goal:** Deliver deterministic Standard sales, payment, item, and dimension reports through the real stdio MCP boundary.
 
 ### Outcome
 
@@ -234,7 +252,9 @@ A real MCP host can invoke the Standard reporting surface over stdio using the p
 
 ---
 
-## Phase 4 — Cash and labor reporting
+## Phase 4: Cash and labor reporting
+
+**Goal:** Deliver deterministic cash and labor reports with business-date, revision, deletion, wage, tip, break, and completeness handling.
 
 ### Outcome
 
@@ -267,7 +287,9 @@ Cash/labor MCP calls use the same location/capability/transport/provenance primi
 
 ---
 
-## Phase 5 — Source-distinct Analytics adapter and tools
+## Phase 5: Source-distinct Analytics adapter and tools
+
+**Goal:** Deliver capability-gated Analytics job transport and source-distinct reporting without guest-payment data or accounting claims.
 
 ### Outcome
 
@@ -308,7 +330,9 @@ MCP invocation exercises real Analytics adapter/job state/provenance through std
 
 ---
 
-## Phase 6 — Release hardening and public compatibility proof
+## Phase 6: Release hardening and public compatibility proof
+
+**Goal:** Produce a publishable artifact only after legal, operator, live-compatibility, packaging, security, and end-to-end evidence gates pass.
 
 ### Outcome
 

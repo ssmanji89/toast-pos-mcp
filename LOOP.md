@@ -55,7 +55,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLOSED |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | CLOSED |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 CLOSED | CLOSED |
-| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLAIMED |
+| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLOSED |
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
 | T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | OPEN |
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | OPEN |
@@ -80,7 +80,46 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-None. T1-001 is closed and merged. T1-002 is open on PR #5 with a blocking finding; see below.
+PR #35 is the next dependency-safe executable slice. It must fold bounded `/ordersBulk` pages without retaining unbounded raw page bodies.
+
+### Pre-T3 MCP SDK v2 gate — CLOSED
+
+- Owning issue / PR: #17 / PR #24.
+- Reviewed source head: `5b355dce83576b65e1f2ff43d51aa9d56ab0b10c`.
+- Squash merge: `4bcb2a5ada264beffde97804f43daa69893f93cd`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 7 test files and 132 tests passed on each runtime. `npm pack --dry-run --json` passed with 31 package files.
+- Independent exact-head review: CLEAN. The runtime uses stable MCP v2 server and stdio packages only. The test-only client remains outside production imports.
+- DOX: updated.
+
+### T2-001 production location-source repair — CLOSED
+
+- Owning issue / PR: #16 / PR #27.
+- Reviewed source head: `cc804083f8954e3bc30bc2dbf898a1ff8ceb8e3d`.
+- Squash merge: `bde1546c89825e9435b274f3f49ef02f266cb65c`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 9 test files and 165 tests passed on each runtime. `npm pack --dry-run --json` passed with 31 package files.
+- Negative verification: all 30 location-schema mutations and all 5 Partners transport mutations failed their focused test. No mutation survivor remained.
+- Independent exact-head review: CLEAN. The live Standard-credential compatibility gate remains issue #28; no local fixture result closes it.
+- DOX: updated.
+
+### T2-002 capability preflight — CLOSED
+
+- Owning PR: #12.
+- Reviewed source head: `9b665757ac814878b7565c6154c983e02dbd198f`.
+- Squash merge: `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 11 test files and 176 tests passed on each runtime. `npm pack --dry-run --json` passed with 35 package files.
+- Independent exact-head review: CLEAN. JWT scope decoding stays bounded and token-safe. Eligible capability scopes equal the selected location connection scopes intersected with token-provisioned scopes, less product-excluded guest scopes.
+- Scope: internal capability preflight only. No reporting tool or user-facing MCP capability response is registered by this slice.
+- DOX: updated.
+
+### T3 transport success provenance prerequisite — CLOSED
+
+- Owning issue / PR: #15 / PR #29.
+- Reviewed source head: `346034f9ef19724f346b93ea7165dbd22a865d73`.
+- Squash merge: `afdffee57a43207bc045b08e2be1eae2e6d4bd23`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 12 test files and 186 tests passed on each runtime. `npm pack --dry-run --json` passed with 35 package files.
+- Independent exact-head review: CLEAN after immutable API-family and credential-or-restaurant request scope were added to every detailed success result.
+- Scope: internal transport provenance only. No report tool is registered by this slice.
+- DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
 
@@ -327,7 +366,6 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next role:** REVIEWER, once T2-002 reports
-- **Slice:** T2-002 — Decode scopes and expose deterministic capability denials, currently building on `main`
-- **Dependency note:** T2-002's declared dependency on T2-001 was assessed rather than assumed. Scope decoding reads what a credential is authorized for, which needs the transport rather than the location registry, so it was launched in parallel off `main` in a new file. T2-001 has since merged, so the question is moot.
-- **After T2-002:** T3-001 normalization is the next gate. It unlocks four genuinely independent report domains — sales, items, cash, and labor — in separate files, which is the first point where parallel builds earn more than they cost in rebases.
+- **Next slice:** PR #35 — bounded `/ordersBulk` page folding.
+- **Required action:** rebase on `main` at `afdffee57a43207bc045b08e2be1eae2e6d4bd23`, then run Node 20/22 exact-head validation and an independent review.
+- **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.
