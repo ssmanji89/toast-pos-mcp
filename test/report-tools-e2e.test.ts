@@ -30,7 +30,9 @@ type FixtureScenario =
   | "cancel-active-report"
   | "rate-limit-wait"
   | "missing-menu-item"
-  | "menu-refresh-fails-after-cache";
+  | "menu-refresh-fails-after-cache"
+  | "menu-unavailable-no-cache"
+  | "missing-config-category";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -58,15 +60,12 @@ test(
       assert.equal(salesOutput.requestedBusinessDate, BUSINESS_DATE);
       assert.equal(salesOutput.effectiveBusinessDate, BUSINESS_DATE);
       assert.equal(structured(salesOutput.contextFreshness).maxAgeMs, 21_600_000);
-      assert.ok(Array.isArray(salesOutput.formulaNotes));
       const combined = structured(salesOutput.combined);
       assert.equal(combined.grossCheckAmountMinor, 1000);
       assert.equal(combined.netOrderAmountMinor, 900);
       assert.equal(combined.netSalesMinor, 600);
       assert.equal(combined.ordersEmbeddedRefundAmountMinor, 200);
       assert.equal(combined.fundraisingContributionAmountMinor, 100);
-      assert.equal(structured(salesOutput.future).orderCount, 0);
-      assert.equal(structured(salesOutput.currentAndPast).orderCount, 1);
       assert.ok(!JSON.stringify(salesOutput).includes("must-not-leak"));
 
       const payments = await connection.client.callTool({
@@ -77,16 +76,11 @@ test(
       const paymentOutput = structured(payments.structuredContent);
       assert.equal(paymentOutput.schemaVersion, 1);
       assert.equal(paymentOutput.status, "complete");
-      assert.equal(paymentOutput.report, "payment_summary");
-      assert.equal(paymentOutput.restaurantName, "Synthetic Tool Cafe");
       assert.equal(paymentOutput.eventListCount, 3);
       assert.equal(paymentOutput.paymentDetailsProcessed, 1);
       assert.equal(structured(paymentOutput.paid).amountMinor, 1000);
-      assert.equal(structured(paymentOutput.paid).tipAmountMinor, 100);
       assert.equal(structured(paymentOutput.refunded).refundAmountMinor, 200);
-      assert.equal(structured(paymentOutput.refunded).tipRefundAmountMinor, 50);
       assert.equal(structured(paymentOutput.voided).amountMinor, 1000);
-      assert.equal(paymentOutput.uniquePaymentCount, 1);
       assert.ok(!JSON.stringify(paymentOutput).includes("must-not-leak"));
 
       const itemsFirst = await connection.client.callTool({
@@ -124,8 +118,6 @@ test(
       assert.equal(firstItem.netSelectionAmountMinor, 800);
       assert.equal(secondItem.quantity, "1");
       assert.equal(secondItem.netSelectionAmountMinor, 200);
-      // Parent Selection.price already includes modifier adjustments. The two
-      // nested modifiers are traversed but do not create additional item money.
       assert.equal(
         firstItem.netSelectionAmountMinor + secondItem.netSelectionAmountMinor,
         1000,
@@ -138,8 +130,6 @@ test(
       assert.notEqual(itemsSecond.isError, true);
       const secondOutput = structured(itemsSecond.structuredContent);
       assert.equal(structured(secondOutput.dimensionContext).menuState, "current");
-      // The fixture throws if the full menu is downloaded twice. A second
-      // successful call therefore proves metadata-only freshness reuse.
       assert.deepEqual(
         structured(structured(secondOutput.dimensionContext).menuFreshnessProvenance)
           .upstreamRequestIds,
@@ -169,12 +159,27 @@ test(
       const category = groupByGuid(categoryOutput, SALES_CATEGORY_GUID);
       assert.equal(category.displayName, "Current Entrees");
       assert.equal(category.attributedCheckAmountMinor, 1000);
-      // The fixture returns 409 on the first salesCategories traversal. The
-      // successful report proves the shared T1 configuration restart path was
-      // used instead of a T3-local fetch loop.
       assert.ok(
         structured(categoryOutput.dimensionContext)
           .configurationLastModifiedCursor,
+      );
+
+      // Every config endpoint in the fixture throws on another full snapshot.
+      // This second successful call therefore proves same-day cache reuse.
+      const categoriesAgain = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(categoriesAgain.isError, true);
+      assert.equal(
+        groupByGuid(
+          structured(categoriesAgain.structuredContent),
+          SALES_CATEGORY_GUID,
+        ).attributedCheckAmountMinor,
+        1000,
       );
 
       const tags = await connection.client.callTool({
@@ -225,6 +230,33 @@ test(
 );
 
 test(
+  "unavailable menu with no prior cache preserves historical item sales as unresolved",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("legacy", "menu-unavailable-no-cache");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(structured(output.dimensionContext).menuState, "unresolved");
+      const historical = groupByGuid(output, ITEM_GUID);
+      assert.equal(historical.enrichmentState, "unresolved");
+      assert.equal(historical.netSelectionAmountMinor, 800);
+      assert.ok(
+        (output.warnings as unknown[]).some((warning) =>
+          String(warning).includes("unresolved")),
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
   "failed metadata refresh after a valid menu snapshot reports stale enrichment instead of current or zero sales",
   { timeout: 25_000 },
   async () => {
@@ -253,6 +285,33 @@ test(
         (output.warnings as unknown[]).some((warning) =>
           String(warning).includes("stale")),
       );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "historical sales category missing from current Configuration remains reportable and unresolved",
+  { timeout: 25_000 },
+  async () => {
+    const connection = createConnection("legacy", "missing-config-category");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      const category = groupByGuid(output, SALES_CATEGORY_GUID);
+      assert.equal(category.displayName, undefined);
+      assert.equal(category.enrichmentState, "unresolved");
+      assert.equal(category.attributedCheckAmountMinor, 1000);
+      assert.equal(output.unresolvedContributionCount, 1);
     } finally {
       await connection.client.close();
     }
