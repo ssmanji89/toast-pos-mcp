@@ -20,18 +20,22 @@ type FixtureScenario =
   | "success"
   | "missing-scope"
   | "malformed-source"
-  | "broken-pagination";
+  | "broken-pagination"
+  | "rate-limit-wait";
 
 const scenario = parseScenario(process.argv[2]);
+let ordersFetchCount = 0;
 const tokenScopes = scenario === "missing-scope"
   ? ["restaurants:read"]
   : ["orders:read", "restaurants:read"];
 
 const runtime = createApplicationRuntime({
   env: SYNTHETIC_VALID_RUNTIME_ENV,
-  now: () => NOW,
+  now: scenario === "rate-limit-wait" ? Date.now : () => NOW,
   random: () => 0,
-  sleep: async () => undefined,
+  sleep: scenario === "rate-limit-wait"
+    ? (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+    : async () => undefined,
   authFetch: async () => jsonResponse({
     token: {
       tokenType: "Bearer",
@@ -104,6 +108,22 @@ async function syntheticToastFetch(
           link:
             `</orders/v2/ordersBulk?businessDate=${BUSINESS_DATE}&page=3&pageSize=100>; rel="next"`,
         },
+      );
+    }
+    if (scenario === "rate-limit-wait") {
+      ordersFetchCount += 1;
+      return jsonResponse(
+        [syntheticOrder()],
+        `fixture-rate-limited-orders-${ordersFetchCount}`,
+        ordersFetchCount === 1
+          ? {
+              "x-toast-ratelimit-by": "GLOBAL",
+              "x-toast-ratelimit-remaining": "0",
+              "x-toast-ratelimit-reset": String(
+                Math.floor(Date.now() / 1000) + 1,
+              ),
+            }
+          : {},
       );
     }
     return jsonResponse([syntheticOrder()], "fixture-orders-page-1");
@@ -266,6 +286,7 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "missing-scope"
     || value === "malformed-source"
     || value === "broken-pagination"
+    || value === "rate-limit-wait"
   ) {
     return value ?? "success";
   }

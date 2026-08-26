@@ -21,7 +21,8 @@ type FixtureScenario =
   | "success"
   | "missing-scope"
   | "malformed-source"
-  | "broken-pagination";
+  | "broken-pagination"
+  | "rate-limit-wait";
 
 test(
   "production-wired legacy stdio lists and calls both Standard report tools",
@@ -167,6 +168,40 @@ test(
       {},
       "pagination_integrity_failed",
     );
+  },
+);
+
+test(
+  "a stored upstream rate limit delays a later stdio report without bypassing report provenance",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("legacy", "rate-limit-wait");
+    try {
+      await connectWithTimeout(connection);
+      const first = await connection.client.callTool({
+        name: "toast_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.equal(first.isError, undefined);
+
+      const startedAt = Date.now();
+      const second = await connection.client.callTool({
+        name: "toast_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      const elapsedMs = Date.now() - startedAt;
+      assert.ok(elapsedMs >= 200, `expected rate-limit delay, observed ${elapsedMs}ms`);
+      assert.equal(second.isError, undefined);
+      const output = structured(second.structuredContent);
+      assert.equal(output.status, "complete");
+      assert.equal(structured(output.combined).netSalesMinor, 600);
+      assert.ok(
+        structured(output.provenance)
+          .upstreamRequestIds.includes("fixture-rate-limited-orders-2"),
+      );
+    } finally {
+      await connection.client.close();
+    }
   },
 );
 
