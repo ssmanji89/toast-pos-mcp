@@ -1,5 +1,8 @@
 # GSD execution state snapshot
 
+milestone: v1.0
+milestone_name: Public local Toast reporting MCP
+
 **Generated:** 2026-08-26
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
 **Observed `main`:** `afdffee57a43207bc045b08e2be1eae2e6d4bd23`

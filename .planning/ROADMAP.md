@@ -4,6 +4,16 @@
 **Authority:** `LOOP.md` + GitHub are canonical for atomic state; this ROADMAP is the outcome/verification projection  
 **Updated:** 2026-08-16
 
+## v1.0 — Public local Toast reporting MCP
+
+- [x] **Phase 0: Product and safety foundation**
+- [ ] **Phase 1: Local runtime and Standard transport foundation**
+- [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
+- [ ] **Phase 3: Core Standard reporting and real MCP tool wiring**
+- [ ] **Phase 4: Cash and labor reporting**
+- [ ] **Phase 5: Source-distinct Analytics adapter and tools**
+- [ ] **Phase 6: Release hardening and public compatibility proof**
+
 ## How to read this file
 
 A phase is not complete merely because code exists or tests pass. Each phase distinguishes five progressively stronger claims:
@@ -16,7 +26,9 @@ A phase is not complete merely because code exists or tests pass. Each phase dis
 
 `LOOP.md` remains the canonical state machine for `OPEN`, `CLAIMED`, `BUILT`, `FINDINGS`, `FIXED`, `CLEAN`, `MERGED`, and `CLOSED`. This file must not duplicate those mutable states as a second ledger.
 
-## Phase 0 — Product and safety foundation
+## Phase 0: Product and safety foundation
+
+**Goal:** Establish the reviewed public-use, security, data-processing, and deterministic-report contract.
 
 ### Outcome
 
@@ -42,7 +54,9 @@ A public, local, structurally read-only Toast reporting MCP has a reviewed produ
 
 ---
 
-## Phase 1 — Local runtime and Standard transport foundation
+## Phase 1: Local runtime and Standard transport foundation
+
+**Goal:** Prove the local MCP v2 stdio runtime and read-only Standard transport across supported Node versions and unresolved external semantics.
 
 ### Outcome
 
@@ -67,7 +81,9 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 ---
 
-## Phase 2 — Production authority, location isolation, capability integrity, and provenance
+## Phase 2: Production authority, location isolation, capability integrity, and provenance
+
+**Goal:** Complete one location-bound authority, capability, cancellation, page-fold, rate-limit, and provenance chain before report registration.
 
 ### Outcome
 
@@ -158,7 +174,9 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 
 ---
 
-## Phase 3 — Core Standard reporting and real MCP tool wiring
+## Phase 3: Core Standard reporting and real MCP tool wiring
+
+**Goal:** Deliver deterministic Standard sales, payment, item, and dimension reports through the real stdio MCP boundary.
 
 ### Outcome
 
@@ -234,7 +252,9 @@ A real MCP host can invoke the Standard reporting surface over stdio using the p
 
 ---
 
-## Phase 4 — Cash and labor reporting
+## Phase 4: Cash and labor reporting
+
+**Goal:** Deliver deterministic cash and labor reports with business-date, revision, deletion, wage, tip, break, and completeness handling.
 
 ### Outcome
 
@@ -267,7 +287,9 @@ Cash/labor MCP calls use the same location/capability/transport/provenance primi
 
 ---
 
-## Phase 5 — Source-distinct Analytics adapter and tools
+## Phase 5: Source-distinct Analytics adapter and tools
+
+**Goal:** Deliver capability-gated Analytics job transport and source-distinct reporting without guest-payment data or accounting claims.
 
 ### Outcome
 
@@ -308,7 +330,9 @@ MCP invocation exercises real Analytics adapter/job state/provenance through std
 
 ---
 
-## Phase 6 — Release hardening and public compatibility proof
+## Phase 6: Release hardening and public compatibility proof
+
+**Goal:** Produce a publishable artifact only after legal, operator, live-compatibility, packaging, security, and end-to-end evidence gates pass.
 
 ### Outcome
 
