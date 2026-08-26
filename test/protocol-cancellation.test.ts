@@ -48,6 +48,9 @@ test(
       const pid = transport.pid;
       assert.ok(pid !== null, "expected a retained cancellation fixture PID");
 
+      // The SDK cancellation handler treats request ID zero as absent.
+      // Prime the retained process so the cancelled tool request uses a
+      // nonzero ID and tests the handler signal through the official wire.
       await withTimeout(
         client.discover({ timeout: PROTOCOL_TIMEOUT_MS }),
         PROTOCOL_TIMEOUT_MS,
