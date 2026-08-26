@@ -5,6 +5,7 @@ import {
   decideCapability,
   type CapabilityDenial,
 } from "./capabilities.js";
+import type { ToastLocationDiscoveryProvenance } from "./locations.js";
 import {
   addMinorUnits,
   denialFromError,
@@ -17,39 +18,44 @@ import {
 import type { ApplicationRuntime } from "./runtime.js";
 
 const MAX_PAYMENT_DETAILS_PER_REPORT = 5_000;
-const businessDateSchema = z.number().int().min(19000101).max(29991231);
+const businessDateSchema = z
+  .number()
+  .int()
+  .refine(isValidBusinessDate, { message: "must be a real yyyyMMdd date" });
 const guidSchema = z.string().uuid();
 const sourceMoneySchema = z.number().finite();
-const sourcePaymentSchema = z
-  .object({
-    guid: guidSchema,
-    paidDate: z.string().optional().nullable(),
-    paidBusinessDate: businessDateSchema.optional().nullable(),
-    type: z.string().min(1),
-    amount: sourceMoneySchema,
-    tipAmount: sourceMoneySchema,
-    paymentStatus: z.string().min(1).optional().nullable(),
-    refundStatus: z.string().min(1).optional().nullable(),
-    refund: z
-      .object({
-        refundAmount: sourceMoneySchema,
-        tipRefundAmount: sourceMoneySchema,
-        refundDate: z.string().optional().nullable(),
-        refundBusinessDate: businessDateSchema.optional().nullable(),
-      })
-      .passthrough()
-      .optional()
-      .nullable(),
-    voidInfo: z
-      .object({
-        voidDate: z.string().optional().nullable(),
-        voidBusinessDate: businessDateSchema.optional().nullable(),
-      })
-      .passthrough()
-      .optional()
-      .nullable(),
-  })
-  .passthrough();
+
+/**
+ * Payment detail parsing deliberately uses Zod's default strip behavior.
+ * Toast payment objects may contain guest/card/tender metadata that the report
+ * does not need; those unknown fields never survive this normalization step.
+ */
+const sourcePaymentSchema = z.object({
+  guid: guidSchema,
+  paidDate: z.string().optional().nullable(),
+  paidBusinessDate: businessDateSchema.optional().nullable(),
+  type: z.string().min(1),
+  amount: sourceMoneySchema,
+  tipAmount: sourceMoneySchema,
+  paymentStatus: z.string().min(1).optional().nullable(),
+  refundStatus: z.string().min(1).optional().nullable(),
+  refund: z
+    .object({
+      refundAmount: sourceMoneySchema,
+      tipRefundAmount: sourceMoneySchema,
+      refundDate: z.string().optional().nullable(),
+      refundBusinessDate: businessDateSchema.optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+  voidInfo: z
+    .object({
+      voidDate: z.string().optional().nullable(),
+      voidBusinessDate: businessDateSchema.optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+});
 
 type SourcePayment = z.infer<typeof sourcePaymentSchema>;
 
@@ -93,6 +99,7 @@ export interface PaymentSummaryComplete {
   readonly paidByType: readonly PaymentTypeTotal[];
   readonly paymentStatusCounts: readonly PaymentStatusCount[];
   readonly refundStatusCounts: readonly PaymentStatusCount[];
+  readonly contextProvenance: ToastLocationDiscoveryProvenance;
   readonly provenance: ReportProvenance;
   readonly warnings: readonly string[];
 }
@@ -104,6 +111,7 @@ export interface PaymentSummaryDenied {
   readonly restaurantGuid: string | undefined;
   readonly businessDate: number;
   readonly generatedAtEpochMs: number;
+  readonly contextProvenance?: ToastLocationDiscoveryProvenance;
   readonly denial: ReportDenial;
   readonly missingScopes: readonly string[];
   readonly missingProvisionedScopes: readonly string[];
@@ -125,12 +133,20 @@ export async function buildPaymentSummaryReport(
     readonly businessDate: number;
     readonly restaurantGuid?: string;
   },
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<PaymentSummaryResult> {
   const generatedAtEpochMs = runtime.now();
   let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
+  let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
 
   try {
-    const location = await runtime.getLocation(input.restaurantGuid);
+    assertValidBusinessDate(input.businessDate);
+    const locationContext = await runtime.getLocationContext(
+      input.restaurantGuid,
+      { signal: options.signal },
+    );
+    const { location } = locationContext;
+    contextProvenance = locationContext.provenance;
     resolvedRestaurantGuid = location.restaurantGuid;
     const capabilityContext = await createCapabilityContext(
       runtime.tokenManager,
@@ -146,6 +162,7 @@ export async function buildPaymentSummaryReport(
         generatedAtEpochMs,
         location.restaurantGuid,
         capability,
+        contextProvenance,
       );
     }
 
@@ -156,6 +173,7 @@ export async function buildPaymentSummaryReport(
       input.businessDate,
       "paidBusinessDate",
       provenance,
+      options.signal,
     );
     const refundIds = await retrievePaymentIds(
       runtime,
@@ -163,6 +181,7 @@ export async function buildPaymentSummaryReport(
       input.businessDate,
       "refundBusinessDate",
       provenance,
+      options.signal,
     );
     const voidIds = await retrievePaymentIds(
       runtime,
@@ -170,6 +189,7 @@ export async function buildPaymentSummaryReport(
       input.businessDate,
       "voidBusinessDate",
       provenance,
+      options.signal,
     );
 
     const paidSet = new Set(paidIds);
@@ -197,11 +217,14 @@ export async function buildPaymentSummaryReport(
     const refundStatusCounts = new Map<string, number>();
 
     for (const paymentGuid of uniqueIds) {
-      const detail = await runtime.toastHttpClient.getJsonDetailed({
-        path: `/orders/v2/payments/${paymentGuid}`,
-        restaurantGuid: location.restaurantGuid,
-        rateLimitKey: "payments-detail",
-      });
+      const detail = await runtime.toastHttpClient.getJsonDetailedCancellable(
+        {
+          path: `/orders/v2/payments/${paymentGuid}`,
+          restaurantGuid: location.restaurantGuid,
+          rateLimitKey: "payments-detail",
+        },
+        { signal: options.signal },
+      );
       provenance.add(detail);
       const payment = parsePayment(detail.body, paymentGuid);
 
@@ -307,6 +330,7 @@ export async function buildPaymentSummaryReport(
       ),
       paymentStatusCounts: freezeStatusCounts(paymentStatusCounts),
       refundStatusCounts: freezeStatusCounts(refundStatusCounts),
+      contextProvenance,
       provenance: provenance.snapshot(),
       warnings: PAYMENT_WARNINGS,
     });
@@ -318,6 +342,7 @@ export async function buildPaymentSummaryReport(
       restaurantGuid: resolvedRestaurantGuid,
       businessDate: input.businessDate,
       generatedAtEpochMs,
+      ...(contextProvenance === undefined ? {} : { contextProvenance }),
       denial: denialFromError(error),
       missingScopes: Object.freeze([]),
       missingProvisionedScopes: Object.freeze([]),
@@ -334,13 +359,17 @@ async function retrievePaymentIds(
   businessDate: number,
   event: "paidBusinessDate" | "refundBusinessDate" | "voidBusinessDate",
   provenance: ReportProvenanceCollector,
+  signal: AbortSignal | undefined,
 ): Promise<readonly string[]> {
-  const result = await runtime.toastHttpClient.getJsonDetailed({
-    path: "/orders/v2/payments",
-    restaurantGuid,
-    query: { [event]: businessDate },
-    rateLimitKey: `payments-${event}`,
-  });
+  const result = await runtime.toastHttpClient.getJsonDetailedCancellable(
+    {
+      path: "/orders/v2/payments",
+      restaurantGuid,
+      query: { [event]: businessDate },
+      rateLimitKey: `payments-${event}`,
+    },
+    { signal },
+  );
   provenance.add(result);
   const parsed = z.array(guidSchema).safeParse(result.body);
   if (!parsed.success) {
@@ -415,6 +444,7 @@ function capabilityDenied(
   generatedAtEpochMs: number,
   restaurantGuid: string,
   denial: CapabilityDenial,
+  contextProvenance: ToastLocationDiscoveryProvenance,
 ): PaymentSummaryDenied {
   return Object.freeze({
     status: "denied" as const,
@@ -423,6 +453,7 @@ function capabilityDenied(
     restaurantGuid,
     businessDate,
     generatedAtEpochMs,
+    contextProvenance,
     denial: Object.freeze({
       code: `capability_${denial.reason}`,
       retryable: false,
@@ -435,6 +466,29 @@ function capabilityDenied(
     excludedScopes: denial.excludedScopes,
     warnings: PAYMENT_WARNINGS,
   });
+}
+
+function assertValidBusinessDate(value: number): void {
+  if (!isValidBusinessDate(value)) {
+    throw new ReportComputationError(
+      "report_business_date_invalid",
+      "Report business date must be a real calendar date in yyyyMMdd form.",
+    );
+  }
+}
+
+function isValidBusinessDate(value: number): boolean {
+  const text = String(value);
+  if (!/^\d{8}$/u.test(text)) return false;
+  const year = Number(text.slice(0, 4));
+  const month = Number(text.slice(4, 6));
+  const day = Number(text.slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+  );
 }
 
 function paymentSourceInvalid(): ReportComputationError {

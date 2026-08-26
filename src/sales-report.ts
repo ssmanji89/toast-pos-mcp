@@ -3,6 +3,7 @@ import {
   decideCapability,
   type CapabilityDenial,
 } from "./capabilities.js";
+import type { ToastLocationDiscoveryProvenance } from "./locations.js";
 import {
   normalizeOrdersPages,
   type NormalizedAppliedDiscount,
@@ -58,6 +59,7 @@ export interface SalesSummaryComplete {
   readonly generatedAtEpochMs: number;
   readonly pagesProcessed: number;
   readonly sourceOrdersProcessed: number;
+  readonly contextProvenance: ToastLocationDiscoveryProvenance;
   readonly provenance: ReportProvenance;
   readonly currentAndPast: SalesSummaryBucket;
   readonly future: SalesSummaryBucket;
@@ -73,6 +75,7 @@ export interface SalesSummaryDenied {
   readonly restaurantGuid: string | undefined;
   readonly businessDate: number;
   readonly generatedAtEpochMs: number;
+  readonly contextProvenance?: ToastLocationDiscoveryProvenance;
   readonly denial: ReportDenial;
   readonly missingScopes: readonly string[];
   readonly missingProvisionedScopes: readonly string[];
@@ -130,12 +133,20 @@ export async function buildSalesSummaryReport(
     readonly businessDate: number;
     readonly restaurantGuid?: string;
   },
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<SalesSummaryResult> {
   const generatedAtEpochMs = runtime.now();
   let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
+  let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
 
   try {
-    const location = await runtime.getLocation(input.restaurantGuid);
+    assertValidBusinessDate(input.businessDate);
+    const locationContext = await runtime.getLocationContext(
+      input.restaurantGuid,
+      { signal: options.signal },
+    );
+    const { location } = locationContext;
+    contextProvenance = locationContext.provenance;
     resolvedRestaurantGuid = location.restaurantGuid;
     const capabilityContext = await createCapabilityContext(
       runtime.tokenManager,
@@ -151,6 +162,7 @@ export async function buildSalesSummaryReport(
         generatedAtEpochMs,
         location.restaurantGuid,
         capability,
+        contextProvenance,
       );
     }
 
@@ -170,7 +182,7 @@ export async function buildSalesSummaryReport(
       sourceOrdersProcessed: 0,
     };
 
-    await runtime.toastHttpClient.foldOrdersBulkPages(
+    await runtime.toastHttpClient.foldOrdersBulkPagesCancellable(
       {
         restaurantGuid: location.restaurantGuid,
         query: { businessDate: input.businessDate },
@@ -203,6 +215,7 @@ export async function buildSalesSummaryReport(
 
         return foldState;
       },
+      { signal: options.signal },
     );
 
     const currentAndPast = freezeBucket(state.currentAndPast);
@@ -221,6 +234,7 @@ export async function buildSalesSummaryReport(
       generatedAtEpochMs,
       pagesProcessed: state.pagesProcessed,
       sourceOrdersProcessed: state.sourceOrdersProcessed,
+      contextProvenance,
       provenance: state.provenance.snapshot(),
       currentAndPast,
       future,
@@ -236,6 +250,7 @@ export async function buildSalesSummaryReport(
       restaurantGuid: resolvedRestaurantGuid,
       businessDate: input.businessDate,
       generatedAtEpochMs,
+      ...(contextProvenance === undefined ? {} : { contextProvenance }),
       denial: denialFromError(error),
       missingScopes: Object.freeze([]),
       missingProvisionedScopes: Object.freeze([]),
@@ -431,6 +446,7 @@ function capabilityDenied(
   generatedAtEpochMs: number,
   restaurantGuid: string,
   denial: CapabilityDenial,
+  contextProvenance: ToastLocationDiscoveryProvenance,
 ): SalesSummaryDenied {
   return Object.freeze({
     status: "denied" as const,
@@ -439,6 +455,7 @@ function capabilityDenied(
     restaurantGuid,
     businessDate,
     generatedAtEpochMs,
+    contextProvenance,
     denial: Object.freeze({
       code: `capability_${denial.reason}`,
       retryable: false,
@@ -451,6 +468,31 @@ function capabilityDenied(
     excludedScopes: denial.excludedScopes,
     warnings: SALES_WARNINGS,
   });
+}
+
+function assertValidBusinessDate(value: number): void {
+  const text = String(value);
+  if (!/^\d{8}$/u.test(text)) {
+    throw invalidBusinessDate();
+  }
+  const year = Number(text.slice(0, 4));
+  const month = Number(text.slice(4, 6));
+  const day = Number(text.slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    throw invalidBusinessDate();
+  }
+}
+
+function invalidBusinessDate(): ReportComputationError {
+  return new ReportComputationError(
+    "report_business_date_invalid",
+    "Report business date must be a real calendar date in yyyyMMdd form.",
+  );
 }
 
 function emptyBucket(): MutableBucket {

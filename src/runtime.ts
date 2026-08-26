@@ -16,8 +16,14 @@ import {
   type ToastLocationDiscoveryProvenance,
   type ToastLocationRegistry,
 } from "./locations.js";
-import { createRateLimitAwareToastHttpClient } from "./rate-limited-client.js";
-import type { ToastHttpClient, ToastHttpClientOptions } from "./transport.js";
+import {
+  createRateLimitAwareToastHttpClient,
+  type RateLimitAwareToastHttpClient,
+} from "./rate-limited-client.js";
+import {
+  ToastHttpError,
+  type ToastHttpClientOptions,
+} from "./transport.js";
 
 export interface ApplicationRuntimeOptions {
   readonly env?: RuntimeConfigSource;
@@ -34,6 +40,10 @@ export interface ApplicationRuntimeOptions {
 export interface ApplicationLocationContext {
   readonly location: ToastLocation;
   readonly provenance: ToastLocationDiscoveryProvenance;
+}
+
+export interface ApplicationLocationContextOptions {
+  readonly signal?: AbortSignal;
 }
 
 export type ApplicationRuntimeErrorCode =
@@ -67,7 +77,7 @@ export class ApplicationRuntime {
   readonly config: RuntimeConfig;
   readonly locationRegistry: ToastLocationRegistry;
   readonly now: () => number;
-  readonly toastHttpClient: ToastHttpClient;
+  readonly toastHttpClient: RateLimitAwareToastHttpClient;
   readonly tokenManager: OAuthTokenManager;
 
   #locationDiscoveryInFlight: Promise<ToastLocationDiscovery> | undefined;
@@ -76,7 +86,7 @@ export class ApplicationRuntime {
   constructor(
     config: RuntimeConfig,
     tokenManager: OAuthTokenManager,
-    toastHttpClient: ToastHttpClient,
+    toastHttpClient: RateLimitAwareToastHttpClient,
     locationRegistry: ToastLocationRegistry,
     now: () => number,
   ) {
@@ -87,13 +97,19 @@ export class ApplicationRuntime {
     this.now = now;
   }
 
-  async getLocation(requestedRestaurantGuid?: string): Promise<ToastLocation> {
-    return (await this.getLocationContext(requestedRestaurantGuid)).location;
+  async getLocation(
+    requestedRestaurantGuid?: string,
+    options: ApplicationLocationContextOptions = {},
+  ): Promise<ToastLocation> {
+    return (await this.getLocationContext(requestedRestaurantGuid, options)).location;
   }
 
   async getLocationContext(
     requestedRestaurantGuid?: string,
+    options: ApplicationLocationContextOptions = {},
   ): Promise<ApplicationLocationContext> {
+    throwIfRuntimeRequestCancelled(options.signal);
+
     const restaurantGuid = (
       requestedRestaurantGuid ?? this.config.defaultRestaurantGuid
     )?.toLowerCase();
@@ -107,7 +123,11 @@ export class ApplicationRuntime {
 
     let location = this.locationRegistry.get(this.config, restaurantGuid);
     if (location === undefined && this.locationRegistry.list(this.config).length === 0) {
-      await this.#ensureLocationDiscovery();
+      // Location discovery is process-owned shared bootstrap state. One MCP
+      // request may stop waiting for it, but must not abort the shared
+      // discovery another concurrent request may still require.
+      await waitForSharedDiscovery(this.#ensureLocationDiscovery(), options.signal);
+      throwIfRuntimeRequestCancelled(options.signal);
       location = this.locationRegistry.get(this.config, restaurantGuid);
     }
 
@@ -194,5 +214,42 @@ export function createApplicationRuntime(
     toastHttpClient,
     createLocationRegistry(),
     now,
+  );
+}
+
+async function waitForSharedDiscovery(
+  discovery: Promise<ToastLocationDiscovery>,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (signal === undefined) {
+    await discovery;
+    return;
+  }
+  throwIfRuntimeRequestCancelled(signal);
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const onAbort = (): void => finish(requestCancelledError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    discovery.then(() => finish(), (error: unknown) => finish(error));
+  });
+}
+
+function throwIfRuntimeRequestCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw requestCancelledError();
+}
+
+function requestCancelledError(): ToastHttpError {
+  return new ToastHttpError(
+    "request_cancelled",
+    "Toast reporting request was cancelled before completion.",
+    { apiFamily: "standard", retryable: false },
   );
 }
