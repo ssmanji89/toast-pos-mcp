@@ -6,10 +6,16 @@ import {
   ReportProvenanceCollector,
   type ReportProvenance,
 } from "./report-core.js";
+import {
+  ToastHttpError,
+  type ToastDetailedJsonResult,
+} from "./transport.js";
 
 const CONFIG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const guidSchema = z.string().uuid();
-const nonBlankSchema = z.string().min(1).refine((value) => value.trim().length > 0);
+const nonBlankSchema = z.string().min(1).refine(
+  (value) => value.trim().length > 0,
+);
 const metadataSchema = z.object({
   restaurantGuid: guidSchema,
   lastUpdated: z.string().min(1),
@@ -47,9 +53,14 @@ export interface NamedConfigurationDimension {
 export interface MenuDimensionContext {
   readonly state: DimensionContextState;
   readonly publishedAt: string | undefined;
+  /** Time at which `/menus/v2/metadata` was attempted for this invocation. */
   readonly checkedAtEpochMs: number;
+  /** Retrieval time of the full menu snapshot supplying descriptive values. */
   readonly retrievedThroughEpochMs: number | undefined;
-  readonly provenance: ReportProvenance;
+  /** Successful request(s) that supplied the cached/full descriptive source. */
+  readonly sourceProvenance: ReportProvenance;
+  /** Successful metadata request proving or challenging freshness now. */
+  readonly freshnessProvenance: ReportProvenance;
   readonly warnings: readonly string[];
   readonly itemsByGuid: ReadonlyMap<string, MenuItemDimension>;
   readonly itemsByMultiLocationId: ReadonlyMap<string, MenuItemDimension>;
@@ -61,9 +72,10 @@ export interface ConfigurationDimensionContext {
   readonly state: DimensionContextState;
   readonly retrievedThroughEpochMs: number | undefined;
   /**
-   * Safe future incremental starting point recorded from the local refresh
-   * start. Production correctness currently reconciles the full active set at
-   * least daily because Configuration omits archived/deleted entities.
+   * Local refresh-start timestamp retained as a future incremental candidate.
+   * It is not used as the sole correctness source because server/client clock
+   * skew and omitted archived/deleted entities make incremental-only refresh
+   * insufficient for authoritative active-set reconciliation.
    */
   readonly lastModifiedCursor: string | undefined;
   readonly provenance: ReportProvenance;
@@ -77,7 +89,7 @@ export interface ConfigurationDimensionContext {
 interface MenuCacheEntry {
   readonly publishedAt: string;
   readonly retrievedThroughEpochMs: number;
-  readonly provenance: ReportProvenance;
+  readonly sourceProvenance: ReportProvenance;
   readonly itemsByGuid: ReadonlyMap<string, MenuItemDimension>;
   readonly itemsByMultiLocationId: ReadonlyMap<string, MenuItemDimension>;
   readonly ambiguousItemGuids: ReadonlySet<string>;
@@ -140,10 +152,11 @@ export class StandardDimensionContextProvider {
   ): Promise<ConfigurationDimensionContext> {
     const restaurantGuid = location.restaurantGuid.toLowerCase();
     const cached = this.#configs.get(restaurantGuid);
+    const now = this.#now();
     if (
       cached !== undefined
-      && this.#now() - cached.retrievedThroughEpochMs < CONFIG_MAX_AGE_MS
-      && this.#now() >= cached.retrievedThroughEpochMs
+      && now >= cached.retrievedThroughEpochMs
+      && now - cached.retrievedThroughEpochMs < CONFIG_MAX_AGE_MS
     ) {
       return configContextFromCache(cached, "current", []);
     }
@@ -168,7 +181,7 @@ export class StandardDimensionContextProvider {
     const restaurantGuid = location.restaurantGuid.toLowerCase();
     const cached = this.#menus.get(restaurantGuid);
     const checkedAtEpochMs = this.#now();
-    let metadataResult;
+    let metadataResult: ToastDetailedJsonResult;
 
     try {
       metadataResult = await this.#client.getJsonDetailedCancellable(
@@ -179,21 +192,25 @@ export class StandardDimensionContextProvider {
         },
         { signal },
       );
-    } catch {
+    } catch (error) {
+      rethrowCancellation(error);
       if (cached !== undefined) {
         return menuContextFromCache(
           cached,
           "stale",
           checkedAtEpochMs,
+          emptyProvenance(),
           ["Menus metadata refresh failed; descriptive item context is stale."],
         );
       }
       return unresolvedMenuContext(
         checkedAtEpochMs,
+        emptyProvenance(),
         "Menus metadata could not be retrieved; item enrichment is unresolved.",
       );
     }
 
+    const freshnessProvenance = provenanceFrom(metadataResult);
     const metadata = metadataSchema.safeParse(metadataResult.body);
     if (
       !metadata.success
@@ -205,25 +222,25 @@ export class StandardDimensionContextProvider {
           cached,
           "stale",
           checkedAtEpochMs,
+          freshnessProvenance,
           ["Menus metadata was malformed or mismatched; cached item context is stale."],
         );
       }
       return unresolvedMenuContext(
         checkedAtEpochMs,
+        freshnessProvenance,
         "Menus metadata was malformed or mismatched; item enrichment is unresolved.",
       );
     }
 
     if (cached?.publishedAt === metadata.data.lastUpdated) {
-      const provenance = new ReportProvenanceCollector();
-      provenance.add(metadataResult);
-      return Object.freeze({
-        ...menuCacheFields(cached),
-        state: "current" as const,
+      return menuContextFromCache(
+        cached,
+        "current",
         checkedAtEpochMs,
-        provenance: provenance.snapshot(),
-        warnings: Object.freeze([]),
-      });
+        freshnessProvenance,
+        [],
+      );
     }
 
     try {
@@ -240,34 +257,37 @@ export class StandardDimensionContextProvider {
         restaurantGuid,
         metadata.data.lastUpdated,
       );
-      const provenance = new ReportProvenanceCollector();
-      provenance.add(metadataResult);
-      provenance.add(menuResult);
       const entry: MenuCacheEntry = Object.freeze({
         publishedAt: parsed.publishedAt,
-        retrievedThroughEpochMs: Math.max(
-          metadataResult.retrievedAtEpochMs,
-          menuResult.retrievedAtEpochMs,
-        ),
-        provenance: provenance.snapshot(),
+        retrievedThroughEpochMs: menuResult.retrievedAtEpochMs,
+        sourceProvenance: provenanceFrom(menuResult),
         itemsByGuid: parsed.itemsByGuid,
         itemsByMultiLocationId: parsed.itemsByMultiLocationId,
         ambiguousItemGuids: parsed.ambiguousItemGuids,
         ambiguousMultiLocationIds: parsed.ambiguousMultiLocationIds,
       });
       this.#menus.set(restaurantGuid, entry);
-      return menuContextFromCache(entry, "current", checkedAtEpochMs, []);
-    } catch {
+      return menuContextFromCache(
+        entry,
+        "current",
+        checkedAtEpochMs,
+        freshnessProvenance,
+        [],
+      );
+    } catch (error) {
+      rethrowCancellation(error);
       if (cached !== undefined) {
         return menuContextFromCache(
           cached,
           "stale",
           checkedAtEpochMs,
+          freshnessProvenance,
           ["Menus full refresh failed after metadata changed; cached item context is stale."],
         );
       }
       return unresolvedMenuContext(
         checkedAtEpochMs,
+        freshnessProvenance,
         "Menus full refresh failed; item enrichment is unresolved.",
       );
     }
@@ -332,7 +352,8 @@ export class StandardDimensionContextProvider {
       });
       this.#configs.set(restaurantGuid, entry);
       return configContextFromCache(entry, "current", []);
-    } catch {
+    } catch (error) {
+      rethrowCancellation(error);
       if (cached !== undefined) {
         return configContextFromCache(
           cached,
@@ -363,7 +384,9 @@ export class StandardDimensionContextProvider {
     for (const page of pages) {
       provenance.add(page);
       const parsed = z.array(schema).safeParse(page.body);
-      if (!parsed.success) throw new Error("invalid configuration dimension source");
+      if (!parsed.success) {
+        throw new Error("invalid configuration dimension source");
+      }
       for (const raw of parsed.data as Array<z.infer<T>>) {
         const value = raw as {
           guid: string;
@@ -389,7 +412,7 @@ function normalizeMenuPayload(
   body: unknown,
   restaurantGuid: string,
   metadataPublishedAt: string,
-): Omit<MenuCacheEntry, "retrievedThroughEpochMs" | "provenance"> {
+): Omit<MenuCacheEntry, "retrievedThroughEpochMs" | "sourceProvenance"> {
   if (!isRecord(body)) throw new Error("invalid menus payload");
   const payloadRestaurantGuid = guidSchema.safeParse(body.restaurantGuid);
   const lastUpdated = z.string().min(1).safeParse(body.lastUpdated);
@@ -402,9 +425,8 @@ function normalizeMenuPayload(
     throw new Error("invalid menus payload identity");
   }
 
-  // A full menu older than metadata is provably stale. A newer menu is valid:
-  // a publish can race the metadata call and the full response is then the
-  // stronger current source.
+  // A full menu older than metadata is provably stale. A newer full response
+  // is valid because another publish may have raced the metadata call.
   if (Date.parse(lastUpdated.data) < Date.parse(metadataPublishedAt)) {
     throw new Error("full menu predates metadata");
   }
@@ -436,6 +458,7 @@ function normalizeMenuPayload(
     }
   }
 
+  // Menus V2 documents this as a restaurant-level map keyed by referenceId.
   if (isRecord(body.modifierOptionReferences)) {
     for (const rawItem of Object.values(body.modifierOptionReferences)) {
       const item = normalizeMenuItem(rawItem);
@@ -465,6 +488,7 @@ function normalizeMenuItem(raw: unknown): MenuItemDimension | undefined {
   const guid = guidSchema.safeParse(raw.guid);
   const name = nonBlankSchema.safeParse(raw.name);
   if (!guid.success || !name.success) return undefined;
+
   const tags: MenuTagDimension[] = [];
   if (Array.isArray(raw.itemTags)) {
     const seenTags = new Set<string>();
@@ -479,14 +503,20 @@ function normalizeMenuItem(raw: unknown): MenuItemDimension | undefined {
       tags.push(Object.freeze({ guid: normalizedGuid, name: tagName.data }));
     }
   }
+  tags.sort((left, right) =>
+    left.guid.localeCompare(right.guid) || left.name.localeCompare(right.name));
 
   let currentSalesCategoryGuid: string | undefined;
   let currentSalesCategoryName: string | undefined;
   if (isRecord(raw.salesCategory)) {
     const categoryGuid = guidSchema.safeParse(raw.salesCategory.guid);
-    if (categoryGuid.success) currentSalesCategoryGuid = categoryGuid.data.toLowerCase();
+    if (categoryGuid.success) {
+      currentSalesCategoryGuid = categoryGuid.data.toLowerCase();
+    }
     const categoryName = nonBlankSchema.safeParse(raw.salesCategory.name);
-    if (categoryName.success) currentSalesCategoryName = categoryName.data;
+    if (categoryName.success) {
+      currentSalesCategoryName = categoryName.data;
+    }
   }
 
   const multiLocationId = typeof raw.multiLocationId === "string"
@@ -535,7 +565,10 @@ function mergeIdentity(
   }
 }
 
-function sameMenuItem(left: MenuItemDimension, right: MenuItemDimension): boolean {
+function sameMenuItem(
+  left: MenuItemDimension,
+  right: MenuItemDimension,
+): boolean {
   return left.guid === right.guid
     && left.multiLocationId === right.multiLocationId
     && left.name === right.name
@@ -554,6 +587,7 @@ function menuCacheFields(cache: MenuCacheEntry) {
   return {
     publishedAt: cache.publishedAt,
     retrievedThroughEpochMs: cache.retrievedThroughEpochMs,
+    sourceProvenance: cache.sourceProvenance,
     itemsByGuid: cache.itemsByGuid,
     itemsByMultiLocationId: cache.itemsByMultiLocationId,
     ambiguousItemGuids: cache.ambiguousItemGuids,
@@ -565,19 +599,21 @@ function menuContextFromCache(
   cache: MenuCacheEntry,
   state: "current" | "stale",
   checkedAtEpochMs: number,
+  freshnessProvenance: ReportProvenance,
   warnings: readonly string[],
 ): MenuDimensionContext {
   return Object.freeze({
     ...menuCacheFields(cache),
     state,
     checkedAtEpochMs,
-    provenance: cache.provenance,
+    freshnessProvenance,
     warnings: Object.freeze([...warnings]),
   });
 }
 
 function unresolvedMenuContext(
   checkedAtEpochMs: number,
+  freshnessProvenance: ReportProvenance,
   warning: string,
 ): MenuDimensionContext {
   return Object.freeze({
@@ -585,7 +621,8 @@ function unresolvedMenuContext(
     publishedAt: undefined,
     checkedAtEpochMs,
     retrievedThroughEpochMs: undefined,
-    provenance: emptyProvenance(),
+    sourceProvenance: emptyProvenance(),
+    freshnessProvenance,
     warnings: Object.freeze([warning]),
     itemsByGuid: new Map(),
     itemsByMultiLocationId: new Map(),
@@ -612,7 +649,9 @@ function configContextFromCache(
   });
 }
 
-function unresolvedConfigContext(warning: string): ConfigurationDimensionContext {
+function unresolvedConfigContext(
+  warning: string,
+): ConfigurationDimensionContext {
   return Object.freeze({
     state: "unresolved" as const,
     retrievedThroughEpochMs: undefined,
@@ -626,13 +665,25 @@ function unresolvedConfigContext(warning: string): ConfigurationDimensionContext
   });
 }
 
+function provenanceFrom(result: ToastDetailedJsonResult): ReportProvenance {
+  const collector = new ReportProvenanceCollector();
+  collector.add(result);
+  return collector.snapshot();
+}
+
 function emptyProvenance(): ReportProvenance {
   return Object.freeze({
     retrievedThroughEpochMs: undefined,
-    upstreamRequestIdCount: 0,
     upstreamRequestIds: Object.freeze([]),
+    upstreamRequestIdCount: 0,
     upstreamRequestIdsTruncated: false,
   });
+}
+
+function rethrowCancellation(error: unknown): void {
+  if (error instanceof ToastHttpError && error.code === "request_cancelled") {
+    throw error;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
