@@ -35,6 +35,8 @@ A request cancelled while waiting for a prior serialized fetch releases its own 
 
 Positive hierarchy waits remain outside the serialized turn. The wait races the request signal; if cancellation wins, no upstream fetch is issued. The raw injected sleep promise remains rejection-handled after the race so cancellation cannot create an unhandled rejection.
 
+Default retry and rate-limit waits own their timeout handle. Cancellation clears that handle before the request returns, so a cancelled request does not retain an active default wait timer.
+
 The same request-local signal wraps the base transport's retry/backoff and stored-rate-limit sleep function. Cancellation during a retry sleep prevents the next retry.
 
 ## In-flight fetch semantics
