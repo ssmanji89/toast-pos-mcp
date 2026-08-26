@@ -35,7 +35,7 @@ guard("N12", "src/orders-normalization-source.ts", "taxExempt: z.boolean().defau
 guard("N13", "src/orders-normalization-helpers.ts", "Number(value.toFixed(2)) !== value", "false", "orders-normalization.test");
 guard("N14", "src/orders-normalization-helpers.ts", "if (!Number.isSafeInteger(hundredths))", "if (false)", "orders-normalization-pr34-remediation.test");
 guard("N15", "src/orders-normalization-traversal.ts", "while (stack.length > 0)", "while (stack.length > 1)", "orders-normalization.test");
-guard("N16", "src/orders-normalization-traversal.ts", "assertUnique(seenOrderGuids, guid, \"order\");", "void guid;", "orders-normalization.test");
+guard("N16", "src/orders-normalization-traversal.ts", "assertUnique(seenOrderGuids, guid, \"order\");", "void guid;", "orders-normalization-pr34-remediation.test");
 guard("N17", "src/orders-normalization-traversal.ts", "assertUnique(guards.checkGuids, guid, \"check\");", "void guid;", "orders-normalization-r3-fixes.test");
 guard("N18", "src/orders-normalization-traversal.ts", "assertUnique(seen, source.guid.toLowerCase(), \"selection\");", "void source.guid;", "orders-normalization-r3-fixes.test");
 guard("N19", "src/orders-normalization-traversal.ts", "assertUnique(guards.paymentGuids, guid, \"payment\");", "void guid;", "orders-normalization-pr34-remediation.test");
