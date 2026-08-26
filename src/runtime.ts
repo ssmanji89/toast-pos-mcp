@@ -43,7 +43,12 @@ export interface ApplicationLocationContext {
 }
 
 export interface ApplicationLocationContextOptions {
-  readonly signal?: AbortSignal;
+  /**
+   * Report callers commonly forward another optional options object. Accept a
+   * present undefined here, then treat it exactly like absence at runtime;
+   * no base transport contract is widened by this report-facing boundary.
+   */
+  readonly signal?: AbortSignal | undefined;
 }
 
 export type ApplicationRuntimeErrorCode =
