@@ -14,6 +14,14 @@ const REPORT_SERVER_PATH = path.resolve(
   "stdio-report-server.js",
 );
 const BUSINESS_DATE = 20260816;
+const INACCESSIBLE_RESTAURANT_GUID =
+  "00000000-0000-4000-8000-000000009999";
+
+type FixtureScenario =
+  | "success"
+  | "missing-scope"
+  | "malformed-source"
+  | "broken-pagination";
 
 test(
   "production-wired legacy stdio lists and calls both Standard report tools",
@@ -33,8 +41,14 @@ test(
       });
       assert.notEqual(sales.isError, true);
       const salesOutput = structured(sales.structuredContent);
+      assert.equal(salesOutput.schemaVersion, 1);
       assert.equal(salesOutput.status, "complete");
       assert.equal(salesOutput.report, "sales_summary");
+      assert.equal(salesOutput.restaurantName, "Synthetic Tool Cafe");
+      assert.equal(salesOutput.requestedBusinessDate, BUSINESS_DATE);
+      assert.equal(salesOutput.effectiveBusinessDate, BUSINESS_DATE);
+      assert.equal(structured(salesOutput.contextFreshness).maxAgeMs, 21_600_000);
+      assert.ok(Array.isArray(salesOutput.formulaNotes));
       const combined = structured(salesOutput.combined);
       assert.equal(combined.grossCheckAmountMinor, 1000);
       assert.equal(combined.netOrderAmountMinor, 900);
@@ -53,14 +67,21 @@ test(
       });
       assert.notEqual(payments.isError, true);
       const paymentOutput = structured(payments.structuredContent);
+      assert.equal(paymentOutput.schemaVersion, 1);
       assert.equal(paymentOutput.status, "complete");
       assert.equal(paymentOutput.report, "payment_summary");
+      assert.equal(paymentOutput.restaurantName, "Synthetic Tool Cafe");
+      assert.equal(paymentOutput.requestedBusinessDate, BUSINESS_DATE);
+      assert.equal(paymentOutput.effectiveBusinessDate, BUSINESS_DATE);
+      assert.equal(paymentOutput.eventListCount, 3);
+      assert.equal(paymentOutput.paymentDetailsProcessed, 1);
       assert.equal(structured(paymentOutput.paid).amountMinor, 1000);
       assert.equal(structured(paymentOutput.paid).tipAmountMinor, 100);
       assert.equal(structured(paymentOutput.refunded).refundAmountMinor, 200);
       assert.equal(structured(paymentOutput.refunded).tipRefundAmountMinor, 50);
       assert.equal(structured(paymentOutput.voided).amountMinor, 1000);
       assert.equal(paymentOutput.uniquePaymentCount, 1);
+      assert.ok(Array.isArray(paymentOutput.formulaNotes));
       assert.ok(!JSON.stringify(paymentOutput).includes("must-not-leak"));
     } finally {
       await connection.client.close();
@@ -82,7 +103,9 @@ test(
         name: "toast_sales_summary",
         arguments: { businessDate: BUSINESS_DATE },
       });
-      assert.equal(structured(result.structuredContent).status, "complete");
+      const output = structured(result.structuredContent);
+      assert.equal(output.status, "complete");
+      assert.equal(output.schemaVersion, 1);
     } finally {
       await connection.client.close();
     }
@@ -107,21 +130,64 @@ test(
   },
 );
 
+test(
+  "built stdio denies before Orders fetch when the required provisioned scope is missing",
+  { timeout: 20_000 },
+  async () => {
+    await assertSalesDenied("missing-scope", {}, "capability_missing_scope");
+  },
+);
+
+test(
+  "built stdio denies an inaccessible restaurant instead of returning empty totals",
+  { timeout: 20_000 },
+  async () => {
+    await assertSalesDenied(
+      "success",
+      { restaurantGuid: INACCESSIBLE_RESTAURANT_GUID },
+      "runtime_restaurant_inaccessible",
+    );
+  },
+);
+
+test(
+  "built stdio denies malformed Orders source instead of fabricating a complete report",
+  { timeout: 20_000 },
+  async () => {
+    await assertSalesDenied("malformed-source", {}, "orders_source_invalid");
+  },
+);
+
+test(
+  "built stdio denies broken ordersBulk pagination instead of silently stopping early",
+  { timeout: 20_000 },
+  async () => {
+    await assertSalesDenied(
+      "broken-pagination",
+      {},
+      "pagination_integrity_failed",
+    );
+  },
+);
+
 interface Connection {
   readonly client: Client;
   readonly transport: StdioClientTransport;
 }
 
-function createConnection(era: "legacy" | "modern"): Connection {
+function createConnection(
+  era: "legacy" | "modern",
+  scenario: FixtureScenario = "success",
+): Connection {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [REPORT_SERVER_PATH],
+    args: [REPORT_SERVER_PATH, scenario],
     cwd: process.cwd(),
     stderr: "pipe",
   });
   const client = new Client(
     {
-      name: `toast-report-e2e-${era}`,
+      name: `toast-report-e2e-${era}-${scenario}`,
       version: "0.0.0",
     },
     era === "modern"
@@ -134,6 +200,32 @@ function createConnection(era: "legacy" | "modern"): Connection {
       : { versionNegotiation: { mode: "legacy" } },
   );
   return { client, transport };
+}
+
+async function assertSalesDenied(
+  scenario: FixtureScenario,
+  extraArguments: Readonly<Record<string, unknown>>,
+  expectedCode: string,
+): Promise<void> {
+  const connection = createConnection("legacy", scenario);
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_sales_summary",
+      arguments: {
+        businessDate: BUSINESS_DATE,
+        ...extraArguments,
+      },
+    });
+    assert.equal(result.isError, true);
+    const output = structured(result.structuredContent);
+    assert.equal(output.schemaVersion, 1);
+    assert.equal(output.status, "denied");
+    assert.equal(structured(output.denial).code, expectedCode);
+    assert.equal("combined" in output, false);
+  } finally {
+    await connection.client.close();
+  }
 }
 
 async function connectWithTimeout(connection: Connection): Promise<void> {
