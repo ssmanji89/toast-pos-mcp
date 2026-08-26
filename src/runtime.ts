@@ -80,6 +80,12 @@ export class ApplicationRuntime {
   readonly toastHttpClient: RateLimitAwareToastHttpClient;
   readonly tokenManager: OAuthTokenManager;
 
+  /**
+   * This promise is not the raw discovery promise. It resolves only after the
+   * discovered registry generation and its provenance have both been bound to
+   * this runtime, so every concurrent first-use waiter observes one atomic
+   * context publication.
+   */
   #locationDiscoveryInFlight: Promise<ToastLocationDiscovery> | undefined;
   #locationProvenance: ToastLocationDiscoveryProvenance | undefined;
 
@@ -119,6 +125,18 @@ export class ApplicationRuntime {
         "runtime_default_restaurant_required",
         "A Toast reporting tool requires an explicit restaurant GUID or TOAST_DEFAULT_RESTAURANT_GUID.",
       );
+    }
+
+    // Never serve a registry generation while its owning discovery is still
+    // publishing provenance. discoverStandardLocations() replaces the registry
+    // just before its promise resolves, so consulting the registry first would
+    // expose a small but real registry-without-provenance race window.
+    if (this.#locationDiscoveryInFlight !== undefined) {
+      await waitForSharedDiscovery(
+        this.#locationDiscoveryInFlight,
+        options.signal,
+      );
+      throwIfRuntimeRequestCancelled(options.signal);
     }
 
     let location = this.locationRegistry.get(this.config, restaurantGuid);
@@ -162,13 +180,17 @@ export class ApplicationRuntime {
       config: this.config,
       registry: this.locationRegistry,
       toastHttpClient: this.toastHttpClient,
+    }).then((result) => {
+      // Bind provenance inside the exact promise stored in
+      // #locationDiscoveryInFlight. No waiter can observe resolution before
+      // this assignment has happened.
+      this.#locationProvenance = result.provenance;
+      return result;
     });
     this.#locationDiscoveryInFlight = discovery;
 
     try {
-      const result = await discovery;
-      this.#locationProvenance = result.provenance;
-      return result;
+      return await discovery;
     } finally {
       if (this.#locationDiscoveryInFlight === discovery) {
         this.#locationDiscoveryInFlight = undefined;
