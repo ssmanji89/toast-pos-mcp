@@ -1,7 +1,7 @@
 # Standard Request Cancellation Contract
 
-**Status:** pre-T3 production transport contract  
-**Last reviewed:** 2026-08-16  
+**Status:** pre-T3 production transport contract
+**Last reviewed:** 2026-08-16
 **Applies to:** process-owned `RateLimitAwareToastHttpClient`
 
 ## Purpose
