@@ -25,12 +25,20 @@ test("getJsonDetailed returns only body plus successful request provenance", asy
   });
 
   assert.deepEqual(result.body, { value: 7 });
+  assert.equal(result.apiFamily, "standard");
+  assert.deepEqual(result.scope, {
+    kind: "restaurant",
+    restaurantGuid: RESTAURANT_GUID,
+  });
   assert.equal(result.retrievedAtEpochMs, 1_001);
   assert.equal(result.upstreamRequestId, "success-request-1");
   assert.ok(Object.isFrozen(result));
+  assert.ok(Object.isFrozen(result.scope));
   assert.deepEqual(Object.keys(result).sort(), [
+    "apiFamily",
     "body",
     "retrievedAtEpochMs",
+    "scope",
     "upstreamRequestId",
   ]);
   assert.equal((result as { headers?: unknown }).headers, undefined);
@@ -120,8 +128,13 @@ test("configuration detailed traversal retains one metadata entry per proven pag
     "config-page-2",
   ]);
   assert.deepEqual(pages.map((page) => page.retrievedAtEpochMs), [1_001, 1_003]);
+  assert.deepEqual(pages.map((page) => page.scope), [
+    { kind: "restaurant", restaurantGuid: RESTAURANT_GUID },
+    { kind: "restaurant", restaurantGuid: RESTAURANT_GUID },
+  ]);
   assert.ok(Object.isFrozen(pages));
   assert.ok(pages.every(Object.isFrozen));
+  assert.ok(pages.every((page) => Object.isFrozen(page.scope)));
 });
 
 test("configuration 409 restart discards stale page bodies and stale success metadata together", async () => {
@@ -218,7 +231,12 @@ test("ordersBulk detailed traversal preserves page-aligned timestamps and reques
     "orders-page-2",
   ]);
   assert.deepEqual(pages.map((page) => page.retrievedAtEpochMs), [1_001, 1_003]);
+  assert.deepEqual(pages.map((page) => page.scope), [
+    { kind: "restaurant", restaurantGuid: RESTAURANT_GUID },
+    { kind: "restaurant", restaurantGuid: RESTAURANT_GUID },
+  ]);
   assert.ok(Object.isFrozen(pages));
+  assert.ok(pages.every((page) => Object.isFrozen(page.scope)));
 });
 
 test("legacy ordersBulk wrapper preserves historical body-array shape", async () => {
@@ -249,8 +267,12 @@ test("credential-scoped Partners detailed result uses the same provenance contra
   const result = await harness.client.getAccessibleRestaurantsJsonDetailed();
 
   assert.deepEqual(result.body, [{ restaurantGuid: RESTAURANT_GUID }]);
+  assert.equal(result.apiFamily, "standard");
+  assert.deepEqual(result.scope, { kind: "credential" });
   assert.equal(result.upstreamRequestId, "partners-success-id");
   assert.equal(result.retrievedAtEpochMs, 1_001);
+  assert.ok(Object.isFrozen(result));
+  assert.ok(Object.isFrozen(result.scope));
 });
 
 class MetadataHarness {
@@ -322,8 +344,10 @@ function jsonResponse(
 
 function assertDetailedResultShape(result: ToastDetailedJsonResult): void {
   assert.deepEqual(Object.keys(result).sort(), [
+    "apiFamily",
     "body",
     "retrievedAtEpochMs",
+    "scope",
     "upstreamRequestId",
   ]);
 }

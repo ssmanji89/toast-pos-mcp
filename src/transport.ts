@@ -165,10 +165,21 @@ export interface ToastOrdersBulkPagesRequest {
  * is deliberately excluded from this result.
  */
 export interface ToastDetailedJsonResult {
+  readonly apiFamily: ToastApiFamily;
   readonly body: unknown;
+  readonly scope: ToastSuccessfulRequestScope;
   readonly retrievedAtEpochMs: number;
   readonly upstreamRequestId: string | undefined;
 }
+
+export type ToastSuccessfulRequestScope =
+  | {
+      readonly kind: "credential";
+    }
+  | {
+      readonly kind: "restaurant";
+      readonly restaurantGuid: string;
+    };
 
 export interface ToastRateLimitSnapshot {
   readonly apiFamily: ToastApiFamily;
@@ -335,7 +346,7 @@ export class ToastHttpClient {
   async getJsonDetailed(
     request: ToastGetJsonRequest,
   ): Promise<ToastDetailedJsonResult> {
-    return detailedResult(await this.#requestJson(request));
+    return detailedResult(await this.#requestJson(request), request);
   }
 
   /**
@@ -355,11 +366,12 @@ export class ToastHttpClient {
   }
 
   async getAccessibleRestaurantsJsonDetailed(): Promise<ToastDetailedJsonResult> {
-    return detailedResult(await this.#requestJson({
+    const request: ToastCredentialScopedGetJsonRequest = {
       path: PARTNERS_ACCESSIBLE_RESTAURANTS_PATH,
       rateLimitKey: PARTNERS_ACCESSIBLE_RESTAURANTS_RATE_LIMIT_KEY,
       apiFamily: "standard",
-    }));
+    };
+    return detailedResult(await this.#requestJson(request), request);
   }
 
   /** Backward-compatible body-only projection of retained pages. */
@@ -409,15 +421,16 @@ export class ToastHttpClient {
         }
 
         try {
-          const response = await this.#requestJson({
+          const pageRequest: ToastGetJsonRequest = {
             path: request.path,
             restaurantGuid: request.restaurantGuid,
             query: { ...request.query, pageToken },
             rateLimitKey: request.rateLimitKey,
             apiFamily: "standard",
-          });
+          };
+          const response = await this.#requestJson(pageRequest);
 
-          pages.push(detailedResult(response));
+          pages.push(detailedResult(response, pageRequest));
 
           const nextToken = response.headers.get("toast-next-page-token");
           if (nextToken === null || nextToken === "") {
@@ -545,7 +558,7 @@ export class ToastHttpClient {
         );
       }
 
-      const result = await this.#requestJson({
+      const pageRequest: ToastGetJsonRequest = {
         path: "/orders/v2/ordersBulk",
         restaurantGuid: request.restaurantGuid,
         query: {
@@ -554,9 +567,10 @@ export class ToastHttpClient {
           pageSize: request.pageSize,
         },
         rateLimitKey: "ordersBulk",
-      });
+      };
+      const result = await this.#requestJson(pageRequest);
 
-      pages.push(detailedResult(result));
+      pages.push(detailedResult(result, pageRequest));
 
       // T1-006-R1-F2: `visitedPages`/`visitedUrls` sets previously tracked
       // every page number and every fetched page URL "for defense in
@@ -876,9 +890,21 @@ export function createToastHttpClient(
   return new ToastHttpClient(config, tokenManager, options);
 }
 
-function detailedResult(result: JsonResponseResult): ToastDetailedJsonResult {
+function detailedResult(
+  result: JsonResponseResult,
+  request: ToastInternalGetJsonRequest,
+): ToastDetailedJsonResult {
+  const scope: ToastSuccessfulRequestScope = "restaurantGuid" in request
+    ? Object.freeze({
+        kind: "restaurant" as const,
+        restaurantGuid: request.restaurantGuid.toLowerCase(),
+      })
+    : Object.freeze({ kind: "credential" as const });
+
   return Object.freeze({
+    apiFamily: request.apiFamily ?? "standard",
     body: result.body,
+    scope,
     retrievedAtEpochMs: result.retrievedAtEpochMs,
     upstreamRequestId: result.upstreamRequestId,
   });
