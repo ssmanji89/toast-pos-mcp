@@ -80,7 +80,7 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-PR #39 is the next dependency-safe pre-T3 slice. It must preserve the merged rate-limit hierarchy while adding request-local Standard cancellation. PR #34 normalization repair proceeds independently in its own worktree.
+PR #34 is the current dependency-safe pre-T3 slice. PR #39 is merged and closed. PR #34 must close its exact-head normalization findings before PR #40 can rebase.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -142,6 +142,17 @@ PR #39 is the next dependency-safe pre-T3 slice. It must preserve the merged rat
 - Independent exact-head review: CLEAN. The shipped runtime now uses the rate-limit-aware client. Current `X-Toast-*` observations remain separate from legacy endpoint-local compatibility waits.
 - Structured PR evidence: https://github.com/ssmanji89/toast-pos-mcp/pull/37#issuecomment-5431345857. Issues #32 and #36 are closed; issue #32 carries the identical gate object.
 - Scope: Standard transport coordination only. Live Toast compatibility and cross-process coordination remain external release gates.
+- DOX: updated.
+
+### Standard request cancellation prerequisite — CLOSED
+
+- Owning PR: #39.
+- Reviewed source head: `c6a7229f6ae3f3d365227e809f18dd19a41f9edd`.
+- Squash merge: `5714eac747375d2410adab6ff62bb34a230e4c04`.
+- Authentic exact-head and post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 19 test files and 227 tests passed on each runtime. Package checks passed with 47 files.
+- Mutation verification: all 11 request cancellation guards were caught. The matrix covers queued turns, hierarchy waits, in-flight fetches, retry sleep, ordersBulk folding, Partners isolation, private-to-public translation, configuration traversal, request-local signal isolation, timer cleanup, and reason sanitization.
+- Independent exact-head review: CLEAN. This is an internal pre-T3 cancellation boundary. It registers no MCP report tool and does not claim externally reachable cancellation.
+- Structured evidence: https://github.com/ssmanji89/toast-pos-mcp/pull/39#issuecomment-5431737585, https://github.com/ssmanji89/toast-pos-mcp/pull/39#issuecomment-5431797004, and https://github.com/ssmanji89/toast-pos-mcp/pull/39#issuecomment-5431802692.
 - DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
@@ -389,7 +400,7 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** PR #39 — Standard request cancellation.
-- **Required action:** replay only the three cancellation-owned commits onto `main` at `793784e69bb538624ef5b0281abd9ab25481a25e`, then run Node 20/22 exact-head validation, the complete cancellation mutation matrix, and an independent review.
-- **Parallel slice:** PR #34 remains FINDINGS at `08b892033d0534c7b0faa91669e4708c7be83931`; applied-tax identity, fixed-hundredths naming, canonical decimal, and module-size findings must close before another exact-head review.
+- **Next slice:** PR #34 — T3 orders normalization.
+- **Required action:** close the strict calendar, required applied-tax reference, and mutation-harness compile-accounting findings. Re-run Node 20/22 validation, the complete 64-case mutation matrix, and a fresh exact-head review.
+- **Parallel control-plane work:** PR #45 is an independently reviewed GSD Phase 1 candidate. It does not change product reachability or release status.
 - **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.
