@@ -55,7 +55,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-005 | T1 | Implement configuration page-token iteration, duplicate-token guards, and scoped 409 restart behavior | T1-004 CLOSED | CLOSED |
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | CLOSED |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 CLOSED | CLOSED |
-| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLAIMED |
+| T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLOSED |
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
 | T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | OPEN |
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | OPEN |
@@ -80,7 +80,7 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-T2-002 is the next dependency-safe executable slice. PR #12 must rebase on the repaired T2-001 authority boundary before exact-head validation and independent review.
+PR #29 is the next dependency-safe executable slice. It must preserve successful Toast transport provenance before bounded page folding and report tools depend on it.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -99,6 +99,16 @@ T2-002 is the next dependency-safe executable slice. PR #12 must rebase on the r
 - Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 9 test files and 165 tests passed on each runtime. `npm pack --dry-run --json` passed with 31 package files.
 - Negative verification: all 30 location-schema mutations and all 5 Partners transport mutations failed their focused test. No mutation survivor remained.
 - Independent exact-head review: CLEAN. The live Standard-credential compatibility gate remains issue #28; no local fixture result closes it.
+- DOX: updated.
+
+### T2-002 capability preflight — CLOSED
+
+- Owning PR: #12.
+- Reviewed source head: `9b665757ac814878b7565c6154c983e02dbd198f`.
+- Squash merge: `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`.
+- Authentic post-merge verification: Node 20.20.2 and Node 22.22.2 both passed `npm ci --no-audit --no-fund && npm run check`; 11 test files and 176 tests passed on each runtime. `npm pack --dry-run --json` passed with 35 package files.
+- Independent exact-head review: CLEAN. JWT scope decoding stays bounded and token-safe. Eligible capability scopes equal the selected location connection scopes intersected with token-provisioned scopes, less product-excluded guest scopes.
+- Scope: internal capability preflight only. No reporting tool or user-facing MCP capability response is registered by this slice.
 - DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
@@ -346,7 +356,6 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T2-002 / PR #12 — decode scopes and expose deterministic capability denials.
-- **Required action:** rebase on `main` at `bde1546c89825e9435b274f3f49ef02f266cb65c`, then run Node 20/22 exact-head validation and an independent review.
-- **Next stacked prerequisite:** PR #29 — successful transport provenance. Rebase after PR #12 or as a separately verified child of the repaired T2-001 boundary.
+- **Next slice:** PR #29 — successful transport provenance.
+- **Required action:** rebase on `main` at `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`, then run Node 20/22 exact-head validation and an independent review.
 - **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.

@@ -2,7 +2,7 @@
 
 **Generated:** 2026-08-26
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `bde1546c89825e9435b274f3f49ef02f266cb65c`
+**Observed `main`:** `0a72aeae2ab22c06626cf40d19d6f7756d7192ed`
 
 ## Canonical campaign position
 
@@ -11,7 +11,7 @@
 - T0-001 CLOSED;
 - T1-001 through T1-006 CLOSED;
 - T2-001 production location-source repair is CLOSED after PR #27 merged and passed its Node 20/22 and mutation gates;
-- T2-002 is the next logical capability slice and must rebase on the corrected restaurant-level scope authority;
+- T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - T3/T4/T5 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
@@ -20,7 +20,7 @@
 | Work | PR / issue | Exact observed head | State at snapshot |
 |---|---|---|---|
 | T2-001 production location-source regression repair | #16 / PR #27 | merged as `bde1546c89825e9435b274f3f49ef02f266cb65c` | CLOSED; Node 20/22 gates passed, 35/35 required mutations caught, independent review CLEAN; issue #28 remains the live Standard credential gate |
-| T2-002 capability preflight | PR #12 | `79ec47628aa4d4e9b6e3f1675b74ac45033c6022` | stacked on the prior #27 head; rebase on `main`, then validate the token-scope and location-scope intersection |
+| T2-002 capability preflight | PR #12 | merged as `0a72aeae2ab22c06626cf40d19d6f7756d7192ed` | CLOSED; Node 20/22 gates passed, independent review CLEAN; internal preflight only, not MCP report-tool wiring |
 | successful transport provenance | #15 / PR #29 | `6c6082e6dba182f95a1cf121b0983ab9eb381c26` | stacked on the prior #27 head; rebase and exact-head validation pending |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
 | MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
@@ -38,7 +38,6 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- rebase, validate, independently review, and merge T2-002 / PR #12;
 - flatten the transport/provenance and page-fold prerequisite stack in dependency order;
 - rebase PR #40 after its prerequisites, then prove the complete stdio-to-report response path;
 - review PR #41 in parallel without rebuilding it.
@@ -51,11 +50,10 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Rebase and finalize T2-002 / PR #12 on the repaired location authority.
-2. Rebase and finalize PR #29, then PR #35, PR #37, and PR #39 in order.
-3. Rebase and finalize PR #34 when PR #29 stabilizes.
-4. Rebase PR #40 after all prerequisites land, then run its complete production-chain validation and independent review.
-5. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.
+1. Rebase and finalize PR #29, then PR #35, PR #37, and PR #39 in order.
+2. Rebase and finalize PR #34 when PR #29 stabilizes.
+3. Rebase PR #40 after all prerequisites land, then run its complete production-chain validation and independent review.
+4. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.
 
 ## Refresh rule
 
