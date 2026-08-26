@@ -18,6 +18,7 @@ import {
   type ReportDenial,
   type ReportProvenance,
 } from "./report-core.js";
+import { SalesCrossPageIdentityGuard } from "./sales-cross-page-identity.js";
 import type { ApplicationRuntime } from "./runtime.js";
 
 export interface SalesSummaryBucket {
@@ -106,7 +107,7 @@ interface MutableBucket {
 }
 
 interface SalesFoldState {
-  readonly seenOrderGuids: Set<string>;
+  readonly identityGuard: SalesCrossPageIdentityGuard;
   readonly provenance: ReportProvenanceCollector;
   readonly currentAndPast: MutableBucket;
   readonly future: MutableBucket;
@@ -167,7 +168,7 @@ export async function buildSalesSummaryReport(
     }
 
     const state: SalesFoldState = {
-      seenOrderGuids: new Set<string>(),
+      identityGuard: new SalesCrossPageIdentityGuard(),
       provenance: new ReportProvenanceCollector(),
       currentAndPast: emptyBucket(),
       future: emptyBucket(),
@@ -203,13 +204,11 @@ export async function buildSalesSummaryReport(
         foldState.sourceOrdersProcessed += normalized.recordCount;
 
         for (const order of normalized.orders) {
-          if (foldState.seenOrderGuids.has(order.guid)) {
-            throw new ReportComputationError(
-              "sales_duplicate_order_across_pages",
-              "The Orders traversal returned a repeated order across pages.",
-            );
-          }
-          foldState.seenOrderGuids.add(order.guid);
+          // T3-001's normalizer uses batch-global identity sets for orders,
+          // checks, selections, payments and service charges. Because the
+          // production fold normalizes one raw page at a time, carry the same
+          // small identity state across pages before any aggregate is mutated.
+          foldState.identityGuard.observeOrder(order);
           aggregateOrder(foldState, order, generatedAtEpochMs);
         }
 
