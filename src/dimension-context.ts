@@ -40,8 +40,6 @@ export interface MenuItemDimension {
   readonly multiLocationId: string | undefined;
   readonly name: string;
   readonly itemTags: readonly MenuTagDimension[];
-  readonly currentSalesCategoryGuid: string | undefined;
-  readonly currentSalesCategoryName: string | undefined;
 }
 
 export interface NamedConfigurationDimension {
@@ -53,13 +51,11 @@ export interface NamedConfigurationDimension {
 export interface MenuDimensionContext {
   readonly state: DimensionContextState;
   readonly publishedAt: string | undefined;
-  /** Time at which `/menus/v2/metadata` was attempted for this invocation. */
   readonly checkedAtEpochMs: number;
-  /** Retrieval time of the full menu snapshot supplying descriptive values. */
   readonly retrievedThroughEpochMs: number | undefined;
-  /** Successful request(s) that supplied the cached/full descriptive source. */
+  /** Full-menu request supplying the current descriptive values. */
   readonly sourceProvenance: ReportProvenance;
-  /** Successful metadata request proving or challenging freshness now. */
+  /** Metadata request proving/challenging freshness for this invocation. */
   readonly freshnessProvenance: ReportProvenance;
   readonly warnings: readonly string[];
   readonly itemsByGuid: ReadonlyMap<string, MenuItemDimension>;
@@ -73,9 +69,9 @@ export interface ConfigurationDimensionContext {
   readonly retrievedThroughEpochMs: number | undefined;
   /**
    * Local refresh-start timestamp retained as a future incremental candidate.
-   * It is not used as the sole correctness source because server/client clock
-   * skew and omitted archived/deleted entities make incremental-only refresh
-   * insufficient for authoritative active-set reconciliation.
+   * It is not an authoritative cursor: clock skew and Configuration's omission
+   * of archived/deleted entities make incremental-only refresh insufficient
+   * for active-set correctness.
    */
   readonly lastModifiedCursor: string | undefined;
   readonly provenance: ReportProvenance;
@@ -107,9 +103,9 @@ interface ConfigCacheEntry {
 }
 
 /**
- * Process-owned, in-memory descriptive context for T3-003. Orders remain the
- * transactional authority. This provider never rewrites order references and
- * never persists menu/configuration payloads to disk.
+ * Process-owned descriptive context. Orders remain the historical fact source;
+ * current Menus/Configuration values may label a historical reference but
+ * never replace its identity or amount.
  */
 export class StandardDimensionContextProvider {
   #client: RateLimitAwareToastHttpClient;
@@ -134,7 +130,6 @@ export class StandardDimensionContextProvider {
     const restaurantGuid = location.restaurantGuid.toLowerCase();
     const existing = this.#menuRefreshes.get(restaurantGuid);
     if (existing !== undefined) return existing;
-
     const refresh = this.#getMenuContext(location, options.signal);
     this.#menuRefreshes.set(restaurantGuid, refresh);
     try {
@@ -303,41 +298,41 @@ export class StandardDimensionContextProvider {
     const provenance = new ReportProvenanceCollector();
 
     try {
-      const [salesCategories, revenueCenters, diningOptions, restaurantServices] =
-        await Promise.all([
-          this.#configurationEndpoint(
-            restaurantGuid,
-            "/config/v2/salesCategories",
-            "config-sales-categories",
-            provenance,
-            signal,
-            namedConfigSchema,
-          ),
-          this.#configurationEndpoint(
-            restaurantGuid,
-            "/config/v2/revenueCenters",
-            "config-revenue-centers",
-            provenance,
-            signal,
-            namedConfigSchema,
-          ),
-          this.#configurationEndpoint(
-            restaurantGuid,
-            "/config/v2/diningOptions",
-            "config-dining-options",
-            provenance,
-            signal,
-            diningOptionSchema,
-          ),
-          this.#configurationEndpoint(
-            restaurantGuid,
-            "/config/v2/restaurantServices",
-            "config-restaurant-services",
-            provenance,
-            signal,
-            namedConfigSchema,
-          ),
-        ]);
+      // The Standard transport serializes data fetches already. Keep these
+      // source reads sequential so request-ID provenance is deterministic and
+      // a failed/restarted endpoint is fully reconciled before the next one.
+      const salesCategories = await this.#configurationEndpoint(
+        restaurantGuid,
+        "/config/v2/salesCategories",
+        "config-sales-categories",
+        provenance,
+        signal,
+        namedConfigSchema,
+      );
+      const revenueCenters = await this.#configurationEndpoint(
+        restaurantGuid,
+        "/config/v2/revenueCenters",
+        "config-revenue-centers",
+        provenance,
+        signal,
+        namedConfigSchema,
+      );
+      const diningOptions = await this.#configurationEndpoint(
+        restaurantGuid,
+        "/config/v2/diningOptions",
+        "config-dining-options",
+        provenance,
+        signal,
+        diningOptionSchema,
+      );
+      const restaurantServices = await this.#configurationEndpoint(
+        restaurantGuid,
+        "/config/v2/restaurantServices",
+        "config-restaurant-services",
+        provenance,
+        signal,
+        namedConfigSchema,
+      );
 
       const snapshot = provenance.snapshot();
       const entry: ConfigCacheEntry = Object.freeze({
@@ -424,9 +419,6 @@ function normalizeMenuPayload(
   ) {
     throw new Error("invalid menus payload identity");
   }
-
-  // A full menu older than metadata is provably stale. A newer full response
-  // is valid because another publish may have raced the metadata call.
   if (Date.parse(lastUpdated.data) < Date.parse(metadataPublishedAt)) {
     throw new Error("full menu predates metadata");
   }
@@ -454,22 +446,6 @@ function normalizeMenuPayload(
             ambiguousMultiLocationIds,
           );
         }
-      }
-    }
-  }
-
-  // Menus V2 documents this as a restaurant-level map keyed by referenceId.
-  if (isRecord(body.modifierOptionReferences)) {
-    for (const rawItem of Object.values(body.modifierOptionReferences)) {
-      const item = normalizeMenuItem(rawItem);
-      if (item !== undefined) {
-        mergeMenuItem(
-          item,
-          itemsByGuid,
-          itemsByMultiLocationId,
-          ambiguousItemGuids,
-          ambiguousMultiLocationIds,
-        );
       }
     }
   }
@@ -506,19 +482,6 @@ function normalizeMenuItem(raw: unknown): MenuItemDimension | undefined {
   tags.sort((left, right) =>
     left.guid.localeCompare(right.guid) || left.name.localeCompare(right.name));
 
-  let currentSalesCategoryGuid: string | undefined;
-  let currentSalesCategoryName: string | undefined;
-  if (isRecord(raw.salesCategory)) {
-    const categoryGuid = guidSchema.safeParse(raw.salesCategory.guid);
-    if (categoryGuid.success) {
-      currentSalesCategoryGuid = categoryGuid.data.toLowerCase();
-    }
-    const categoryName = nonBlankSchema.safeParse(raw.salesCategory.name);
-    if (categoryName.success) {
-      currentSalesCategoryName = categoryName.data;
-    }
-  }
-
   const multiLocationId = typeof raw.multiLocationId === "string"
     && raw.multiLocationId.length > 0
     ? raw.multiLocationId
@@ -529,8 +492,6 @@ function normalizeMenuItem(raw: unknown): MenuItemDimension | undefined {
     multiLocationId,
     name: name.data,
     itemTags: Object.freeze(tags),
-    currentSalesCategoryGuid,
-    currentSalesCategoryName,
   });
 }
 
@@ -572,8 +533,6 @@ function sameMenuItem(
   return left.guid === right.guid
     && left.multiLocationId === right.multiLocationId
     && left.name === right.name
-    && left.currentSalesCategoryGuid === right.currentSalesCategoryGuid
-    && left.currentSalesCategoryName === right.currentSalesCategoryName
     && left.itemTags.length === right.itemTags.length
     && left.itemTags.every((tag, index) => {
       const other = right.itemTags[index];
