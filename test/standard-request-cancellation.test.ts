@@ -8,7 +8,7 @@ import { ToastRateLimitCoordinator } from "../src/rate-limit.js";
 import { ToastHttpError } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
+const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID!;
 const ABORT_MARKER = "abort-marker-must-not-leak";
 const START_EPOCH_MS = 1_800_000_000_000;
 
@@ -84,6 +84,7 @@ test("abort during hierarchy sleep sends no upstream request", async () => {
       endpointKey: "orders/v2/payments",
     },
     {
+      byTokens: [],
       primary: "GLOBAL",
       account: false,
       remaining: 0,
