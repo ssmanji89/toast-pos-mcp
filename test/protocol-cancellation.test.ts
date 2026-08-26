@@ -7,7 +7,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const PROTOCOL_TIMEOUT_MS = 5_000;
-const FIRST_REQUEST_LIMITATION_WAIT_MS = 100;
 const FIXTURE_PATH = path.resolve(
   process.cwd(),
   "dist-test",
@@ -17,6 +16,7 @@ const FIXTURE_PATH = path.resolve(
 );
 const HANDLER_STARTED_MARKER = "phase1-wait-handler-started";
 const HANDLER_ABORT_OBSERVED_MARKER = "phase1-wait-handler-abort-observed";
+const HANDLER_ABORT_STATE_PROBE_MARKER = "phase1-wait-handler-abort-state-probe";
 
 test(
   "documents MCP SDK 2.0.0 first tool-request cancellation limitation",
@@ -78,12 +78,37 @@ test(
           "The cancelled tool request did not reject",
         ),
       );
-      await assert.rejects(
-        withTimeout(
-          stderr.waitFor(HANDLER_ABORT_OBSERVED_MARKER),
-          FIRST_REQUEST_LIMITATION_WAIT_MS,
-          "MCP SDK 2.0.0 unexpectedly cancelled first request ID zero",
+      // The client queues the cancellation notification before this later
+      // stdio request. The fixture reads the first handler signal after that
+      // cancellation boundary without depending on an elapsed-time window.
+      const probe = await withTimeout(
+        client.callTool(
+          { name: "phase1_probe_wait_abort_state", arguments: {} },
+          {
+            timeout: PROTOCOL_TIMEOUT_MS,
+            toolDefinition: {
+              name: "phase1_probe_wait_abort_state",
+              inputSchema: {
+                type: "object",
+                properties: {},
+                additionalProperties: false,
+              },
+            },
+          },
         ),
+        PROTOCOL_TIMEOUT_MS,
+        "The first-request cancellation state probe did not respond",
+      );
+      assert.deepEqual(probe.content, [
+        {
+          type: "text",
+          text: JSON.stringify({ handlerAborted: false }),
+        },
+      ]);
+      await withTimeout(
+        stderr.waitFor(`${HANDLER_ABORT_STATE_PROBE_MARKER}:unaborted`),
+        PROTOCOL_TIMEOUT_MS,
+        "The first-request cancellation state probe did not observe an un-aborted handler signal",
       );
     } finally {
       try {
