@@ -10,7 +10,8 @@ requires:
 provides:
   - "Fail-closed PR #37 and issue #32 dependency evidence"
   - "Retained-process request and restart proof for legacy and modern protocol eras"
-  - "Handler-observed official-SDK cancellation with same-process reuse"
+  - "Handler-observed cancellation with same-process reuse after a nonzero request ID"
+  - "A fixture test that records the MCP SDK 2.0.0 first-request cancellation limitation"
   - "Caught cancellation regression mutations"
 affects:
   - 01-02-phase-candidate-validation
@@ -32,14 +33,14 @@ key-files:
 
 key-decisions:
   - "Keep the synthetic wait tool outside production source and package exports."
-  - "Prime the retained modern process before cancellation because MCP SDK 2.0.0 treats request ID zero as absent."
+  - "Treat MCP SDK 2.0.0 first-request cancellation as an explicit T6-003 release gate."
   - "Keep production report cancellation as a Phase 3 gate."
 
 patterns-established:
   - "Retained-process proof captures one PID and checks it after sequential and concurrent era-correct requests."
   - "Cancellation proof waits for handler start, observes the exact handler abort marker, and then reuses the same PID."
 
-requirements-completed: [GH-4, GH-32]
+requirements-completed: [GH-32]
 
 duration: 25min
 completed: 2026-08-26
@@ -48,7 +49,7 @@ status: complete
 
 # Phase 1 Plan 01: Local stdio lifecycle and cancellation proof Summary
 
-**Official legacy and modern stdio clients now prove retained requests, clean restart, handler-observed cancellation, and post-cancel process reuse.**
+**Official stdio clients prove retained requests and restart, while recording the MCP SDK 2.0.0 first-request cancellation limitation.**
 
 ## Performance
 
@@ -63,8 +64,8 @@ status: complete
 - Validated the complete PR #37 and issue #32 dependency gate before any tracked edit.
 - Proved four retained requests for each protocol era on one stable child PID.
 - Proved restart with a different PID and a supported request on the new process.
-- Proved official-client cancellation reaches the exact test handler signal.
-- Proved the same child PID remains usable after cancellation.
+- Proved official-client cancellation reaches the exact test handler signal after a nonzero request ID.
+- Proved the same child PID remains usable after that nonzero-ID cancellation.
 
 ## Dependency Preflight Evidence
 
@@ -89,7 +90,7 @@ status: complete
 ## Files Created/Modified
 
 - `test/server.test.ts` — Proves sequential and concurrent retained requests, bounded cleanup, and restart reuse.
-- `test/protocol-cancellation.test.ts` — Cancels an active official-client tool request and verifies same-PID reuse.
+- `test/protocol-cancellation.test.ts` — Records first-request cancellation as unsupported in MCP SDK 2.0.0, then verifies nonzero-ID cancellation and same-PID reuse.
 - `test/fixtures/protocol-cancellation-server.ts` — Registers one synthetic test-only wait tool and observes its request signal.
 
 ## Verification
@@ -102,8 +103,8 @@ status: complete
 
 ## Mutation Verification
 
-1. **ignore-handler-signal** — CAUGHT. The focused test failed 1 of 1 with `The handler did not observe its MCP request signal abort`.
-2. **terminate-process-on-cancel** — CAUGHT. The focused test failed 1 of 1 with `CONNECTION_CLOSED` before post-cancel reuse.
+1. **ignore-handler-signal** — CAUGHT for the nonzero-ID cancellation path. The focused test failed with `The handler did not observe its MCP request signal abort`.
+2. **terminate-process-on-cancel** — CAUGHT for the nonzero-ID cancellation path. The focused test failed with `CONNECTION_CLOSED` before post-cancel reuse.
 
 Both mutations were restored with targeted patches. The restored focused suite passed.
 
@@ -112,7 +113,7 @@ Both mutations were restored with targeted patches. The restored focused suite p
 - Task 2 RED commit `3a93499` failed only the two unimplemented retained-process proofs.
 - Task 2 GREEN commit `629f24d` passed all six focused server tests.
 - Task 3 RED commit `f8c7526` failed because the handler did not observe cancellation.
-- Task 3 GREEN commit `0e27a4d` passed handler cancellation and retained-process reuse.
+- Task 3 GREEN commit `0e27a4d` passed handler cancellation and retained-process reuse after a nonzero request ID.
 - Task 3 REFACTOR commit `8478d0c` preserved the passing focused test.
 
 ## Decisions Made
@@ -151,6 +152,14 @@ Both mutations were restored with targeted patches. The restored focused suite p
 
 **Impact on plan:** The fixes preserve every plan boundary. Production cancellation remains a Phase 3 gate.
 
+## Compatibility Limitation
+
+- **Finding:** `PH1-R1-F1`.
+- **Behavior:** MCP SDK 2.0.0 ignores cancellation for request ID `0`. The first tool request can reject at the client while its handler signal remains un-aborted.
+- **Evidence:** `test/protocol-cancellation.test.ts` directly proves the first-request limitation and separately proves handler cancellation after a nonzero request ID.
+- **Requirement status:** GH-4 is not complete.
+- **Owned release gate:** T6-003 requires either an SDK correction or a separately reviewed local runtime correction that proves first-request handler cancellation.
+
 ### AGENTS.md-Driven Adjustment
 
 - The repository STATE refresh rule permits STATE changes only in an explicit documentation or control-plane slice.
@@ -166,7 +175,7 @@ Both mutations were restored with targeted patches. The restored focused suite p
 
 ## Documentation Check
 
-**DOX: no durable change.** This plan changes test evidence only. Product contracts, production interfaces, and package contents remain unchanged.
+**DOX: updated.** The compatibility and release-gate documentation now records an SDK limitation that affects Phase 1 evidence claims.
 
 ## Known Stubs
 
@@ -180,6 +189,7 @@ None.
 
 - Plan 01-02 can consume this summary without repeating the PR #37 preflight.
 - Phase 3 still owns production report-handler cancellation through real Toast fetch and page-fold paths.
+- T6-003 owns first-tool-request cancellation until the SDK or a separately reviewed local correction resolves it.
 
 ---
 

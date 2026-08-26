@@ -34,7 +34,7 @@ PR #37 uses `toast-pos-mcp/pr37-gate@1`. The marker contains `pr_number: 37`, `i
 
 Issue #32 uses `toast-pos-mcp/issue32-closure@1`. It repeats the PR number, issue number, head SHA, merge SHA, PR evidence URL, CLEAN review URL, and the complete `gate` object. The issue `gate` must equal the PR `gate` exactly.
 
-The Phase 1 candidate PR uses `toast-pos-mcp/phase1-candidate@1`. Issue #4 uses `toast-pos-mcp/issue4-closure@1`. Both repeat one identical `gate` object. It contains the same runtime fields and raw pack JSON contract. It also contains exactly two caught GH-4 mutations: `ignore-handler-signal` and `terminate-process-on-cancel`. Each mutation records `focused_test_result: FAIL`, `result: CAUGHT`, and `restored: true`. The marker records `dox`, the candidate SHA, merge SHA, and CLEAN review URL.
+The Phase 1 candidate PR uses `toast-pos-mcp/phase1-candidate@1`. Issue #4 uses `toast-pos-mcp/issue4-closure@1`. Both repeat one identical `gate` object. It contains the same runtime fields and raw pack JSON contract. It also contains exactly two caught nonzero-request cancellation mutations: `ignore-handler-signal` and `terminate-process-on-cancel`. Each mutation records `focused_test_result: FAIL`, `result: CAUGHT`, and `restored: true`. The gate also records the MCP SDK 2.0.0 first-request cancellation limitation and its T6-003 owner. The marker records `dox`, the candidate SHA, merge SHA, and CLEAN review URL.
 
 The post-merge control-plane PR uses `toast-pos-mcp/phase1-control-plane@1`. It records the exact head and merge SHAs, the candidate and candidate merge SHAs, `roadmap_analyze: PASS`, `git_diff_check: PASS`, the CLEAN review URL, and `dox`.
 
@@ -44,7 +44,7 @@ For each issue, the structured closure marker must be the latest issue comment. 
 
 PR #37 and issue #32 satisfy their structured evidence protocol. Plan 01-01 records the exact reviewed head, CLEAN URL, evidence URLs, merge SHA, comment interval, and ancestry proof.
 
-PR #45 contains the implemented GH-4 proof. Its immutable Node 20/22 gates, repeated mutations, and independent exact-head review remain pending.
+PR #45 contains retained-process and restart proof plus a limited nonzero-request cancellation proof. MCP SDK 2.0.0 first-request cancellation remains an owned T6-003 release gate, so PR #45 does not complete GH-4. Its immutable Node 20/22 gates, repeated mutations, and independent exact-head review remain pending.
 
 ---
 
@@ -75,17 +75,17 @@ PR #45 contains the implemented GH-4 proof. Its immutable Node 20/22 gates, repe
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 1-01-01 | 01 | 1 | GH-32 | T-01-07 | One complete preflight proves PR #37 head, structured review, an empty CLEAN-to-evidence comment interval, issue evidence, merge, and ancestry | external prerequisite | Standalone JSON parsing plus the comment-ID interval, review-thread, and `git merge-base --is-ancestor` gates from Plan 01-01 | N/A external | ✅ green |
 | 1-01-02 | 01 | 1 | GH-4-REQ | T-01-01 | One process handles era-correct independent requests without hidden session dependence | child-process integration | `npm run build && npm run build:test && node --test dist-test/test/server.test.js` | ✅ exists | ✅ green |
-| 1-01-03 | 01 | 1 | GH-4-CANCEL | T-01-02 | Official cancellation reaches the handler and the process remains usable | child-process integration and mutation | `npm run build && npm run build:test && node --test dist-test/test/protocol-cancellation.test.js dist-test/test/server.test.js` | ✅ exists | ✅ green |
+| 1-01-03 | 01 | 1 | GH-4-CANCEL | T-01-02 | First tool-request cancellation is unsupported in MCP SDK 2.0.0; handler cancellation and same-process reuse are proven after a nonzero request ID | child-process integration and mutation | `npm run build && npm run build:test && node --test dist-test/test/protocol-cancellation.test.js dist-test/test/server.test.js` | ✅ exists | ⚠️ limitation |
 | 1-02-01 | 02 | 2 | PH1-PUB | T-02-02 | All tracked edits finish and commit before the immutable candidate gates | focused integration and planning validation | `npm run build && npm run build:test && node --test dist-test/test/server.test.js dist-test/test/protocol-cancellation.test.js && node /Users/sully/.codex/gsd-core/bin/gsd-tools.cjs query roadmap.analyze && git diff --check` | ✅ exists | ✅ green |
-| 1-02-02 | 02 | 2 | GH-4, PH1-PUB | T-02-02, T-02-03 | One unchanged candidate passes both runtimes, and candidate and control evidence have empty CLEAN-to-evidence comment intervals | full exact-head gate and external review | Exact runtime execution plus candidate and control comment-ID intervals and the issue JSON parser from Plan 01-02 | N/A external disposition | ⬜ pending |
+| 1-02-02 | 02 | 2 | PH1-PUB, GH-4 gate | T-02-02, T-02-03 | One unchanged candidate passes both runtimes, while the first-request cancellation release gate remains explicit | full exact-head gate and external review | Exact runtime execution plus candidate and control comment-ID intervals and the issue JSON parser from Plan 01-02 | N/A external disposition | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ limitation*
 
 ---
 
 ## Wave 0 Requirements
 
-- [x] `test/protocol-cancellation.test.ts` — real official-client cancellation fixture.
+- [x] `test/protocol-cancellation.test.ts` — first-request limitation plus nonzero-request official-client cancellation fixture.
 - [x] `test/server.test.ts` — retained-process sequential and concurrent requests for both protocol eras.
 
 External prerequisite: PR #37 owns `test/transport.test.ts`, official `X-Toast-*` header fixtures, absolute seconds-or-milliseconds bounds, negative prefix coverage, exact-head Node gates, independent CLEAN review, and the empty CLEAN-to-evidence comment interval. Phase 1 does not modify or duplicate those transport tests.
@@ -99,6 +99,7 @@ After final Node gates start, the reviewed candidate receives no tracked edit or
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | Independent exact-head review | PH1-PUB | Builders cannot self-approve | Review the exact pushed head after both runtime gates pass. |
+| First tool-request handler cancellation | GH-4 / T6-003 | MCP SDK 2.0.0 ignores request ID `0` cancellation | Require an SDK correction or separately reviewed local runtime correction before release claims. |
 
 No live Toast credential is required because current official Toast documentation defines the reset contract.
 

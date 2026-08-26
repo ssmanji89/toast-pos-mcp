@@ -66,7 +66,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - T1-001 through T1-006 — closed in `LOOP.md`
 - #32 / PR #37 — closed with exact-head rate-limit evidence
-- #4 / PR #45 — local stdio compatibility candidate built; final validation and review pending
+- #4 / PR #45 — local stdio compatibility candidate built with a first-request cancellation limitation; final validation and review pending
 
 ### Implemented/wired evidence
 
@@ -75,12 +75,14 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 - configuration page-token traversal owns duplicate-token and scoped-409 restart behavior;
 - `/ordersBulk` owns Link traversal, bounded query/pageSize/path/+1 integrity checks;
 - official legacy and modern clients prove sequential and concurrent requests on one retained process and clean process restart;
-- an official modern client proves handler-observed cancellation and same-process reuse through a synthetic test-only handler;
+- an official modern client proves handler-observed cancellation and same-process reuse through a synthetic test-only handler after a nonzero request ID;
+- a first-tool-request fixture records that MCP SDK 2.0.0 does not abort handler request ID `0`;
 - no Toast reporting tool is yet registered, so transport reachability is internal rather than user-visible.
 
 ### Production proof still required
 
 - PR #45 — run authentic locked Node 20.20.2 and Node 22.22.2 gates on one immutable candidate, then obtain independent exact-head CLEAN review;
+- T6-003 — resolve first-tool-request handler cancellation through an SDK correction or separately reviewed local runtime correction before release claims;
 - Phase 3 — prove cancellation through real production report handlers and Toast page-fold paths;
 - #28 and Phase 6 — retain owner-authorized live Standard compatibility, terms, packaging, signing, and publication gates.
 

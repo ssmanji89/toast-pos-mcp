@@ -17,7 +17,7 @@ milestone_name: Public local Toast reporting MCP
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - the bounded page-fold prerequisite is CLOSED after PR #35 merged;
 - the current rate-limit hierarchy is CLOSED after PR #37 merged and issue #32 closed;
-- issue #4 is implemented on draft PR #45, with immutable exact-head validation and independent review pending;
+- issue #4 has retained-process and limited cancellation evidence on PR #45; first-tool-request handler cancellation remains a T6-003 release gate;
 - T3/T4/T5 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
@@ -30,7 +30,7 @@ milestone_name: Public local Toast reporting MCP
 | successful transport provenance | #15 / PR #29 | merged as `afdffee57a43207bc045b08e2be1eae2e6d4bd23` | CLOSED; Node 20/22 gates passed, independent review CLEAN; detailed results retain immutable API family and request scope |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
 | MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
-| stateless/reconnect/cancellation compatibility | #4 / PR #45 | candidate branch `worktree-agent-phase1-plan01` | BUILT; retained-process, restart, and synthetic handler-cancellation proof exists; exact Node 20/22 gates and independent review remain |
+| stateless/reconnect/cancellation compatibility | #4 / PR #45 | candidate branch `worktree-agent-phase1-plan01` | BUILT WITH LIMITATION; retained-process and restart proof exists; only nonzero-request handler cancellation is proven, while first-request cancellation remains T6-003 |
 | ordersBulk bounded-memory/page-fold prerequisite | #31 / PR #35 | merged as `ca02850f6a052ffe0ec68bf3ce7679176b08bd85` | CLOSED; Node 20/22 gates passed, independent review CLEAN, issue #31 closed |
 | Toast rate-limit reset semantics and hierarchy | #32 / #36 / PR #37 | merged as `793784e69bb538624ef5b0281abd9ab25481a25e` | CLOSED; Node 20/22 gates passed, 13/13 mutations caught, independent review CLEAN, issue #32 closed |
 | Standard request cancellation | PR #39 | `c6a7229f6ae3f3d365227e809f18dd19a41f9edd` | open draft; production cancellation remains separate from PR #45's synthetic test handler |
@@ -46,7 +46,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- validate and review the immutable PR #45 Phase 1 candidate;
+- validate and review the immutable PR #45 candidate without treating GH-4 as complete;
 - finalize PR #39 without collapsing production cancellation into synthetic compatibility proof;
 - rebase PR #40 after its prerequisites, then prove the complete stdio-to-report response path;
 - review PR #41 in parallel without rebuilding it.
@@ -54,12 +54,13 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 ### Human/external gates
 
 - #28 requires owner-authorized live Standard Toast credentials;
+- T6-003 requires an SDK correction or separately reviewed local correction for first-tool-request handler cancellation;
 - any production Toast access beyond synthetic fixtures requires authorization/consent constraints from `AGENTS.md`;
 - T6 publication/signing remains external/human when package credentials or signing are required.
 
 ## Immediate autonomous order
 
-1. Validate and independently review PR #45 at one unchanged candidate SHA.
+1. Validate and independently review PR #45 at one unchanged candidate SHA, while retaining the T6-003 first-request cancellation gate.
 2. Finalize PR #39 and PR #34 in their separate owning worktrees.
 3. Rebase PR #40 after all prerequisites land, then run its complete production-chain validation and independent review.
 4. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.

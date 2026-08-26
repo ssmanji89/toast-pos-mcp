@@ -80,7 +80,7 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-PR #45 is the current Phase 1 evidence slice. The GH-4 implementation is BUILT. Exact Node 20/22 validation and independent review remain pending.
+PR #45 is the current Phase 1 evidence slice. Retained-process and restart proof is BUILT. First-tool-request handler cancellation remains a T6-003 release gate.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -144,15 +144,17 @@ PR #45 is the current Phase 1 evidence slice. The GH-4 implementation is BUILT. 
 - Scope: Standard transport coordination only. Live Toast compatibility and cross-process coordination remain external release gates.
 - DOX: updated.
 
-### Phase 1 local stdio compatibility candidate — BUILT
+### Phase 1 local stdio compatibility candidate — BUILT WITH LIMITATION
 
 - Owning issue / PR: #4 / PR #45.
 - Inherited prerequisite: PR #37 merged as `793784e69bb538624ef5b0281abd9ab25481a25e`; issue #32 is closed with structured exact-head evidence.
 - Implemented proof: official legacy and modern clients each complete sequential and concurrent requests on one retained process, then reconnect to a new process.
-- Cancellation proof: an official modern client aborts one synthetic test-only wait handler, the handler observes its request signal, and the same process remains usable.
-- Negative verification: `ignore-handler-signal` and `terminate-process-on-cancel` were caught and restored during Plan 01-01. The immutable candidate gate must repeat both mutations.
+- Limitation proof: MCP SDK 2.0.0 does not abort a first tool-request handler because it ignores cancellation request ID `0`.
+- Nonzero-ID cancellation proof: an official modern client aborts one synthetic test-only wait handler after a retained request, the handler observes its signal, and the same process remains usable.
+- Negative verification: `ignore-handler-signal` and `terminate-process-on-cancel` were caught and restored for the nonzero-ID path. The immutable candidate gate must repeat both mutations.
 - Pending gates: authentic Node 20.20.2 and Node 22.22.2 checks, complete package dry-run JSON, and independent exact-head CLEAN review.
-- Scope: local stdio compatibility only. Production report cancellation remains a Phase 3 gate. Live compatibility and publication remain Phase 6 gates.
+- Owned release gate: T6-003 requires either an MCP SDK correction or a separately reviewed local runtime correction that proves first-tool-request handler cancellation.
+- Scope: local stdio compatibility only. This is not a GH-4 completion claim. Production report cancellation remains a Phase 3 gate. Live compatibility and publication remain Phase 6 gates.
 - DOX: updated.
 
 ### T1-001: TypeScript stdio runtime and synthetic fixture harness — CLOSED
@@ -401,6 +403,6 @@ The threat model went stale twice during this slice — once because `main` move
 ## Next assignment
 
 - **Next slice:** PR #45 — Phase 1 local stdio compatibility evidence.
-- **Required action:** run the immutable-candidate Node 20/22 and mutation gates, then obtain independent exact-head review before merge.
+- **Required action:** run the immutable-candidate Node 20/22 and mutation gates, then obtain independent exact-head review without closing the T6-003 first-request cancellation gate.
 - **After PR #45:** finalize PR #39 without treating the synthetic GH-4 handler as production report cancellation proof.
 - **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.
