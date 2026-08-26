@@ -42,8 +42,14 @@ export interface RateLimitAwareToastHttpClientOptions extends ToastHttpClientOpt
   readonly rateLimitCoordinator?: ToastRateLimitCoordinator;
 }
 
+/**
+ * Internal/report-facing options deliberately accept a present `undefined`
+ * signal because they are often forwarded from another optional-options
+ * object under exactOptionalPropertyTypes. Before crossing into the accepted
+ * base transport, this wrapper normalizes undefined back to an absent field.
+ */
 export interface CancellableRequestOptions {
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
 }
 
 type SerializedFetchDecision =
@@ -185,11 +191,19 @@ export class RateLimitAwareToastHttpClient extends ToastHttpClient {
     request: ToastOrdersBulkPagesRequest,
     initialState: TState,
     consumePage: ToastOrdersBulkPageConsumer<TState>,
-    options: ToastOrdersBulkFoldOptions = {},
+    options: CancellableRequestOptions = {},
   ): Promise<TState> {
+    const baseOptions: ToastOrdersBulkFoldOptions =
+      options.signal === undefined ? {} : { signal: options.signal };
+
     return this.#runCancellable(
       options.signal,
-      () => super.foldOrdersBulkPages(request, initialState, consumePage, options),
+      () => super.foldOrdersBulkPages(
+        request,
+        initialState,
+        consumePage,
+        baseOptions,
+      ),
     );
   }
 
