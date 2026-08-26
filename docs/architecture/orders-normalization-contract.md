@@ -1,7 +1,7 @@
 # Standard Orders Normalization Contract
 
-**Status:** T3-001 implementation contract  
-**Last reviewed:** 2026-08-16  
+**Status:** T3-001 implementation contract
+**Last reviewed:** 2026-08-16
 **Source:** Toast Standard Orders API only
 
 ## Purpose
