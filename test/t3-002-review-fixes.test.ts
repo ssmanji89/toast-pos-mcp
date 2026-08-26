@@ -10,8 +10,12 @@ import type {
 import type { NormalizedOrder } from "../src/orders-normalization.js";
 import { createRateLimitAwareToastHttpClient } from "../src/rate-limited-client.js";
 import { ReportComputationError } from "../src/report-core.js";
-import { ApplicationRuntime } from "../src/runtime.js";
+import {
+  ApplicationRuntime,
+  createApplicationRuntime,
+} from "../src/runtime.js";
 import { SalesCrossPageIdentityGuard } from "../src/sales-cross-page-identity.js";
+import { ToastHttpError } from "../src/transport.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
 const RESTAURANT_GUID =
@@ -125,6 +129,110 @@ test("first-use registry publication cannot expose location before matching prov
     "publication-partners-request",
     "publication-restaurant-request",
   ]);
+});
+
+test("location context refreshes at the bounded age and never serves stale context after a required refresh failure", async () => {
+  let now = 1_800_000_000_000;
+  let partnersCalls = 0;
+  let restaurantCalls = 0;
+  let failRefresh = false;
+
+  const runtime = createApplicationRuntime({
+    env: SYNTHETIC_VALID_RUNTIME_ENV,
+    now: () => now,
+    locationContextMaxAgeMs: 1_000,
+    maxAttempts: 1,
+    random: () => 0,
+    sleep: async () => undefined,
+    authFetch: async () => jsonResponse({
+      token: {
+        tokenType: "Bearer",
+        expiresIn: 3600,
+        accessToken: "synthetic-location-freshness-token",
+      },
+    }),
+    dataFetch: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/partners/v1/restaurants") {
+        partnersCalls += 1;
+        if (failRefresh) {
+          return new Response("{}", {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return jsonResponse([
+          {
+            restaurantGuid: RESTAURANT_GUID,
+            managementGroupGuid: null,
+            deleted: false,
+            scopes: ["orders:read", "restaurants:read"],
+          },
+        ], `freshness-partners-${partnersCalls}`);
+      }
+      if (
+        url.pathname
+        === `/restaurants/v1/restaurants/${RESTAURANT_GUID}`
+      ) {
+        restaurantCalls += 1;
+        return jsonResponse({
+          guid: RESTAURANT_GUID,
+          general: {
+            archived: false,
+            name: `Freshness Cafe ${restaurantCalls}`,
+            timeZone: "America/Chicago",
+            closeoutHour: 4,
+            currencyCode: "USD",
+            managementGroupGuid: null,
+          },
+        }, `freshness-restaurant-${restaurantCalls}`);
+      }
+      return new Response("{}", { status: 404 });
+    },
+  });
+
+  const first = await runtime.getLocationContext(RESTAURANT_GUID);
+  assert.equal(first.location.name, "Freshness Cafe 1");
+  assert.equal(first.freshness.ageMs, 0);
+  assert.equal(first.freshness.maxAgeMs, 1_000);
+  assert.equal(partnersCalls, 1);
+  assert.equal(restaurantCalls, 1);
+
+  now += 999;
+  const stillFresh = await runtime.getLocationContext(RESTAURANT_GUID);
+  assert.equal(stillFresh.location.name, "Freshness Cafe 1");
+  assert.equal(stillFresh.freshness.ageMs, 999);
+  assert.equal(partnersCalls, 1);
+  assert.equal(restaurantCalls, 1);
+
+  now += 1;
+  const refreshed = await runtime.getLocationContext(RESTAURANT_GUID);
+  assert.equal(refreshed.location.name, "Freshness Cafe 2");
+  assert.equal(refreshed.freshness.ageMs, 0);
+  assert.equal(partnersCalls, 2);
+  assert.equal(restaurantCalls, 2);
+
+  now += 1_000;
+  failRefresh = true;
+  await assert.rejects(
+    runtime.getLocationContext(RESTAURANT_GUID),
+    (error: unknown) => {
+      assert.ok(error instanceof ToastHttpError);
+      assert.equal(error.code, "request_failed");
+      assert.equal(error.upstreamStatus, 503);
+      return true;
+    },
+  );
+  assert.equal(partnersCalls, 3);
+  assert.equal(restaurantCalls, 2);
+
+  // Old context still exists internally, but the next caller must try to
+  // refresh again rather than silently serving it as current.
+  failRefresh = false;
+  const recovered = await runtime.getLocationContext(RESTAURANT_GUID);
+  assert.equal(recovered.location.name, "Freshness Cafe 3");
+  assert.equal(partnersCalls, 4);
+  assert.equal(restaurantCalls, 3);
 });
 
 test("streaming sales guard rejects every T3-001 batch-global entity repeated on a later page", () => {
