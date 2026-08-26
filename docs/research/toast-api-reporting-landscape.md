@@ -323,9 +323,9 @@ The shared limiter must key Analytics limits by method, endpoint, time range, cr
 
 The transport must read Toast rate-limit headers, coordinate all tools through a shared limiter, honor 429 responses, and use bounded exponential backoff with jitter for retryable failures. Credential, scope, validation, inaccessible-location, expired-GUID, and consent-acknowledgment failures are not blindly retryable.
 
-### Rate-limit-reset header semantics — original implementation note, not sourced from Toast documentation
+### Legacy rate-limit-reset fallback semantics — original implementation note, not sourced from Toast documentation
 
-None of the primary sources reviewed for this document describe whether a Toast rate-limit `reset` response header (for example `Toast-RateLimit-Reset`) carries an absolute epoch timestamp or a relative delta. `src/transport.ts` assumes the header is always an absolute point in time, encoded as either epoch seconds or epoch milliseconds. If Toast ever sends it as a relative delta, a small value would be misread as an already-past 1970 timestamp and the intended wait would collapse to zero. A future reviewer with a live rate-limited response or updated Toast documentation must confirm or correct that assumption before treating it as production-proven semantics.
+Current Toast documentation now defines `X-Toast-RateLimit-Reset` as an absolute epoch. The current-header hierarchy uses that documented contract. This note remains unresolved for only the historical unprefixed `Toast-RateLimit-Reset` fallback. `src/transport.ts` preserves compatibility snapshots and same-key endpoint-local preflight behavior by treating it as an absolute point in time, encoded as epoch seconds or epoch milliseconds. The historical fallback cannot create hierarchical constraints. A future reviewer with a live legacy response or source documentation must confirm or correct the fallback before treating it as production-proven semantics.
 
 ### Errors and completeness
 

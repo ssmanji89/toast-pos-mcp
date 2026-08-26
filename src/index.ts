@@ -2,9 +2,8 @@
 
 import { createOAuthTokenManager } from "./auth.js";
 import { loadRuntimeConfig } from "./config.js";
-import { createServer } from "./server.js";
+import { createRuntime } from "./runtime.js";
 import { startStdioServer } from "./stdio.js";
-import { createToastHttpClient } from "./transport.js";
 
 async function main(): Promise<void> {
   // Fail closed before any MCP transport starts: runtime configuration must
@@ -13,7 +12,7 @@ async function main(): Promise<void> {
   // docs/architecture/public-use-boundary.md.
   const config = loadRuntimeConfig();
   const tokenManager = createOAuthTokenManager(config);
-  const toastHttpClient = createToastHttpClient(config, tokenManager);
+  const runtime = createRuntime(config, tokenManager);
 
   // MCP v2's stdio entry owns protocol-era negotiation. The same cheap server
   // factory serves legacy 2025 clients and 2026-07-28 clients while the
@@ -23,7 +22,7 @@ async function main(): Promise<void> {
   // `startStdioServer` also owns the SDK's out-of-band error callback because
   // serveStdio starts its transport asynchronously and does not propagate a
   // later start rejection through this function's promise.
-  startStdioServer(() => createServer({ toastHttpClient }));
+  startStdioServer(() => runtime.server);
 }
 
 void main().catch(() => {
