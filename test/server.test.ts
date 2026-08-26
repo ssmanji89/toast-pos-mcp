@@ -3,9 +3,9 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { McpServer } from "@modelcontextprotocol/server";
 
 import { createServer, SERVER_IDENTITY } from "../src/server.js";
 import {
@@ -15,6 +15,7 @@ import {
 
 const STDIO_CONNECT_TIMEOUT_MS = 10_000;
 const DIST_INDEX_PATH = path.resolve(process.cwd(), "dist", "index.js");
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 test("constructs a server without starting process IO", async () => {
   const server = createServer();
@@ -24,34 +25,58 @@ test("constructs a server without starting process IO", async () => {
 });
 
 test(
-  "starts over stdio without advertising Toast tools, given valid runtime configuration and explicit consent",
+  "serves a legacy 2025 stdio client without advertising Toast tools",
   { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
   async () => {
-    const transport = new StdioClientTransport({
-      command: process.execPath,
-      args: [DIST_INDEX_PATH],
-      cwd: process.cwd(),
-      stderr: "pipe",
-      env: { ...SYNTHETIC_VALID_RUNTIME_ENV },
-    });
-    const client = new Client({
-      name: "toast-pos-mcp-test-client",
-      version: "0.0.0",
-    });
+    const connection = createStdioClient("legacy");
 
     try {
-      await withTimeout(
-        client.connect(transport),
-        STDIO_CONNECT_TIMEOUT_MS,
-        "Timed out connecting to the stdio MCP server",
-      );
-
-      const serverVersion = client.getServerVersion();
-      assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
-      assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
-      assert.equal(client.getServerCapabilities()?.tools, undefined);
+      await connectWithTimeout(connection);
+      assertEmptyServerIdentity(connection.client);
     } finally {
-      await client.close();
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "serves a pinned 2026-07-28 stdio client without advertising Toast tools",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS + 5_000 },
+  async () => {
+    const connection = createStdioClient("modern");
+
+    try {
+      await connectWithTimeout(connection);
+      // Pinned negotiation has no legacy fallback. Reaching the common server
+      // assertions therefore proves that this executable served the modern
+      // 2026-07-28 era rather than silently using the legacy handshake.
+      assertEmptyServerIdentity(connection.client);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "clean process restart reconnects without depending on hidden MCP session state",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS * 2 + 10_000 },
+  async () => {
+    const first = createStdioClient("modern");
+    await connectWithTimeout(first);
+    const firstPid = first.transport.pid;
+    assert.ok(firstPid !== null);
+    assertEmptyServerIdentity(first.client);
+    await first.client.close();
+
+    const second = createStdioClient("modern");
+    try {
+      await connectWithTimeout(second);
+      const secondPid = second.transport.pid;
+      assert.ok(secondPid !== null);
+      assert.notEqual(secondPid, firstPid);
+      assertEmptyServerIdentity(second.client);
+    } finally {
+      await second.client.close();
     }
   },
 );
@@ -89,6 +114,54 @@ test(
     assert.ok(result.stderr.includes("toast-pos-mcp failed to start"));
   },
 );
+
+interface TestConnection {
+  readonly client: Client;
+  readonly transport: StdioClientTransport;
+}
+
+function createStdioClient(era: "legacy" | "modern"): TestConnection {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [DIST_INDEX_PATH],
+    cwd: process.cwd(),
+    stderr: "pipe",
+    env: { ...SYNTHETIC_VALID_RUNTIME_ENV },
+  });
+  const client = new Client(
+    {
+      name: `toast-pos-mcp-${era}-test-client`,
+      version: "0.0.0",
+    },
+    era === "modern"
+      ? {
+          versionNegotiation: {
+            mode: { pin: MODERN_PROTOCOL_VERSION },
+            probe: { timeoutMs: STDIO_CONNECT_TIMEOUT_MS },
+          },
+        }
+      : {
+          versionNegotiation: { mode: "legacy" },
+        },
+  );
+
+  return { client, transport };
+}
+
+async function connectWithTimeout(connection: TestConnection): Promise<void> {
+  await withTimeout(
+    connection.client.connect(connection.transport),
+    STDIO_CONNECT_TIMEOUT_MS,
+    "Timed out connecting to the stdio MCP server",
+  );
+}
+
+function assertEmptyServerIdentity(client: Client): void {
+  const serverVersion = client.getServerVersion();
+  assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
+  assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
+  assert.equal(client.getServerCapabilities()?.tools, undefined);
+}
 
 interface RunResult {
   readonly exitCode: number | null;

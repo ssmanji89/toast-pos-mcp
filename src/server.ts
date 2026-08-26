@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 
 import type { ToastHttpClient } from "./transport.js";
 
@@ -14,9 +14,10 @@ export interface CreateServerOptions {
 /**
  * Construct one isolated MCP server instance.
  *
- * T1-004 wires the shared Toast HTTP transport into process startup so future
- * slices can attach tools without reloading credentials. No Toast data tools,
- * resources, or prompts are registered by this slice.
+ * The process stdio entry uses this as a cheap side-effect-free factory. MCP
+ * protocol-era negotiation therefore owns connection state while application
+ * dependencies can remain explicit process-owned objects captured by the
+ * factory. No Toast data tools, resources, or prompts are registered yet.
  */
 export function createServer(_options: CreateServerOptions = {}): McpServer {
   return new McpServer(SERVER_IDENTITY);
