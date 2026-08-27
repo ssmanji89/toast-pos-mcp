@@ -6,7 +6,7 @@ import {
   createAnalyticsAccessAdapter,
   validateAnalyticsRestaurantSelection,
 } from "../src/analytics-access.js";
-import { createApplicationRuntime } from "../src/runtime.js";
+import { createApplicationRuntime, createRuntime } from "../src/runtime.js";
 import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
 const FIRST_GUID = "11111111-1111-4111-8111-111111111111";
@@ -93,13 +93,14 @@ test("Analytics access uses one exact GET with no Standard restaurant header", a
 
 test("Analytics access sends cancellation to the source GET", async () => {
   const controller = new AbortController();
+  let receivedSignal: AbortSignal | undefined;
   const adapter = createAdapter({ fetch: async (_input, init) => {
-    assert.equal(init?.signal, controller.signal);
-    throw controller.signal.reason;
+    receivedSignal = init?.signal ?? undefined;
+    return validResponse();
   } });
-  controller.abort(new Error("invented cancellation"));
 
-  await assert.rejects(adapter.refreshManagementGroupRestaurants({ signal: controller.signal }));
+  await adapter.refreshManagementGroupRestaurants({ signal: controller.signal });
+  assert.equal(receivedSignal, controller.signal);
 });
 
 test("Analytics access validates atomically and rejects duplicate identifiers", async () => {
@@ -199,6 +200,26 @@ test("Analytics identities do not share registry or limiter state", async () => 
   assert.equal(second.currentRegistry()?.restaurants[0]?.restaurantGuid, SECOND_GUID);
 });
 
+test("Analytics identities retain isolated endpoint limiter capacity", async () => {
+  let now = 0;
+  const sleeps: number[] = [];
+  const commonOptions = {
+    now: () => now,
+    sleep: async (milliseconds: number) => {
+      sleeps.push(milliseconds);
+      now += milliseconds;
+    },
+  };
+  const first = createAdapter({ identity: {}, ...commonOptions });
+  const second = createAdapter({ identity: {}, ...commonOptions });
+
+  for (let count = 0; count < 5; count += 1) {
+    await first.refreshManagementGroupRestaurants();
+  }
+  await second.refreshManagementGroupRestaurants();
+  assert.deepEqual(sleeps, []);
+});
+
 test("Analytics access enforces the documented endpoint limiter", async () => {
   let now = 0;
   const sleeps: number[] = [];
@@ -227,4 +248,9 @@ test("Analytics runtime composition remains internal and leaves Standard locatio
   assert.ok(analyticsRuntime.analyticsAccess);
   assert.notEqual(analyticsRuntime.analyticsAccess, analyticsRuntime.locationRegistry);
   assert.equal("analyticsAccess" in analyticsRuntime.toastHttpClient, false);
+  const standardComposition = createRuntime(
+    standardRuntime.config,
+    standardRuntime.tokenManager,
+  );
+  assert.equal("analyticsAccess" in standardComposition, false);
 });

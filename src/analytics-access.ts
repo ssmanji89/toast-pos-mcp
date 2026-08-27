@@ -24,6 +24,8 @@ interface AnalyticsIdentityState {
   requestEpochMs: number[];
 }
 const stateByAnalyticsIdentity = new WeakMap<object, AnalyticsIdentityState>();
+const registryOwnerByRegistry = new WeakMap<AnalyticsRestaurantRegistry, object>();
+const selectionOwnerBySelection = new WeakMap<AnalyticsRestaurantSelection, object>();
 
 export interface AnalyticsRestaurant {
   readonly restaurantGuid: string;
@@ -73,6 +75,7 @@ export interface AnalyticsAccessAdapterOptions {
 export class AnalyticsAccessAdapter {
   #fetch: typeof fetch;
   #hostname: string;
+  #identity: object;
   #now: () => number;
   #state: AnalyticsIdentityState;
   #sleep: (milliseconds: number) => Promise<void>;
@@ -81,12 +84,18 @@ export class AnalyticsAccessAdapter {
   constructor(options: AnalyticsAccessAdapterOptions) {
     this.#fetch = options.fetch ?? fetch;
     this.#hostname = options.hostname;
+    this.#identity = options.identity;
     this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? (async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.#tokenManager = options.tokenManager;
-    this.#state = stateByAnalyticsIdentity.get(options.identity)
+    this.#state = stateByAnalyticsIdentity.get(
+      analyticsIdentityStateKey(options.identity),
+    )
       ?? { registry: undefined, requestEpochMs: [] };
-    stateByAnalyticsIdentity.set(options.identity, this.#state);
+    stateByAnalyticsIdentity.set(
+      analyticsIdentityStateKey(options.identity),
+      this.#state,
+    );
   }
 
   currentRegistry(): AnalyticsRestaurantRegistry | undefined {
@@ -115,9 +124,20 @@ export class AnalyticsAccessAdapter {
     try { body = await response.json(); } catch {
       throw new AnalyticsAccessError("analytics_response_invalid", "Analytics restaurant-information response was not valid JSON.");
     }
-    const registry = normalizeAnalyticsRegistry(body);
+    const registry = bindAnalyticsRegistry(
+      normalizeAnalyticsRegistry(body),
+      this.#identity,
+    );
     this.#state.registry = registry;
     return registry;
+  }
+
+  assertSelectionForCurrentIdentity(
+    selection: AnalyticsRestaurantSelection,
+  ): void {
+    if (selectionOwnerBySelection.get(selection) !== this.#identity) {
+      throw selectionError();
+    }
   }
 
   async #waitForEndpointCapacity(signal: AbortSignal | undefined): Promise<void> {
@@ -147,6 +167,8 @@ export function validateAnalyticsRestaurantSelection(
   registry: AnalyticsRestaurantRegistry,
   restaurantGuids: readonly string[],
 ): AnalyticsRestaurantSelection {
+  const identity: object | undefined = registryOwnerByRegistry.get(registry);
+  if (identity === undefined) throw selectionError();
   if (restaurantGuids.length === 0) throw selectionError();
   const registryByGuid = new Set(registry.restaurants.map((restaurant) => restaurant.restaurantGuid));
   const seen = new Set<string>();
@@ -160,7 +182,21 @@ export function validateAnalyticsRestaurantSelection(
     normalized.push(guid);
   }
   normalized.sort();
-  return Object.freeze({ restaurantGuids: Object.freeze(normalized) });
+  const selection = Object.freeze({ restaurantGuids: Object.freeze(normalized) });
+  selectionOwnerBySelection.set(selection, identity);
+  return selection;
+}
+
+function bindAnalyticsRegistry(
+  registry: AnalyticsRestaurantRegistry,
+  identity: object,
+): AnalyticsRestaurantRegistry {
+  registryOwnerByRegistry.set(registry, identity);
+  return registry;
+}
+
+function analyticsIdentityStateKey(identity: object): object {
+  return identity;
 }
 
 function normalizeAnalyticsRegistry(payload: unknown): AnalyticsRestaurantRegistry {
