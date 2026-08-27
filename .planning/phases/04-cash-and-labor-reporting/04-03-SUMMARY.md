@@ -116,6 +116,14 @@ Candidate `c1743dd80fbb5cc358a8e9f80a1bf67acd3b62fa` resolves PR #48 findings T4
 | Node `v20.20.2`, npm `10.8.2` | `c1743dd` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. The full check discovered 36 test files. Focused E2E ran 40 tests. The package listed 139 files. | `c1743dd` |
 | Node `v22.22.2`, npm `10.9.7` | `c1743dd` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. The full check discovered 36 test files. Focused E2E ran 40 tests. The package listed 139 files. | `c1743dd` |
 
+## R2 Review Remediation
+
+Candidate `7eece04ef77dda2f6f2ab8f0769c0f29cb67f263` adds child-process malformed-source denials for deposits, all cash configuration stages, labor jobs, labor configuration stages, and Labor Orders. Each case asserts its structured denial and the exact request sequence before the failure.
+
+Alternate restaurant assertions now validate name, requested and effective business dates, timezone, currency, context provenance, and full serialized MCP result privacy. The serialization rejects synthetic token, guest, contact, employee, raw-source, and card markers.
+
+Both Node `v20.20.2` and `v22.22.2` exact-head gates passed with 36 discovered test files and 361 tests. The three compiled report E2E files passed 41 tests. Each package dry-run listed 139 files.
+
 ## Known Stubs
 
 None. The plan does not leave an unwired report path or an empty UI data source.
