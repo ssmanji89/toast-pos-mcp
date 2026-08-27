@@ -7,70 +7,91 @@ import {
 } from "./orders-normalization-helpers.js";
 
 const openStringSchema = z.string().min(1);
-const businessDateSchema = z.number().int().refine(isValidBusinessDate, {
-  message: "must be a valid yyyyMMdd business date",
-});
 const sourceDateTimeSchema = z.string().min(1).refine(isValidSourceDateTime, {
   message: "must be a zoned ISO-8601 date-time",
 });
+const businessDateSchema = z.string().regex(/^\d{8}$/u).refine(
+  (value) => isValidBusinessDate(Number(value)),
+  { message: "must be a valid yyyyMMdd business date string" },
+);
 const nonNegativeFiniteSchema = z.number().finite().min(0);
+const toastReferenceSchema = z.object({
+  guid: guidSchema,
+  entityType: openStringSchema,
+}).strip();
 
 const laborBreakSchema = z.object({
-  breakTypeGuid: guidSchema.optional().nullable(),
-  state: openStringSchema,
-  minutes: nonNegativeFiniteSchema,
-  missed: z.boolean().default(false),
+  guid: guidSchema,
+  breakType: toastReferenceSchema,
+  paid: z.boolean(),
+  inDate: sourceDateTimeSchema.nullable(),
+  outDate: sourceDateTimeSchema.nullable(),
+  missed: z.boolean(),
+  waived: z.boolean(),
+  auditResponse: z.boolean().nullable(),
 }).strip();
 
 const laborTimeEntrySchema = z.object({
   guid: guidSchema,
-  employeeGuid: guidSchema,
-  jobGuid: guidSchema.optional().nullable(),
-  businessDate: businessDateSchema,
+  entityType: openStringSchema,
+  deleted: z.boolean(),
+  deletedDate: sourceDateTimeSchema.nullable().optional(),
+  modifiedDate: sourceDateTimeSchema.optional(),
+  employeeReference: toastReferenceSchema,
+  jobReference: toastReferenceSchema,
   inDate: sourceDateTimeSchema,
   outDate: sourceDateTimeSchema.nullable(),
-  state: openStringSchema,
-  revised: z.boolean().default(false),
-  archived: z.boolean().default(false),
-  deleted: z.boolean().default(false),
-  regularHours: nonNegativeFiniteSchema.default(0),
-  overtimeHours: nonNegativeFiniteSchema.default(0),
-  hourlyWage: z.number().finite().nullable().default(null),
+  businessDate: businessDateSchema,
+  regularHours: nonNegativeFiniteSchema,
+  overtimeHours: nonNegativeFiniteSchema,
+  hourlyWage: z.number().finite().nullable().optional(),
   breaks: z.array(laborBreakSchema).default([]),
 }).strip();
 
 export const laborTimeEntryArraySchema = z.array(laborTimeEntrySchema);
 export const laborJobsSchema = z.array(z.object({
   guid: guidSchema,
-  state: openStringSchema,
+  entityType: openStringSchema,
+  deleted: z.boolean(),
+  excludeFromReporting: z.boolean(),
+  tipped: z.boolean(),
+  wageFrequency: openStringSchema.optional(),
+  defaultWage: z.number().finite().optional(),
 }).strip());
 export const laborBreakTypesSchema = z.array(z.object({
   guid: guidSchema,
-  state: openStringSchema,
+  entityType: openStringSchema,
+  active: z.boolean(),
+  paid: z.boolean(),
+  duration: z.number().int().min(0),
+  enforceMinimumTime: z.boolean(),
+  trackMissedBreaks: z.boolean(),
+  breakIntervalHrs: z.number().int().min(0).nullable(),
+  breakIntervalMins: z.number().int().min(0).nullable(),
+  trackBreakAcknowledgement: z.boolean(),
 }).strip());
 export const laborTipWithholdingSchema = z.object({
-  state: openStringSchema,
-  percentage: z.number().finite().min(0).max(1).optional(),
+  guid: guidSchema,
+  entityType: openStringSchema,
+  enabled: z.boolean(),
+  percentage: z.number().finite().min(0).max(1),
 }).strip();
 
 export interface LaborBreakFact {
-  readonly breakTypeGuid: string | undefined;
-  readonly state: string;
-  readonly minutes: number;
+  readonly breakTypeGuid: string;
+  readonly paid: boolean;
   readonly missed: boolean;
+  readonly waived: boolean;
 }
 
 export interface LaborTimeEntryFact {
   readonly guid: string;
   /** Internal join key. Never expose it in report output. */
   readonly employeeGuid: string;
-  readonly jobGuid: string | undefined;
-  readonly businessDate: number;
+  readonly jobGuid: string;
+  readonly businessDate: string;
   readonly inDate: string;
   readonly outDate: string | undefined;
-  readonly state: string;
-  readonly revised: boolean;
-  readonly archived: boolean;
   readonly deleted: boolean;
   readonly active: boolean;
   readonly regularHours: number;
@@ -90,30 +111,28 @@ export function parseLaborTimeEntriesForBusinessDate(
   if (!parsed.success) {
     throw new TypeError("Labor time-entry source payload is invalid.");
   }
+  const requestedBusinessDate = String(businessDate);
   return Object.freeze(parsed.data.map((entry) => {
-    if (entry.businessDate !== businessDate) {
+    if (entry.businessDate !== requestedBusinessDate) {
       throw new TypeError("Labor time-entry source business date does not match the requested date.");
     }
     return Object.freeze({
       guid: entry.guid.toLowerCase(),
-      employeeGuid: entry.employeeGuid.toLowerCase(),
-      jobGuid: entry.jobGuid?.toLowerCase(),
+      employeeGuid: entry.employeeReference.guid.toLowerCase(),
+      jobGuid: entry.jobReference.guid.toLowerCase(),
       businessDate: entry.businessDate,
       inDate: entry.inDate,
       outDate: entry.outDate ?? undefined,
-      state: entry.state,
-      revised: entry.revised,
-      archived: entry.archived,
       deleted: entry.deleted,
       active: entry.outDate === null,
       regularHours: entry.regularHours,
       overtimeHours: entry.overtimeHours,
-      hourlyWage: entry.hourlyWage,
+      hourlyWage: entry.hourlyWage ?? null,
       breaks: Object.freeze(entry.breaks.map((laborBreak) => Object.freeze({
-        breakTypeGuid: laborBreak.breakTypeGuid?.toLowerCase(),
-        state: laborBreak.state,
-        minutes: laborBreak.minutes,
+        breakTypeGuid: laborBreak.breakType.guid.toLowerCase(),
+        paid: laborBreak.paid,
         missed: laborBreak.missed,
+        waived: laborBreak.waived,
       }))),
     });
   }));

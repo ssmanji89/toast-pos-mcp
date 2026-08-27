@@ -32,15 +32,15 @@ const REQUIRED_SCOPES = Object.freeze(["labor:read", "config:read", "orders:read
 const FORMULA_NOTES = Object.freeze([
   "Labor time-entry, job, break-type, and tip-withholding sources are Standard API facts scoped to the selected restaurant.",
   "Employee sales and payment tips are derived only from matching Orders server identifiers; no TimeEntry monetary field is used.",
-  "Regular wages use hourly wage multiplied by regular hours in exact minor units. Overtime hours are reported without an overtime wage because Toast does not provide an applicable multiplier source.",
+  "Regular wages round each hourly-wage by regular-hours product to the nearest minor unit, with an exact half minor unit rounded up. Overtime hours are reported without an overtime wage because Toast does not provide an applicable multiplier source.",
+  "Orders sales and tips use non-voided payment amounts less their explicit refund amounts. Enabled TipWithholding reduces reported net Orders tips by its configured percentage.",
 ]);
 
 export interface LaborSummaryAggregate {
   readonly timeEntryCount: number;
   readonly activeTimeEntryCount: number;
   readonly deletedTimeEntryCount: number;
-  readonly archivedTimeEntryCount: number;
-  readonly revisedTimeEntryCount: number;
+  readonly excludedJobTimeEntryCount: number;
   readonly salariedTimeEntryCount: number;
   readonly regularHours: number;
   readonly overtimeHours: number;
@@ -49,6 +49,9 @@ export interface LaborSummaryAggregate {
   readonly missedBreakCount: number;
   readonly ordersSalesMinor: number;
   readonly ordersTipsMinor: number;
+  readonly tipWithholdingEnabled: boolean;
+  readonly tipWithholdingMinor: number;
+  readonly netOrdersTipsMinor: number;
   readonly ordersWithServerAttributionCount: number;
 }
 
@@ -189,10 +192,24 @@ export async function buildLaborSummaryReport(
     }, { signal: options.signal });
     assertRestaurantResult(withholdingResult, location.restaurantGuid);
     provenance.add(withholdingResult);
-    parseRequired(laborTipWithholdingSchema, withholdingResult.body, "labor_tip_withholding_source_invalid");
+    const tipWithholding = parseRequired(laborTipWithholdingSchema, withholdingResult.body, "labor_tip_withholding_source_invalid");
 
-    const aggregate = foldLaborFacts(entries);
-    const orders = await foldOrdersAttribution(runtime, location, input.businessDate, entries, provenance, options.signal);
+    const excludedJobGuids = new Set<string>(jobs
+      .filter((job: { readonly excludeFromReporting: boolean }) => job.excludeFromReporting)
+      .map((job: { readonly guid: string }) => job.guid.toLowerCase()));
+    const aggregate = foldLaborFacts(entries, excludedJobGuids);
+    const orders = await foldOrdersAttribution(
+      runtime,
+      location,
+      input.businessDate,
+      entries,
+      excludedJobGuids,
+      provenance,
+      options.signal,
+    );
+    const tipWithholdingMinor = tipWithholding.enabled
+      ? multiplyAndRoundMinor(orders.ordersTipsMinor, tipWithholding.percentage)
+      : 0;
     const result = Object.freeze({
       schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
       status: aggregate.activeTimeEntryCount === 0 ? "complete" as const : "incomplete" as const,
@@ -214,6 +231,9 @@ export async function buildLaborSummaryReport(
       provenance: provenance.snapshot(),
       ...aggregate,
       ...orders,
+      tipWithholdingEnabled: tipWithholding.enabled,
+      tipWithholdingMinor,
+      netOrdersTipsMinor: addMinorUnits(orders.ordersTipsMinor, -tipWithholdingMinor),
       formulaNotes: FORMULA_NOTES,
       warnings: Object.freeze(aggregate.activeTimeEntryCount === 0 ? [] : [
         "Active validated time entries make this labor result incomplete; source failures remain denied.",
@@ -268,11 +288,13 @@ function parseRequiredTimeEntries(value: unknown, businessDate: number): readonl
   }
 }
 
-function foldLaborFacts(entries: readonly LaborTimeEntryFact[]): Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "ordersWithServerAttributionCount"> {
+function foldLaborFacts(
+  entries: readonly LaborTimeEntryFact[],
+  excludedJobGuids: ReadonlySet<string>,
+): Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount"> {
   let activeTimeEntryCount = 0;
   let deletedTimeEntryCount = 0;
-  let archivedTimeEntryCount = 0;
-  let revisedTimeEntryCount = 0;
+  let excludedJobTimeEntryCount = 0;
   let salariedTimeEntryCount = 0;
   let regularHours = 0;
   let overtimeHours = 0;
@@ -286,10 +308,12 @@ function foldLaborFacts(entries: readonly LaborTimeEntryFact[]): Omit<LaborSumma
       deletedTimeEntryCount += 1;
       continue;
     }
+    if (excludedJobGuids.has(entry.jobGuid)) {
+      excludedJobTimeEntryCount += 1;
+      continue;
+    }
     includedTimeEntryCount += 1;
     if (entry.active) activeTimeEntryCount += 1;
-    if (entry.archived) archivedTimeEntryCount += 1;
-    if (entry.revised) revisedTimeEntryCount += 1;
     if (entry.hourlyWage === null) salariedTimeEntryCount += 1;
     regularHours += entry.regularHours;
     overtimeHours += entry.overtimeHours;
@@ -300,15 +324,14 @@ function foldLaborFacts(entries: readonly LaborTimeEntryFact[]): Omit<LaborSumma
       );
     }
     breakCount += entry.breaks.length;
-    missedBreakCount += entry.breaks.filter((laborBreak) => laborBreak.missed).length;
+    missedBreakCount += entry.breaks.filter((laborBreak) => laborBreak.missed && !laborBreak.waived).length;
   }
 
   return Object.freeze({
     timeEntryCount: includedTimeEntryCount,
     activeTimeEntryCount,
     deletedTimeEntryCount,
-    archivedTimeEntryCount,
-    revisedTimeEntryCount,
+    excludedJobTimeEntryCount,
     salariedTimeEntryCount,
     regularHours,
     overtimeHours,
@@ -323,10 +346,13 @@ async function foldOrdersAttribution(
   location: { readonly restaurantGuid: string; readonly timezone: string; readonly closeoutHour: number; readonly currencyCode: string },
   businessDate: number,
   entries: readonly LaborTimeEntryFact[],
+  excludedJobGuids: ReadonlySet<string>,
   provenance: ReportProvenanceCollector,
   signal: AbortSignal | undefined,
 ): Promise<Pick<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "ordersWithServerAttributionCount">> {
-  const employeeGuids = new Set(entries.filter((entry) => !entry.deleted).map((entry) => entry.employeeGuid));
+  const employeeGuids = new Set(entries
+    .filter((entry) => !entry.deleted && !excludedJobGuids.has(entry.jobGuid))
+    .map((entry) => entry.employeeGuid));
   const state: MutableLaborFold = {
     employeeGuids,
     provenance,
@@ -353,9 +379,13 @@ async function foldOrdersAttribution(
       foldState.ordersWithServerAttributionCount += 1;
       for (const check of order.checks) {
         if (check.deleted || check.voided) continue;
-        foldState.ordersSalesMinor = addMinorUnits(foldState.ordersSalesMinor, check.amountHundredths);
         for (const payment of check.payments) {
           if (payment.voided) continue;
+          foldState.ordersSalesMinor = addMinorUnits(
+            foldState.ordersSalesMinor,
+            payment.amountHundredths,
+            -(payment.refund?.refundAmountHundredths ?? 0),
+          );
           foldState.ordersTipsMinor = addMinorUnits(
             foldState.ordersTipsMinor,
             payment.tipAmountHundredths,
@@ -458,9 +488,26 @@ function zonedInstant(year: number, month: number, day: number, hour: number, ti
 
 function multiplyRegularWage(hourlyWage: number, regularHours: number): number {
   const wageMinor = moneyToMinorUnits(hourlyWage, "labor hourly wage");
-  const result = wageMinor * regularHours;
-  if (!Number.isSafeInteger(result)) {
-    throw new ReportComputationError("labor_regular_wage_precision_invalid", "Regular wage could not be represented exactly in minor units.");
+  return multiplyAndRoundMinor(wageMinor, regularHours);
+}
+
+/**
+ * Toast supplies labor hours as doubles. Normalize to nine decimal places,
+ * then use integer arithmetic and round an exact half minor unit upward.
+ */
+function multiplyAndRoundMinor(minorUnits: number, factor: number): number {
+  if (!Number.isSafeInteger(minorUnits) || !Number.isFinite(factor) || factor < 0) {
+    throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor value could not be represented safely.");
   }
-  return result;
+  const scale = 1_000_000_000;
+  const scaledFactor = Math.round(factor * scale);
+  if (!Number.isSafeInteger(scaledFactor)) {
+    throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor hours exceeded supported precision.");
+  }
+  const product = BigInt(minorUnits) * BigInt(scaledFactor);
+  const rounded = (product + BigInt(scale / 2)) / BigInt(scale);
+  if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor total exceeded safe integer precision.");
+  }
+  return Number(rounded);
 }
