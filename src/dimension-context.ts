@@ -129,16 +129,22 @@ export class StandardDimensionContextProvider {
   ): Promise<MenuDimensionContext> {
     const restaurantGuid = location.restaurantGuid.toLowerCase();
     const existing = this.#menuRefreshes.get(restaurantGuid);
-    if (existing !== undefined) return existing;
-    const refresh = this.#getMenuContext(location, options.signal);
+    if (existing !== undefined) return awaitRefreshForCaller(existing, options.signal);
+    const refresh = this.#getMenuContext(location, undefined);
     this.#menuRefreshes.set(restaurantGuid, refresh);
-    try {
-      return await refresh;
-    } finally {
-      if (this.#menuRefreshes.get(restaurantGuid) === refresh) {
-        this.#menuRefreshes.delete(restaurantGuid);
-      }
-    }
+    void refresh.then(
+      () => {
+        if (this.#menuRefreshes.get(restaurantGuid) === refresh) {
+          this.#menuRefreshes.delete(restaurantGuid);
+        }
+      },
+      () => {
+        if (this.#menuRefreshes.get(restaurantGuid) === refresh) {
+          this.#menuRefreshes.delete(restaurantGuid);
+        }
+      },
+    );
+    return awaitRefreshForCaller(refresh, options.signal);
   }
 
   async getConfigurationContext(
@@ -157,16 +163,22 @@ export class StandardDimensionContextProvider {
     }
 
     const existing = this.#configRefreshes.get(restaurantGuid);
-    if (existing !== undefined) return existing;
-    const refresh = this.#refreshConfiguration(location, options.signal);
+    if (existing !== undefined) return awaitRefreshForCaller(existing, options.signal);
+    const refresh = this.#refreshConfiguration(location, undefined);
     this.#configRefreshes.set(restaurantGuid, refresh);
-    try {
-      return await refresh;
-    } finally {
-      if (this.#configRefreshes.get(restaurantGuid) === refresh) {
-        this.#configRefreshes.delete(restaurantGuid);
-      }
-    }
+    void refresh.then(
+      () => {
+        if (this.#configRefreshes.get(restaurantGuid) === refresh) {
+          this.#configRefreshes.delete(restaurantGuid);
+        }
+      },
+      () => {
+        if (this.#configRefreshes.get(restaurantGuid) === refresh) {
+          this.#configRefreshes.delete(restaurantGuid);
+        }
+      },
+    );
+    return awaitRefreshForCaller(refresh, options.signal);
   }
 
   async #getMenuContext(
@@ -643,6 +655,37 @@ function rethrowCancellation(error: unknown): void {
   if (error instanceof ToastHttpError && error.code === "request_cancelled") {
     throw error;
   }
+}
+
+function awaitRefreshForCaller<T>(
+  refresh: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (signal === undefined) return refresh;
+  if (signal.aborted) return Promise.reject(callerCancellationError());
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = (): void => finish(() => reject(callerCancellationError()));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void refresh.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
+
+function callerCancellationError(): ToastHttpError {
+  return new ToastHttpError("request_cancelled", "Toast request was cancelled.", {
+    apiFamily: "standard",
+    retryable: false,
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
