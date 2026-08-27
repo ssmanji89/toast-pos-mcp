@@ -34,18 +34,17 @@ test("cash fold keeps source types, reversals, deposits, and references distinct
         type: "OPEN_TOAST_TYPE",
         amount: -2.34,
         undoes: IDS.entryA,
-        cashDrawerGuid: IDS.drawerMissing,
+        cashDrawer: { guid: IDS.drawerMissing },
       }),
       entry({
         guid: IDS.entryC,
         type: "NO_SALE",
         amount: 0,
-        noSaleReasonGuid: IDS.noSaleReasonA,
-        isNoSale: true,
+        noSaleReason: { guid: IDS.noSaleReasonA },
       }),
     ]),
     deposits: cashDepositArraySchema.parse([
-      deposit({ guid: IDS.depositA, amount: 10.5, cashDrawerGuid: IDS.drawerA }),
+      deposit({ guid: IDS.depositA, amount: 10.5 }),
     ]),
     cashDrawers: cashDrawerArraySchema.parse([{ guid: IDS.drawerA }]),
     noSaleReasons: noSaleReasonArraySchema.parse([{ guid: IDS.noSaleReasonA }]),
@@ -65,7 +64,7 @@ test("cash fold keeps source types, reversals, deposits, and references distinct
     { type: "OPEN_TOAST_TYPE", entryCount: 1, amountMinor: -234 },
   ]);
   assert.deepEqual(result.cashDrawerReferences, [
-    { drawerGuid: IDS.drawerA, entryCount: 0, depositCount: 1, resolved: true },
+    { drawerGuid: IDS.drawerA, entryCount: 2, depositCount: 0, resolved: true },
     { drawerGuid: IDS.drawerMissing, entryCount: 1, depositCount: 0, resolved: false },
   ]);
   assert.deepEqual(result.noSaleReasonReferences, [
@@ -95,7 +94,7 @@ test("cash source schemas fail closed on malformed input", () => {
     ...entry({}),
     amount: 1.001,
   }]).success, true, "schemas retain numeric precision checks for the fold");
-  assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), businessDate: 20260230 }]).success, false);
+  assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), date: "2026-02-30T12:00:00-05:00" }]).success, false);
   assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), guid: "not-a-guid" }]).success, false);
   assert.equal(cashDrawerArraySchema.safeParse([{ guid: "not-a-guid" }]).success, false);
   assert.equal(noSaleReasonArraySchema.safeParse([{ guid: "not-a-guid" }]).success, false);
@@ -151,10 +150,10 @@ function entry(overrides: Partial<Record<string, unknown>>): Record<string, unkn
   return {
     guid: IDS.entryA,
     businessDate: BUSINESS_DATE,
-    createdDate: "2026-08-27T12:00:00-05:00",
+    date: "2026-08-27T12:00:00-05:00",
     amount: 1,
     type: "CASH_IN",
-    cashDrawerGuid: IDS.drawerA,
+    cashDrawer: { guid: IDS.drawerA },
     ...overrides,
   };
 }
@@ -162,10 +161,8 @@ function entry(overrides: Partial<Record<string, unknown>>): Record<string, unkn
 function deposit(overrides: Partial<Record<string, unknown>>): Record<string, unknown> {
   return {
     guid: IDS.depositA,
-    businessDate: BUSINESS_DATE,
-    createdDate: "2026-08-27T15:00:00-05:00",
+    date: "2026-08-27T15:00:00-05:00",
     amount: 1,
-    type: "DEPOSIT",
     ...overrides,
   };
 }
