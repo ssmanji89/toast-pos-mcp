@@ -5,6 +5,7 @@ import {
   AnalyticsReportJobError,
   createAnalyticsReportJobAdapter,
   type AnalyticsReportJobCreateInput,
+  type AnalyticsReportJobLifecycleResult,
 } from "../src/analytics-report-jobs.js";
 import {
   AnalyticsAccessError,
@@ -236,6 +237,113 @@ test("Analytics report jobs reject malformed create identifiers without publishi
   await assert.rejects(tooLong.create(selection, createInput("metrics")), isContractError);
 });
 
+test("Analytics report lifecycle polls once per local policy interval and retains no completed body", async () => {
+  const { access, selection } = await createSelection();
+  const controller = new AbortController();
+  const sleeps: number[] = [];
+  const requestSignals: AbortSignal[] = [];
+  const responses = [
+    new Response(JSON.stringify("opaque-lifecycle-id"), { status: 200 }),
+    unreadableResponse(202),
+    unreadableCompleteResponse(),
+  ];
+  const adapter = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: tokenManagerThatRecordsSignal(requestSignals),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async (_url, init) => {
+      requestSignals.push(init?.signal as AbortSignal);
+      return responses.shift()!;
+    },
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+    now: () => 1_800_000_000_000,
+  });
+
+  const result = await adapter.runReportJob(selection, createInput("metrics"), { signal: controller.signal });
+  assertLifecycleResult(result, "result_contract_unavailable", 1, 0);
+  assert.deepEqual(sleeps, [1000]);
+  assert.ok(requestSignals.every((signal) => signal === controller.signal));
+  assert.equal(JSON.stringify(result).includes(RESULT_MARKER), false);
+});
+
+test("Analytics report lifecycle returns invalid-or-expired and bounds conflict replacements", async () => {
+  const { access, selection } = await createSelection();
+  const invalid = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async (_url, init) => init?.method === "POST"
+      ? new Response(JSON.stringify("opaque-invalid"), { status: 200 })
+      : unreadableResponse(404),
+  });
+  assertLifecycleResult(await invalid.runReportJob(selection, createInput("metrics")), "invalid_or_expired", 0, 0);
+
+  const responses = [
+    new Response(JSON.stringify("opaque-first"), { status: 200 }),
+    unreadableResponse(409),
+    new Response(JSON.stringify("opaque-replacement"), { status: 200 }),
+    unreadableResponse(409),
+  ];
+  const replacement = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => responses.shift()!,
+  });
+  assertLifecycleResult(
+    await replacement.runReportJob(selection, createInput("metrics")),
+    "replacement_exhausted",
+    0,
+    1,
+  );
+});
+
+test("Analytics report lifecycle exhausts its local pending budget and cancels without later turns", async () => {
+  const { access, selection } = await createSelection();
+  let now = 0;
+  const pendingResponses: Response[] = [
+    new Response(JSON.stringify("opaque-pending"), { status: 200 }),
+    ...Array.from({ length: 31 }, () => unreadableResponse(202)),
+  ];
+  const bounded = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => pendingResponses.shift()!,
+    now: () => now,
+    sleep: async (milliseconds) => { now += milliseconds; },
+  });
+  assertLifecycleResult(
+    await bounded.runReportJob(selection, createInput("metrics")),
+    "pending_exhausted",
+    30,
+    0,
+  );
+
+  const controller = new AbortController();
+  let fetchCalls = 0;
+  const cancelled = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify("opaque-cancelled"), { status: 200 });
+    },
+  });
+  controller.abort(new Error(TOKEN_MARKER));
+  await assert.rejects(
+    cancelled.runReportJob(selection, createInput("metrics"), { signal: controller.signal }),
+    isCancelledError,
+  );
+  assert.equal(fetchCalls, 0);
+});
+
 function unreadableCompleteResponse(): Response {
   return unreadableResponse(200);
 }
@@ -259,6 +367,40 @@ function isSafeAuthorityError(error: unknown): boolean {
   return (error instanceof AnalyticsAccessError || error instanceof AnalyticsReportJobError)
     && !error.message.includes(TOKEN_MARKER)
     && !error.message.includes(RESULT_MARKER);
+}
+
+function isCancelledError(error: unknown): boolean {
+  return error instanceof AnalyticsReportJobError
+    && error.code === "analytics_report_job_cancelled"
+    && !error.message.includes(TOKEN_MARKER)
+    && !error.message.includes(RESULT_MARKER);
+}
+
+function assertLifecycleResult(
+  result: AnalyticsReportJobLifecycleResult,
+  status: AnalyticsReportJobLifecycleResult["status"],
+  pollCount: number,
+  replacementCount: number,
+): void {
+  assert.equal(result.status, status);
+  assert.equal(result.provenance.apiFamily, "analytics");
+  assert.equal(result.provenance.pollCount, pollCount);
+  assert.equal(result.provenance.replacementCount, replacementCount);
+  assert.deepEqual(result.provenance.restaurantGuids, [FIRST_GUID, SECOND_GUID]);
+  assert.equal(Object.isFrozen(result), true);
+}
+
+function tokenManagerThatRecordsSignal(signals: AbortSignal[]) {
+  return {
+    async getAuthorizationHeader(options?: { readonly signal?: AbortSignal }) {
+      if (options?.signal !== undefined) signals.push(options.signal);
+      return `Bearer ${TOKEN_MARKER}`;
+    },
+    async getProvisionedScopes(options?: { readonly signal?: AbortSignal }) {
+      if (options?.signal !== undefined) signals.push(options.signal);
+      return ["enterprise-metrics:read"];
+    },
+  };
 }
 
 function expectedCreateBody(
