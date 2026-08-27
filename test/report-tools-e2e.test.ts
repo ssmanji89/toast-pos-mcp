@@ -39,7 +39,8 @@ type FixtureScenario =
   | "multi-group-tags"
   | "missing-item-group"
   | "conflicting-item-group"
-  | "conflicting-group-tags";
+  | "conflicting-group-tags"
+  | "missing-item-group-singleton";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -372,6 +373,23 @@ test("missing or conflicting Orders itemGroup leaves merged menu tags unresolved
     } finally {
       await connection.client.close();
     }
+  }
+});
+
+test("missing Orders itemGroup does not use singleton current group tags", async () => {
+  const connection = createConnection("modern", "missing-item-group-singleton");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(output.unresolvedContributionCount, 1);
+    assert.equal(output.groups.some((group: unknown) =>
+      structured(group).guid === TAG_UNKNOWN_GUID), false);
+  } finally {
+    await connection.client.close();
   }
 });
 

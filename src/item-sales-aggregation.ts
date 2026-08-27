@@ -74,7 +74,12 @@ function checkDimensionDescriptors(order: NormalizedOrder, selections: readonly 
   } else if (dimension === "item_tag") {
     for (const selection of selections) {
       if (selection.voided || selection.deferred) continue;
-      const item = resolveMenuItem(selection.item, selection.itemGroup, menuContext);
+      const item = resolveMenuItem(
+        selection.item,
+        selection.itemGroup,
+        menuContext,
+        true,
+      );
       if (item === undefined || item.itemTags.length === 0) {
         const unresolved = unresolvedDescriptor(dimension);
         unique.set(unresolved.key, unresolved);
@@ -94,8 +99,9 @@ function itemDescriptor(selection: NormalizedSelection, menuContext: MenuDimensi
   return Object.freeze({ key: referenceKey(reference) ?? "unresolved:item", guid: reference?.guid, multiLocationId: reference?.multiLocationId, value: undefined, displayName: item?.name, enrichmentState: item === undefined ? "unresolved" : menuContext?.state === "stale" ? "stale" : "current" });
 }
 
-function resolveMenuItem(reference: NormalizedReference | undefined, itemGroupReference: NormalizedReference | undefined, menuContext: MenuDimensionContext | undefined): MenuItemDimension | undefined {
+function resolveMenuItem(reference: NormalizedReference | undefined, itemGroupReference: NormalizedReference | undefined, menuContext: MenuDimensionContext | undefined, requireItemGroup = false): MenuItemDimension | undefined {
   if (reference === undefined || menuContext === undefined) return undefined;
+  if (requireItemGroup && itemGroupReference === undefined) return undefined;
   const byGuid = reference.guid === undefined || menuContext.ambiguousItemGuids.has(reference.guid) ? undefined : menuContext.itemsByGuid.get(reference.guid);
   const byMulti = reference.multiLocationId === undefined || menuContext.ambiguousMultiLocationIds.has(reference.multiLocationId) ? undefined : menuContext.itemsByMultiLocationId.get(reference.multiLocationId);
   if (byGuid !== undefined && byMulti !== undefined && byGuid.guid !== byMulti.guid) return undefined;

@@ -50,7 +50,8 @@ type FixtureScenario =
   | "multi-group-tags"
   | "missing-item-group"
   | "conflicting-item-group"
-  | "conflicting-group-tags";
+  | "conflicting-group-tags"
+  | "missing-item-group-singleton";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
@@ -169,6 +170,7 @@ async function syntheticToastFetch(
         : syntheticMenus(
           scenario === "missing-menu-item",
           scenario === "conflicting-group-tags",
+          scenario === "missing-item-group-singleton",
         ),
       "fixture-menu-full-1",
     );
@@ -276,7 +278,7 @@ async function syntheticToastFetch(
     }
     return jsonResponse(
       [syntheticOrder(
-        scenario === "missing-item-group"
+        scenario === "missing-item-group" || scenario === "missing-item-group-singleton"
           ? null
           : scenario === "conflicting-item-group"
             ? { guid: ITEM_GROUP_GUID, multiLocationId: "synthetic-group-b" }
@@ -473,6 +475,7 @@ function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GROUP_GUI
 function syntheticMenus(
   omitPrimaryItem: boolean,
   conflictingGroupTags: boolean,
+  omitSecondPrimaryGroup: boolean,
 ): object {
   const primaryA = menuItem(ITEM_GUID, [
     { guid: TAG_LUNCH_GUID, name: "Lunch" },
@@ -502,14 +505,14 @@ function syntheticMenus(
               ? [sameNameDifferentGuid]
               : [primaryA, sameNameDifferentGuid],
           },
-          {
+          ...(omitSecondPrimaryGroup ? [] : [{
             guid: conflictingGroupTags ? MENU_GROUP_A_GUID : MENU_GROUP_B_GUID,
             multiLocationId: conflictingGroupTags
               ? "synthetic-group-a"
               : "synthetic-group-b",
             name: "Path B",
             menuItems: omitPrimaryItem ? [] : [primaryB],
-          },
+          }]),
         ],
       },
     ],
@@ -581,6 +584,7 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "missing-item-group"
     || value === "conflicting-item-group"
     || value === "conflicting-group-tags"
+    || value === "missing-item-group-singleton"
   ) {
     return value ?? "success";
   }
