@@ -179,7 +179,7 @@ test("cash builder performs capability preflight before restaurant-bound source 
   assert.deepEqual(result.provenance.upstreamRequestIds, [
     "synthetic-entries",
     "synthetic-deposits",
-    "synthetic-drawers",
+    "synthetic-cash-drawers",
     "synthetic-no-sale-reasons",
     "synthetic-payout-reasons",
   ]);

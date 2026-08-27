@@ -1,15 +1,46 @@
-import type {
-  CashDepositSource,
-  CashDrawerSource,
-  CashEntrySource,
-  NoSaleReasonSource,
-  PayoutReasonSource,
+import {
+  cashDepositArraySchema,
+  cashDrawerArraySchema,
+  cashEntryArraySchema,
+  noSaleReasonArraySchema,
+  payoutReasonArraySchema,
+  type CashDepositSource,
+  type CashDrawerSource,
+  type CashEntrySource,
+  type NoSaleReasonSource,
+  type PayoutReasonSource,
 } from "./cash-report-source.js";
 import {
+  createCapabilityContext,
+  decideCapability,
+  type CapabilityDenial,
+} from "./capabilities.js";
+import type { ToastLocationDiscoveryProvenance } from "./locations.js";
+import {
+  STANDARD_REPORT_SCHEMA_VERSION,
+  type ReportContextFreshness,
+} from "./report-contract.js";
+import {
   addMinorUnits,
+  denialFromError,
   moneyToMinorUnits,
   ReportComputationError,
+  ReportProvenanceCollector,
+  type ReportDenial,
+  type ReportProvenance,
 } from "./report-core.js";
+import type { ApplicationRuntime } from "./runtime.js";
+import type { ToastDetailedJsonResult } from "./transport.js";
+
+const CASH_FORMULA_NOTES = Object.freeze([
+  "Cash entries and deposits are separate Cash Management source facts; this report does not calculate guest cash payments or expected deposits.",
+  "Amounts use exact two-decimal minor units. Open Toast cash-entry types remain separate aggregate buckets.",
+  "A reversal is paired only when its undoes GUID is present in this invocation; cross-business-date reversals remain observed source facts.",
+]);
+
+const CASH_WARNINGS = Object.freeze([
+  "Cash entry and deposit records are source-attributed Cash Management facts. They are not guest payment totals.",
+]);
 
 export interface CashEntryTypeTotal {
   readonly type: string;
@@ -60,6 +91,50 @@ export interface CashSummaryFoldInput {
   readonly noSaleReasons: readonly NoSaleReasonSource[];
   readonly payoutReasons: readonly PayoutReasonSource[];
 }
+
+export interface CashSummaryComplete extends CashSummaryFold {
+  readonly schemaVersion: typeof STANDARD_REPORT_SCHEMA_VERSION;
+  readonly status: "complete";
+  readonly report: "cash_summary";
+  readonly source: "standard_api";
+  readonly restaurantGuid: string;
+  readonly restaurantName: string;
+  readonly requestedBusinessDate: number;
+  readonly effectiveBusinessDate: number;
+  readonly timezone: string;
+  readonly closeoutHour: number;
+  readonly currencyCode: string;
+  readonly generatedAtEpochMs: number;
+  readonly contextFreshness: ReportContextFreshness;
+  readonly contextProvenance: ToastLocationDiscoveryProvenance;
+  readonly provenance: ReportProvenance;
+  readonly formulaNotes: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface CashSummaryDenied {
+  readonly schemaVersion: typeof STANDARD_REPORT_SCHEMA_VERSION;
+  readonly status: "denied";
+  readonly report: "cash_summary";
+  readonly source: "standard_api";
+  readonly restaurantGuid: string | undefined;
+  readonly restaurantName: string | undefined;
+  readonly businessDate: number;
+  readonly requestedBusinessDate: number;
+  readonly effectiveBusinessDate: number | undefined;
+  readonly generatedAtEpochMs: number;
+  readonly contextFreshness?: ReportContextFreshness;
+  readonly contextProvenance?: ToastLocationDiscoveryProvenance;
+  readonly denial: ReportDenial;
+  readonly missingScopes: readonly string[];
+  readonly missingProvisionedScopes: readonly string[];
+  readonly missingConnectionScopes: readonly string[];
+  readonly excludedScopes: readonly string[];
+  readonly formulaNotes: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export type CashSummaryResult = CashSummaryComplete | CashSummaryDenied;
 
 interface MutableTypeTotal {
   entryCount: number;
@@ -171,6 +246,278 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
       payoutReasonReferences,
       payoutReasonGuids,
     ),
+  });
+}
+
+export async function buildCashSummaryReport(
+  runtime: ApplicationRuntime,
+  input: {
+    readonly businessDate: number;
+    readonly restaurantGuid?: string;
+  },
+  options: { readonly signal?: AbortSignal } = {},
+): Promise<CashSummaryResult> {
+  const generatedAtEpochMs = runtime.now();
+  let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
+  let restaurantName: string | undefined;
+  let contextFreshness: ReportContextFreshness | undefined;
+  let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
+  let effectiveBusinessDate: number | undefined;
+
+  try {
+    assertValidBusinessDate(input.businessDate);
+    effectiveBusinessDate = input.businessDate;
+    const locationContext = await runtime.getLocationContext(
+      input.restaurantGuid,
+      { signal: options.signal },
+    );
+    const { location } = locationContext;
+    resolvedRestaurantGuid = location.restaurantGuid;
+    restaurantName = location.name;
+    contextFreshness = locationContext.freshness;
+    contextProvenance = locationContext.provenance;
+    const capability = decideCapability(
+      await createCapabilityContext(runtime.tokenManager, location),
+      {
+        restaurantGuid: location.restaurantGuid,
+        requiredScopes: ["cashmgmt:read", "config:read"],
+      },
+    );
+    if (capability.status === "denied") {
+      return capabilityDenied(
+        input.businessDate,
+        generatedAtEpochMs,
+        location.restaurantGuid,
+        location.name,
+        capability,
+        contextFreshness,
+        contextProvenance,
+      );
+    }
+
+    const provenance = new ReportProvenanceCollector();
+    const entriesResult = await readCashResult(
+      runtime,
+      "/cashmgmt/v1/entries",
+      location.restaurantGuid,
+      input.businessDate,
+      "cash-entries",
+      provenance,
+      options.signal,
+    );
+    const depositsResult = await readCashResult(
+      runtime,
+      "/cashmgmt/v1/deposits",
+      location.restaurantGuid,
+      input.businessDate,
+      "cash-deposits",
+      provenance,
+      options.signal,
+    );
+    const drawersPages = await readConfigurationPages(
+      runtime,
+      "/config/v2/cashDrawers",
+      location.restaurantGuid,
+      "config-cash-drawers",
+      provenance,
+      options.signal,
+    );
+    const noSalePages = await readConfigurationPages(
+      runtime,
+      "/config/v2/noSaleReasons",
+      location.restaurantGuid,
+      "config-no-sale-reasons",
+      provenance,
+      options.signal,
+    );
+    const payoutPages = await readConfigurationPages(
+      runtime,
+      "/config/v2/payoutReasons",
+      location.restaurantGuid,
+      "config-payout-reasons",
+      provenance,
+      options.signal,
+    );
+    const fold = foldCashSummary({
+      businessDate: input.businessDate,
+      entries: parseEntries(entriesResult.body),
+      deposits: parseDeposits(depositsResult.body),
+      cashDrawers: parseConfigurationPages(drawersPages, parseCashDrawers),
+      noSaleReasons: parseConfigurationPages(noSalePages, parseNoSaleReasons),
+      payoutReasons: parseConfigurationPages(payoutPages, parsePayoutReasons),
+    });
+    const warnings = fold.unresolvedCrossDateReversalCount === 0
+      ? CASH_WARNINGS
+      : Object.freeze([
+        ...CASH_WARNINGS,
+        `${fold.unresolvedCrossDateReversalCount} observed reversal reference(s) point outside this business-date invocation and were not netted.`,
+      ]);
+
+    return Object.freeze({
+      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
+      status: "complete" as const,
+      report: "cash_summary" as const,
+      source: "standard_api" as const,
+      restaurantGuid: location.restaurantGuid,
+      restaurantName: location.name,
+      requestedBusinessDate: input.businessDate,
+      effectiveBusinessDate: input.businessDate,
+      timezone: location.timezone,
+      closeoutHour: location.closeoutHour,
+      currencyCode: location.currencyCode,
+      generatedAtEpochMs,
+      contextFreshness,
+      contextProvenance,
+      provenance: provenance.snapshot(),
+      formulaNotes: CASH_FORMULA_NOTES,
+      warnings,
+      ...fold,
+    });
+  } catch (error) {
+    return Object.freeze({
+      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
+      status: "denied" as const,
+      report: "cash_summary" as const,
+      source: "standard_api" as const,
+      restaurantGuid: resolvedRestaurantGuid,
+      restaurantName,
+      businessDate: input.businessDate,
+      requestedBusinessDate: input.businessDate,
+      effectiveBusinessDate,
+      generatedAtEpochMs,
+      ...(contextFreshness === undefined ? {} : { contextFreshness }),
+      ...(contextProvenance === undefined ? {} : { contextProvenance }),
+      denial: denialFromError(error),
+      missingScopes: Object.freeze([]),
+      missingProvisionedScopes: Object.freeze([]),
+      missingConnectionScopes: Object.freeze([]),
+      excludedScopes: Object.freeze([]),
+      formulaNotes: CASH_FORMULA_NOTES,
+      warnings: CASH_WARNINGS,
+    });
+  }
+}
+
+async function readCashResult(
+  runtime: ApplicationRuntime,
+  path: `/${string}`,
+  restaurantGuid: string,
+  businessDate: number,
+  rateLimitKey: string,
+  provenance: ReportProvenanceCollector,
+  signal: AbortSignal | undefined,
+): Promise<ToastDetailedJsonResult> {
+  const result = await runtime.toastHttpClient.getJsonDetailedCancellable(
+    { path, restaurantGuid, query: { businessDate }, rateLimitKey },
+    { signal },
+  );
+  assertRestaurantSource(result, restaurantGuid);
+  provenance.add(result);
+  return result;
+}
+
+async function readConfigurationPages(
+  runtime: ApplicationRuntime,
+  path: `/${string}`,
+  restaurantGuid: string,
+  rateLimitKey: string,
+  provenance: ReportProvenanceCollector,
+  signal: AbortSignal | undefined,
+): Promise<readonly ToastDetailedJsonResult[]> {
+  const pages = await runtime.toastHttpClient.getConfigurationPagesDetailedCancellable(
+    { path, restaurantGuid, rateLimitKey },
+    { signal },
+  );
+  if (pages.length === 0) throw cashSourceInvalid();
+  for (const page of pages) {
+    assertRestaurantSource(page, restaurantGuid);
+    provenance.add(page);
+  }
+  return pages;
+}
+
+function parseEntries(body: unknown): readonly CashEntrySource[] {
+  const parsed = cashEntryArraySchema.safeParse(body);
+  if (!parsed.success) throw cashSourceInvalid();
+  return Object.freeze([...parsed.data]);
+}
+
+function parseDeposits(body: unknown): readonly CashDepositSource[] {
+  const parsed = cashDepositArraySchema.safeParse(body);
+  if (!parsed.success) throw cashSourceInvalid();
+  return Object.freeze([...parsed.data]);
+}
+
+function parseCashDrawers(body: unknown): readonly CashDrawerSource[] {
+  const parsed = cashDrawerArraySchema.safeParse(body);
+  if (!parsed.success) throw cashSourceInvalid();
+  return Object.freeze([...parsed.data]);
+}
+
+function parseNoSaleReasons(body: unknown): readonly NoSaleReasonSource[] {
+  const parsed = noSaleReasonArraySchema.safeParse(body);
+  if (!parsed.success) throw cashSourceInvalid();
+  return Object.freeze([...parsed.data]);
+}
+
+function parsePayoutReasons(body: unknown): readonly PayoutReasonSource[] {
+  const parsed = payoutReasonArraySchema.safeParse(body);
+  if (!parsed.success) throw cashSourceInvalid();
+  return Object.freeze([...parsed.data]);
+}
+
+function parseConfigurationPages<T>(
+  pages: readonly ToastDetailedJsonResult[],
+  parse: (body: unknown) => readonly T[],
+): readonly T[] {
+  return Object.freeze(pages.flatMap((page) => parse(page.body)));
+}
+
+function assertRestaurantSource(
+  result: ToastDetailedJsonResult,
+  restaurantGuid: string,
+): void {
+  if (
+    result.apiFamily !== "standard"
+    || result.scope.kind !== "restaurant"
+    || result.scope.restaurantGuid.toLowerCase() !== restaurantGuid.toLowerCase()
+  ) throw cashSourceInvalid();
+}
+
+function capabilityDenied(
+  businessDate: number,
+  generatedAtEpochMs: number,
+  restaurantGuid: string,
+  restaurantName: string,
+  denial: CapabilityDenial,
+  contextFreshness: ReportContextFreshness,
+  contextProvenance: ToastLocationDiscoveryProvenance,
+): CashSummaryDenied {
+  return Object.freeze({
+    schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
+    status: "denied" as const,
+    report: "cash_summary" as const,
+    source: "standard_api" as const,
+    restaurantGuid,
+    restaurantName,
+    businessDate,
+    requestedBusinessDate: businessDate,
+    effectiveBusinessDate: businessDate,
+    generatedAtEpochMs,
+    contextFreshness,
+    contextProvenance,
+    denial: Object.freeze({
+      code: `capability_${denial.reason}`,
+      retryable: false,
+      upstreamStatus: undefined,
+      upstreamRequestId: undefined,
+    }),
+    missingScopes: denial.missingScopes,
+    missingProvisionedScopes: denial.missingProvisionedScopes,
+    missingConnectionScopes: denial.missingConnectionScopes,
+    excludedScopes: denial.excludedScopes,
+    formulaNotes: CASH_FORMULA_NOTES,
+    warnings: CASH_WARNINGS,
   });
 }
 
