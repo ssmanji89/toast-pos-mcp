@@ -344,6 +344,49 @@ test("Analytics report lifecycle exhausts its local pending budget and cancels w
   assert.equal(fetchCalls, 0);
 });
 
+test("Analytics lifecycle cancellation stops deferred token, POST, GET, and polling turns", async () => {
+  const { access, selection } = await createSelection();
+  const scenarios = ["token", "post", "get", "sleep"] as const;
+  for (const scenario of scenarios) {
+    const controller = new AbortController();
+    let fetchCalls = 0;
+    let release: (() => void) | undefined;
+    const deferred = new Promise<void>((resolve) => { release = resolve; });
+    const manager = {
+      async getProvisionedScopes() {
+        if (scenario === "token") await deferred;
+        return ["enterprise-metrics:read"];
+      },
+      async getAuthorizationHeader() {
+        return `Bearer ${TOKEN_MARKER}`;
+      },
+    };
+    const adapter = createAnalyticsReportJobAdapter({
+      access,
+      identity: {},
+      tokenManager: manager,
+      hostname: "analytics.synthetic-toast-fixture.test",
+      fetch: async (_url, init) => {
+        fetchCalls += 1;
+        if (scenario === "post" || (scenario === "get" && init?.method === "GET")) {
+          await deferred;
+        }
+        if (init?.method === "POST") return new Response(JSON.stringify("opaque-cancel"), { status: 200 });
+        return unreadableResponse(scenario === "sleep" ? 202 : 200);
+      },
+      sleep: async () => { if (scenario === "sleep") await deferred; },
+    });
+    const run = adapter.runReportJob(selection, createInput("metrics"), { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort(new Error(RESULT_MARKER));
+    release?.();
+    await assert.rejects(run, isCancelledError);
+    const settledFetchCalls = fetchCalls;
+    await Promise.resolve();
+    assert.equal(fetchCalls, settledFetchCalls);
+  }
+});
+
 function unreadableCompleteResponse(): Response {
   return unreadableResponse(200);
 }
