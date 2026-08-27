@@ -5,76 +5,39 @@ import {
   SYNTHETIC_VALID_RUNTIME_ENV,
 } from "../support/synthetic-runtime-env.js";
 
-const RESTAURANT_GUID = SYNTHETIC_VALID_RUNTIME_ENV.TOAST_DEFAULT_RESTAURANT_GUID;
-const PAYMENT_GUID = "00000000-0000-4000-8000-000000000801";
-const ORDER_GUID = "00000000-0000-4000-8000-000000000802";
-const CHECK_GUID = "00000000-0000-4000-8000-000000000803";
-const SELECTION_GUID = "00000000-0000-4000-8000-000000000804";
-const DEFERRED_GUID = "00000000-0000-4000-8000-000000000805";
-const SERVICE_CHARGE_GUID = "00000000-0000-4000-8000-000000000806";
-const SERVICE_CHARGE_CONFIG_GUID = "00000000-0000-4000-8000-000000000807";
-const SECOND_SELECTION_GUID = "00000000-0000-4000-8000-000000000808";
-const MODIFIER_GUID = "00000000-0000-4000-8000-000000000809";
-const NESTED_MODIFIER_GUID = "00000000-0000-4000-8000-000000000810";
-const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
-const SECOND_ITEM_GUID = "00000000-0000-4000-8000-000000000812";
-const ITEM_GROUP_GUID = "00000000-0000-4000-8000-000000000821";
-const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
-const DINING_OPTION_GUID = "00000000-0000-4000-8000-000000000815";
-const REVENUE_CENTER_GUID = "00000000-0000-4000-8000-000000000816";
-const RESTAURANT_SERVICE_GUID = "00000000-0000-4000-8000-000000000817";
-const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
-const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
-const TAG_DINNER_GUID = "00000000-0000-4000-8000-000000000823";
-const MENU_GUID = "00000000-0000-4000-8000-000000000820";
-const MENU_GROUP_A_GUID = "00000000-0000-4000-8000-000000000821";
-const MENU_GROUP_B_GUID = "00000000-0000-4000-8000-000000000822";
-const CASH_ENTRY_GUID = "00000000-0000-4000-8000-000000000901";
-const CASH_DEPOSIT_GUID = "00000000-0000-4000-8000-000000000902";
-const CASH_DRAWER_GUID = "00000000-0000-4000-8000-000000000903";
-const NO_SALE_REASON_GUID = "00000000-0000-4000-8000-000000000904";
-const PAYOUT_REASON_GUID = "00000000-0000-4000-8000-000000000905";
-const LABOR_EMPLOYEE_GUID = "00000000-0000-4000-8000-000000000911";
-const LABOR_JOB_GUID = "00000000-0000-4000-8000-000000000912";
-const LABOR_BREAK_TYPE_GUID = "00000000-0000-4000-8000-000000000913";
-const LABOR_TIME_ENTRY_GUID = "00000000-0000-4000-8000-000000000914";
-const LABOR_ARCHIVED_ENTRY_GUID = "00000000-0000-4000-8000-000000000915";
-const LABOR_BREAK_GUID = "00000000-0000-4000-8000-000000000916";
-const TIP_WITHHOLDING_GUID = "00000000-0000-4000-8000-000000000917";
-const BUSINESS_DATE = 20260816;
-const NOW = Date.parse("2026-08-16T20:00:00Z");
-const MENU_UPDATED_AT = "2026-08-16T19:00:00.000Z";
-
-type FixtureScenario =
-  | "success"
-  | "missing-scope"
-  | "malformed-source"
-  | "broken-pagination"
-  | "cancel-active-report"
-  | "rate-limit-wait"
-  | "missing-cash-scope"
-  | "missing-labor-order-scope"
-  | "malformed-cash-source"
-  | "malformed-labor-source"
-  | "cancel-cash-report"
-  | "cancel-labor-report"
-  | "rate-limit-cash"
-  | "labor-revised-archived"
-  | "labor-active-entry"
-  | "missing-menu-item"
-  | "menu-refresh-fails-after-cache"
-  | "menu-unavailable-no-cache"
-  | "missing-config-category"
-  | "malformed-menu-structure"
-  | "missing-menus-scope"
-  | "missing-config-scope"
-  | "multi-group-tags"
-  | "missing-item-group"
-  | "conflicting-item-group"
-  | "conflicting-group-tags"
-  | "missing-item-group-singleton";
+import {
+  ALTERNATE_RESTAURANT_GUID,
+  BUSINESS_DATE,
+  CASH_DRAWER_GUID,
+  ITEM_GROUP_GUID,
+  LABOR_BREAK_TYPE_GUID,
+  LABOR_JOB_GUID,
+  MENU_UPDATED_AT,
+  NO_SALE_REASON_GUID,
+  NOW,
+  PAYMENT_GUID,
+  PAYOUT_REASON_GUID,
+  RESTAURANT_GUID,
+  SALES_CATEGORY_GUID,
+  REVENUE_CENTER_GUID,
+  DINING_OPTION_GUID,
+  RESTAURANT_SERVICE_GUID,
+  TIP_WITHHOLDING_GUID,
+  jsonResponse,
+  parseScenario,
+  syntheticCashDeposits,
+  syntheticCashEntries,
+  syntheticJwt,
+  syntheticLaborTimeEntries,
+  syntheticMenus,
+  syntheticOrder,
+  type FixtureScenario,
+} from "./stdio-report-data.js";
 
 const scenario = parseScenario(process.argv[2]);
+const selectedRestaurantGuid = scenario === "alternate-restaurant"
+  ? ALTERNATE_RESTAURANT_GUID
+  : RESTAURANT_GUID;
 let ordersFetchCount = 0;
 const tokenScopes = scenario === "missing-scope"
   ? ["restaurants:read"]
@@ -128,6 +91,9 @@ async function syntheticToastFetch(
         : input.url,
   );
   const headers = new Headers(init?.headers);
+  console.error(
+    `fixture-request:${url.pathname}:${headers.get("toast-restaurant-external-id") ?? "none"}`,
+  );
 
   if (url.pathname === "/partners/v1/restaurants") {
     assertNoRestaurantHeader(headers);
@@ -145,16 +111,37 @@ async function syntheticToastFetch(
           "config:read",
         ],
       },
+      {
+        restaurantGuid: ALTERNATE_RESTAURANT_GUID,
+        managementGroupGuid: null,
+        deleted: false,
+        scopes: [
+          "orders:read",
+          "cashmgmt:read",
+          "labor:read",
+          "restaurants:read",
+          "menus:read",
+          "config:read",
+        ],
+      },
     ], "fixture-partners-request");
   }
 
-  if (url.pathname === `/restaurants/v1/restaurants/${RESTAURANT_GUID}`) {
-    assertRestaurantHeader(headers);
+  if (
+    url.pathname === `/restaurants/v1/restaurants/${RESTAURANT_GUID}`
+    || url.pathname === `/restaurants/v1/restaurants/${ALTERNATE_RESTAURANT_GUID}`
+  ) {
+    const restaurantGuid = url.pathname.endsWith(ALTERNATE_RESTAURANT_GUID)
+      ? ALTERNATE_RESTAURANT_GUID
+      : RESTAURANT_GUID;
+    assertRestaurantHeader(headers, restaurantGuid);
     return jsonResponse({
-      guid: RESTAURANT_GUID,
+      guid: restaurantGuid,
       general: {
         archived: false,
-        name: "Synthetic Tool Cafe",
+        name: restaurantGuid === ALTERNATE_RESTAURANT_GUID
+          ? "Synthetic Alternate Cafe"
+          : "Synthetic Tool Cafe",
         timeZone: "America/Chicago",
         closeoutHour: 4,
         currencyCode: "USD",
@@ -191,9 +178,8 @@ async function syntheticToastFetch(
     if (scenario === "malformed-cash-source") {
       return jsonResponse({ entries: "invalid" }, "fixture-malformed-cash-entries");
     }
-    if (scenario === "cancel-cash-report") {
-      return waitForAbort("cash-entries-fetch", init?.signal);
-    }
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     if (scenario === "rate-limit-cash") {
       cashEntriesFetchCount += 1;
       return jsonResponse(
@@ -215,24 +201,32 @@ async function syntheticToastFetch(
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
     assertBusinessDateQuery(url);
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse(syntheticCashDeposits(), "fixture-cash-deposits");
   }
 
   if (url.pathname === "/config/v2/cashDrawers") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: CASH_DRAWER_GUID }], "fixture-cash-drawers");
   }
 
   if (url.pathname === "/config/v2/noSaleReasons") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: NO_SALE_REASON_GUID }], "fixture-no-sale-reasons");
   }
 
   if (url.pathname === "/config/v2/payoutReasons") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: PAYOUT_REASON_GUID }], "fixture-payout-reasons");
   }
 
@@ -243,15 +237,16 @@ async function syntheticToastFetch(
     if (scenario === "malformed-labor-source") {
       return jsonResponse({ timeEntries: "invalid" }, "fixture-malformed-labor-time-entries");
     }
-    if (scenario === "cancel-labor-report") {
-      return waitForAbort("labor-time-entries-fetch", init?.signal);
-    }
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse(syntheticLaborTimeEntries(scenario), "fixture-labor-time-entries");
   }
 
   if (url.pathname === "/labor/v1/jobs") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     const jobIds = url.searchParams.get("jobIds");
     if (jobIds !== LABOR_JOB_GUID) {
       throw new Error("synthetic labor fixture expected the selected Job GUID");
@@ -264,6 +259,8 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/breakTypes") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([
       { guid: LABOR_BREAK_TYPE_GUID, entityType: "BreakType", active: true, paid: false },
     ], "fixture-labor-break-types");
@@ -272,6 +269,8 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/tipWithholding") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse({
       guid: TIP_WITHHOLDING_GUID,
       entityType: "TipWithholding",
@@ -356,6 +355,8 @@ async function syntheticToastFetch(
   if (url.pathname === "/orders/v2/ordersBulk") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    const cancellationMarker = sourceCancellationMarker(url.pathname);
+    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     if (url.searchParams.get("businessDate") !== String(BUSINESS_DATE)) {
       return jsonResponse([]);
     }
@@ -460,294 +461,6 @@ async function syntheticToastFetch(
   });
 }
 
-function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GROUP_GUID }): object {
-  return {
-    guid: ORDER_GUID,
-    businessDate: BUSINESS_DATE,
-    openedDate: "2026-08-16T12:00:00-0500",
-    modifiedDate: "2026-08-16T12:30:00-0500",
-    promisedDate: null,
-    approvalStatus: "APPROVED",
-    source: "In Store",
-    server: { guid: LABOR_EMPLOYEE_GUID, name: "synthetic-employee-name-must-not-survive" },
-    revenueCenter: { guid: REVENUE_CENTER_GUID },
-    restaurantService: { guid: RESTAURANT_SERVICE_GUID },
-    diningOption: { guid: DINING_OPTION_GUID },
-    numberOfGuests: 2,
-    excessFood: false,
-    deleted: false,
-    voided: false,
-    checks: [
-      {
-        guid: CHECK_GUID,
-        amount: 10,
-        taxAmount: 0.8,
-        totalAmount: 10.8,
-        taxExempt: false,
-        deleted: false,
-        voided: false,
-        paymentStatus: "CLOSED",
-        selections: [
-          {
-            guid: SELECTION_GUID,
-            item: { guid: ITEM_GUID },
-            ...(primaryItemGroup === null ? {} : { itemGroup: primaryItemGroup }),
-            salesCategory: { guid: SALES_CATEGORY_GUID },
-            diningOption: { guid: DINING_OPTION_GUID },
-            quantity: 0.5,
-            unitOfMeasure: "LB",
-            selectionType: "NONE",
-            price: 8,
-            preDiscountPrice: 9,
-            tax: 0.8,
-            deferred: false,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [
-              {
-                guid: MODIFIER_GUID,
-                item: { guid: ITEM_GUID },
-                quantity: 1,
-                unitOfMeasure: "NONE",
-                selectionType: "NONE",
-                price: 1,
-                preDiscountPrice: 1,
-                tax: 0,
-                deferred: false,
-                voided: false,
-                appliedDiscounts: [],
-                modifiers: [
-                  {
-                    guid: NESTED_MODIFIER_GUID,
-                    item: { guid: ITEM_GUID },
-                    quantity: 1,
-                    unitOfMeasure: "NONE",
-                    selectionType: "NONE",
-                    price: 0.5,
-                    preDiscountPrice: 0.5,
-                    tax: 0,
-                    deferred: false,
-                    voided: false,
-                    appliedDiscounts: [],
-                    modifiers: [],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            guid: SECOND_SELECTION_GUID,
-            item: { guid: SECOND_ITEM_GUID },
-            itemGroup: { guid: ITEM_GROUP_GUID },
-            salesCategory: { guid: SALES_CATEGORY_GUID },
-            diningOption: { guid: DINING_OPTION_GUID },
-            quantity: 1,
-            unitOfMeasure: "NONE",
-            selectionType: "NONE",
-            price: 2,
-            preDiscountPrice: 2,
-            tax: 0,
-            deferred: false,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [],
-          },
-          {
-            guid: DEFERRED_GUID,
-            quantity: 1,
-            unitOfMeasure: "NONE",
-            selectionType: "HOUSE_ACCOUNT_PAY_BALANCE",
-            price: 1,
-            preDiscountPrice: 1,
-            tax: 0,
-            deferred: true,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [],
-          },
-        ],
-        payments: [
-          {
-            guid: PAYMENT_GUID,
-            type: "CASH",
-            amount: 10,
-            tipAmount: 1,
-            paidBusinessDate: BUSINESS_DATE,
-            paymentStatus: "CAPTURED",
-            refundStatus: "FULL",
-            refund: {
-              refundAmount: 2,
-              tipRefundAmount: 0.5,
-              refundBusinessDate: BUSINESS_DATE,
-            },
-          },
-        ],
-        appliedServiceCharges: [
-          {
-            guid: SERVICE_CHARGE_GUID,
-            chargeAmount: 1,
-            serviceCharge: { guid: SERVICE_CHARGE_CONFIG_GUID },
-            gratuity: false,
-            serviceChargeCategory: "FUNDRAISING_CAMPAIGN",
-          },
-        ],
-        appliedDiscounts: [],
-      },
-    ],
-  };
-}
-
-function syntheticCashEntries(): readonly object[] {
-  return [{
-    guid: CASH_ENTRY_GUID,
-    date: "2026-08-16T12:00:00-05:00",
-    amount: 12.34,
-    type: "CASH_IN",
-    cashDrawer: { guid: CASH_DRAWER_GUID },
-    noSaleReason: { guid: NO_SALE_REASON_GUID },
-    payoutReason: { guid: PAYOUT_REASON_GUID },
-    employeeName: "synthetic-cash-employee-must-not-survive",
-    cardMarker: "synthetic-cash-card-must-not-survive",
-  }];
-}
-
-function syntheticCashDeposits(): readonly object[] {
-  return [{
-    guid: CASH_DEPOSIT_GUID,
-    date: "2026-08-16T17:00:00-05:00",
-    amount: 10,
-    rawSourceMarker: "synthetic-cash-raw-source-must-not-survive",
-  }];
-}
-
-function syntheticLaborTimeEntries(scenarioValue: FixtureScenario): readonly object[] {
-  const current = syntheticLaborTimeEntry();
-  if (scenarioValue === "labor-active-entry") {
-    return [syntheticLaborTimeEntry({ outDate: null, regularHours: 1 })];
-  }
-  if (scenarioValue === "labor-revised-archived") {
-    return [
-      current,
-      syntheticLaborTimeEntry({
-        guid: LABOR_ARCHIVED_ENTRY_GUID,
-        deleted: true,
-        deletedDate: "2026-08-16T18:00:00-05:00",
-        regularHours: 99,
-        overtimeHours: 99,
-        hourlyWage: 99,
-        breaks: [{
-          guid: "00000000-0000-4000-8000-000000000918",
-          breakType: { guid: LABOR_BREAK_TYPE_GUID, entityType: "BreakType" },
-          paid: false,
-          inDate: null,
-          outDate: null,
-          missed: false,
-          waived: false,
-          auditResponse: null,
-        }],
-      }),
-    ];
-  }
-  return [current];
-}
-
-function syntheticLaborTimeEntry(overrides: Readonly<Record<string, unknown>> = {}): object {
-  return {
-    guid: LABOR_TIME_ENTRY_GUID,
-    entityType: "TimeEntry",
-    deleted: false,
-    employeeReference: {
-      guid: LABOR_EMPLOYEE_GUID,
-      entityType: "RestaurantUser",
-      externalId: "synthetic-employee-external-id-must-not-survive",
-    },
-    jobReference: { guid: LABOR_JOB_GUID, entityType: "RestaurantJob" },
-    inDate: "2026-08-16T08:00:00-05:00",
-    outDate: "2026-08-16T16:00:00-05:00",
-    businessDate: String(BUSINESS_DATE),
-    regularHours: 7.5,
-    overtimeHours: 0.5,
-    hourlyWage: null,
-    modifiedDate: "2026-08-16T16:05:00-05:00",
-    breaks: [{
-      guid: LABOR_BREAK_GUID,
-      breakType: { guid: LABOR_BREAK_TYPE_GUID, entityType: "BreakType" },
-      paid: false,
-      inDate: null,
-      outDate: null,
-      missed: true,
-      waived: false,
-      auditResponse: null,
-    }],
-    employeeName: "synthetic-employee-name-must-not-survive",
-    ...overrides,
-  };
-}
-
-function syntheticMenus(
-  omitPrimaryItem: boolean,
-  conflictingGroupTags: boolean,
-  omitSecondPrimaryGroup: boolean,
-): object {
-  const primaryA = menuItem(ITEM_GUID, [
-    { guid: TAG_LUNCH_GUID, name: "Lunch" },
-    { guid: TAG_UNKNOWN_GUID, name: "NEW_ENUM_TAG" },
-  ]);
-  const primaryB = menuItem(ITEM_GUID, [
-    { guid: TAG_DINNER_GUID, name: "Dinner" },
-  ]);
-  const sameNameDifferentGuid = menuItem(SECOND_ITEM_GUID, [
-    { guid: TAG_LUNCH_GUID, name: "Lunch" },
-  ]);
-
-  return {
-    restaurantGuid: RESTAURANT_GUID,
-    lastUpdated: MENU_UPDATED_AT,
-    restaurantTimeZone: "America/Chicago",
-    menus: [
-      {
-        guid: MENU_GUID,
-        name: "Current Dinner Menu",
-        menuGroups: [
-          {
-            guid: MENU_GROUP_A_GUID,
-            multiLocationId: "synthetic-group-a",
-            name: "Path A",
-            menuItems: omitPrimaryItem
-              ? [sameNameDifferentGuid]
-              : [primaryA, sameNameDifferentGuid],
-          },
-          ...(omitSecondPrimaryGroup ? [] : [{
-            guid: conflictingGroupTags ? MENU_GROUP_A_GUID : MENU_GROUP_B_GUID,
-            multiLocationId: conflictingGroupTags
-              ? "synthetic-group-a"
-              : "synthetic-group-b",
-            name: "Path B",
-            menuItems: omitPrimaryItem ? [] : [primaryB],
-          }]),
-        ],
-      },
-    ],
-    modifierOptionReferences: {},
-  };
-}
-
-function menuItem(
-  guid: string,
-  itemTags: readonly { readonly guid: string; readonly name: string }[],
-): object {
-  return {
-    guid,
-    multiLocationId: guid,
-    name: "Current Burger",
-    itemTags,
-    salesCategory: {
-      guid: SALES_CATEGORY_GUID,
-      name: "Current Entrees",
-    },
-  };
-}
-
 function assertSingleConfigSuccess(pathname: string): void {
   const next = (configSuccessCalls.get(pathname) ?? 0) + 1;
   configSuccessCalls.set(pathname, next);
@@ -795,77 +508,38 @@ function waitForAbort(marker: string, signal: AbortSignal | null | undefined): P
   });
 }
 
-function assertRestaurantHeader(headers: Headers): void {
-  if (headers.get("toast-restaurant-external-id") !== RESTAURANT_GUID) {
+function assertRestaurantHeader(headers: Headers, expectedGuid = selectedRestaurantGuid): void {
+  if (headers.get("toast-restaurant-external-id") !== expectedGuid) {
     throw new Error("synthetic fixture expected restaurant isolation header");
   }
+}
+
+function sourceCancellationMarker(pathname: string): string | undefined {
+  const scenarioByPath: Readonly<Record<string, string>> = {
+    "/cashmgmt/v1/entries": "cancel-cash-entries",
+    "/cashmgmt/v1/deposits": "cancel-cash-deposits",
+    "/config/v2/cashDrawers": "cancel-cash-drawers",
+    "/config/v2/noSaleReasons": "cancel-cash-no-sale-reasons",
+    "/config/v2/payoutReasons": "cancel-cash-payout-reasons",
+    "/labor/v1/timeEntries": "cancel-labor-time-entries",
+    "/labor/v1/jobs": "cancel-labor-jobs",
+    "/config/v2/breakTypes": "cancel-labor-break-types",
+    "/config/v2/tipWithholding": "cancel-labor-tip-withholding",
+    "/orders/v2/ordersBulk": "cancel-labor-orders",
+  };
+  const expectedScenario = scenarioByPath[pathname];
+  if (scenario === expectedScenario) return `${pathname.slice(1).replaceAll("/", "-")}-fetch`;
+  if (scenario === "cancel-cash-report" && pathname === "/cashmgmt/v1/entries") {
+    return "cash-entries-fetch";
+  }
+  if (scenario === "cancel-labor-report" && pathname === "/labor/v1/timeEntries") {
+    return "labor-time-entries-fetch";
+  }
+  return undefined;
 }
 
 function assertNoRestaurantHeader(headers: Headers): void {
   if (headers.get("toast-restaurant-external-id") !== null) {
     throw new Error("synthetic fixture expected credential-scoped request");
   }
-}
-
-function parseScenario(value: string | undefined): FixtureScenario {
-  if (
-    value === undefined
-    || value === "success"
-    || value === "missing-scope"
-    || value === "malformed-source"
-    || value === "broken-pagination"
-    || value === "cancel-active-report"
-    || value === "rate-limit-wait"
-    || value === "missing-cash-scope"
-    || value === "missing-labor-order-scope"
-    || value === "malformed-cash-source"
-    || value === "malformed-labor-source"
-    || value === "cancel-cash-report"
-    || value === "cancel-labor-report"
-    || value === "rate-limit-cash"
-    || value === "labor-revised-archived"
-    || value === "labor-active-entry"
-    || value === "missing-menu-item"
-    || value === "menu-refresh-fails-after-cache"
-    || value === "menu-unavailable-no-cache"
-    || value === "missing-config-category"
-    || value === "malformed-menu-structure"
-    || value === "missing-menus-scope"
-    || value === "missing-config-scope"
-    || value === "multi-group-tags"
-    || value === "missing-item-group"
-    || value === "conflicting-item-group"
-    || value === "conflicting-group-tags"
-    || value === "missing-item-group-singleton"
-  ) {
-    return value ?? "success";
-  }
-  throw new Error("unknown synthetic report fixture scenario");
-}
-
-function syntheticJwt(scopes: readonly string[]): string {
-  return [
-    base64Url({ alg: "none", typ: "JWT" }),
-    base64Url({ scope: [...scopes] }),
-    "synthetic-signature",
-  ].join(".");
-}
-
-function base64Url(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
-}
-
-function jsonResponse(
-  body: unknown,
-  requestId?: string,
-  additionalHeaders: Readonly<Record<string, string>> = {},
-): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      "content-type": "application/json",
-      ...(requestId === undefined ? {} : { "toast-request-id": requestId }),
-      ...additionalHeaders,
-    },
-  });
 }
