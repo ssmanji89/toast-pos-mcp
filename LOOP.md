@@ -59,8 +59,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | CLOSED |
 | T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | CLOSED |
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | CLOSED |
-| T4-001 | T4 | Implement cash-entry and deposit summaries | T3-002 CLOSED | OPEN |
-| T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | OPEN |
+| T4-001 | T4 | Implement cash-entry and deposit summaries | T3-002 CLOSED | CLOSED |
+| T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | CLOSED |
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
@@ -80,14 +80,15 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-T4 source slices are merged on `main`. T4-001 / PR #46 merged as `b52f394`
-after a CLEAN review of `f34c083`; T4-002 / PR #47 merged as `428cca1`
-after a CLEAN review of `f7cd0dc`. Both merges passed rebuilt main tests.
-T4 remains OPEN until the shared stdio registration and exact-head integration
-evidence in Plan 04-03 merge. These source merges do not close the live Toast
-gate #28, the stdio lifecycle gate #4/T6-003, or publication gates.
+T4 is CLOSED on `main` at `9f145c287bafc3817ba79767e59c965353e544ce`.
+T4-001 / PR #46 merged as `b52f394` after a CLEAN review of `f34c083`.
+T4-002 / PR #47 merged as `428cca1` after a CLEAN review of `f7cd0dc`.
+Plan 04-03 / PR #48 merged after independent CLEAN review of `3909f10`.
+Rebuilt main passed the Node 22 `npm run check` gate with 364 tests and the
+43-test report-tool stdio suite. T4 closure does not close live Toast gate #28,
+first-tool-request cancellation gate #4/T6-003, or publication gates.
 
-### Phase 4 source slices — MERGED; shared integration OPEN
+### Phase 4 source slices and integration — CLOSED
 
 - T4-001 / PR #46 merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac`.
   The reviewed source head was `f34c08337a7017d0566b5ccc68cfbc03ce2eb578`.
@@ -95,8 +96,10 @@ gate #28, the stdio lifecycle gate #4/T6-003, or publication gates.
 - T4-002 / PR #47 merged as `428cca196aba6497d72e942f7dd7cb021ae49e77`.
   The reviewed source head was `f7cd0dc739930d1a0fd4187685fc6d575e7ff9ed`.
   Rebuilt `main` tests discovered 29 files and passed 319 tests.
-- Both results prove source behavior only. Plan 04-03 owns MCP registration,
-  child-process stdio evidence, combined Node 20/22 gates, and T4 closure.
+- Plan 04-03 / PR #48 merged as `9f145c287bafc3817ba79767e59c965353e544ce`.
+  The independent CLEAN source head was `3909f10732cf7b1a8f42109b1b9c79d4c6362f3c`.
+  Rebuilt Node 22 `npm run check` passed 364 tests and package validation.
+  Rebuilt child-process report-tool stdio tests passed 43/43.
 
 ### Phase 3 reporting — CLOSED on `main`
 
@@ -426,10 +429,9 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** Plan 04-03. Reconcile the merged cash and labor sources at
-  the shared MCP registration surface. Prove the compiled official-client
-  stdio chain, then run exact-head Node 20/22 and package gates.
-- **Required action:** preserve the closed T3 production chain. Keep T4 OPEN
-  until the shared tool path has independent CLEAN review and merged evidence.
+- **Next slice:** T5-001. Plan and implement the Analytics API capability and
+  management-group location adapter on the closed T4 main base.
+- **Required action:** preserve source separation and exclude guest-payment
+  datasets. Do not make an Analytics call until capability preflight passes.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
   Toast compatibility, and T6 packaging/signing/publication remain open.

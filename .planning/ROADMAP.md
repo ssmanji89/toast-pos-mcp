@@ -10,7 +10,7 @@
 - [ ] **Phase 1: Local runtime and Standard transport foundation**
 - [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
 - [x] **Phase 3: Core Standard reporting and real MCP tool wiring**
-- [ ] **Phase 4: Cash and labor reporting**
+- [x] **Phase 4: Cash and labor reporting**
 - [ ] **Phase 5: Source-distinct Analytics adapter and tools**
 - [ ] **Phase 6: Release hardening and public compatibility proof**
 

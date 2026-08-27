@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `b52f3949d585435d19bab1fcc2c452fc1326d3ac`
+**Observed `main`:** `9f145c287bafc3817ba79767e59c965353e544ce`
 
 ## Canonical campaign position
 
@@ -16,7 +16,7 @@ milestone_name: Public local Toast reporting MCP
 - T2-001 production location-source repair is CLOSED after PR #27 merged and passed its Node 20/22 and mutation gates;
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - T3-001, T3-002, and T3-003 are CLOSED on `main`;
-- T4 source slices are merged, while shared MCP integration remains open;
+- T4 is CLOSED after PR #48 merged with production stdio evidence;
 - T5 remains open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
@@ -36,8 +36,9 @@ milestone_name: Public local Toast reporting MCP
 | T3 normalization | #18 / PR #34 | merged as `1ab7cb7` | CLOSED; normalized Orders is consumed by the production report paths |
 | Standard sales/payment MCP tools | #19 / PR #40 | merged as `291cda2` | CLOSED; production stdio tools, structured denials, cancellation, provenance, and Node 20/22/package evidence merged |
 | item/dimension sales MCP tools | PR #41 | merged as `e0effdb` | CLOSED; item/dimension stdio reporting, menu/config context, selected-group tags, and final structured-denial repairs merged |
-| T4 cash source/report | PR #46 | merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac` | source slice merged after CLEAN review; rebuilt main suite passed 342 tests; Plan 04-03 still owns MCP wiring and phase closure |
-| T4 labor source/report | PR #47 | merged as `428cca196aba6497d72e942f7dd7cb021ae49e77` | source slice merged after CLEAN review; rebuilt main suite passed 319 tests; Plan 04-03 still owns MCP wiring and phase closure |
+| T4 cash source/report | PR #46 | merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac` | CLOSED source slice after CLEAN review; rebuilt main suite passed 342 tests |
+| T4 labor source/report | PR #47 | merged as `428cca196aba6497d72e942f7dd7cb021ae49e77` | CLOSED source slice after CLEAN review; rebuilt main suite passed 319 tests |
+| T4 shared MCP integration | PR #48 | merged as `9f145c287bafc3817ba79767e59c965353e544ce` | CLOSED; independent review CLEAN at `3909f10732cf7b1a8f42109b1b9c79d4c6362f3c`; rebuilt Node 22 `npm run check` passed 364 tests and child-process report-tool stdio tests passed 43/43 |
 
 ## Current executor capability
 
@@ -47,7 +48,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- execute Plan 04-03 on the single reconciled T4 source base;
+- plan and execute T5-001 on the closed T4 main base;
 - retain the external release gates without converting synthetic evidence into live proof.
 
 ### Human/external gates
@@ -58,7 +59,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Register the merged T4 reports through the production stdio boundary.
+1. Plan and execute T5-001 without mixing Analytics and Standard sources.
 2. Keep #4/T6-003, #28, and T6 publication/signing as owned external gates.
 
 ## Refresh rule
