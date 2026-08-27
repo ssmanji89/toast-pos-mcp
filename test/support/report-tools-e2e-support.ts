@@ -4,6 +4,8 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
+import type { FixtureScenario as ReportFixtureScenario } from "../fixtures/stdio-report-data.js";
+
 export const STDIO_CONNECT_TIMEOUT_MS = 10_000;
 export const REPORT_SERVER_PATH = path.resolve(
   process.cwd(),
@@ -22,34 +24,7 @@ export const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
 export const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
 export const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
 
-export type FixtureScenario =
-  | "success"
-  | "missing-scope"
-  | "malformed-source"
-  | "broken-pagination"
-  | "cancel-active-report"
-  | "rate-limit-wait"
-  | "missing-cash-scope"
-  | "missing-labor-order-scope"
-  | "malformed-cash-source"
-  | "malformed-labor-source"
-  | "cancel-cash-report"
-  | "cancel-labor-report"
-  | "rate-limit-cash"
-  | "labor-revised-archived"
-  | "labor-active-entry"
-  | "missing-menu-item"
-  | "menu-refresh-fails-after-cache"
-  | "menu-unavailable-no-cache"
-  | "missing-config-category"
-  | "malformed-menu-structure"
-  | "missing-menus-scope"
-  | "missing-config-scope"
-  | "multi-group-tags"
-  | "missing-item-group"
-  | "conflicting-item-group"
-  | "conflicting-group-tags"
-  | "missing-item-group-singleton";
+export type FixtureScenario = ReportFixtureScenario;
 
 
 interface Connection {

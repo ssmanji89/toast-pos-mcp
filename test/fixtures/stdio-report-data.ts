@@ -41,53 +41,26 @@ export const BUSINESS_DATE = 20260816;
 export const NOW = Date.parse("2026-08-16T20:00:00Z");
 export const MENU_UPDATED_AT = "2026-08-16T19:00:00.000Z";
 
-export type FixtureScenario =
-  | "success"
-  | "missing-scope"
-  | "malformed-source"
-  | "broken-pagination"
-  | "cancel-active-report"
-  | "rate-limit-wait"
-  | "missing-cash-scope"
-  | "missing-labor-order-scope"
-  | "malformed-cash-source"
-  | "malformed-labor-source"
-  | "malformed-cash-deposits"
-  | "malformed-cash-drawers"
-  | "malformed-cash-no-sale-reasons"
-  | "malformed-cash-payout-reasons"
-  | "malformed-labor-jobs"
-  | "malformed-labor-break-types"
-  | "malformed-labor-tip-withholding"
-  | "malformed-labor-orders"
-  | "cancel-cash-report"
-  | "cancel-labor-report"
-  | "rate-limit-cash"
-  | "labor-revised-archived"
-  | "labor-active-entry"
-  | "missing-menu-item"
-  | "menu-refresh-fails-after-cache"
-  | "menu-unavailable-no-cache"
-  | "missing-config-category"
-  | "malformed-menu-structure"
-  | "missing-menus-scope"
-  | "missing-config-scope"
-  | "multi-group-tags"
-  | "missing-item-group"
-  | "conflicting-item-group"
-  | "conflicting-group-tags"
-  | "missing-item-group-singleton"
-  | "alternate-restaurant"
-  | "cancel-cash-entries"
-  | "cancel-cash-deposits"
-  | "cancel-cash-drawers"
-  | "cancel-cash-no-sale-reasons"
-  | "cancel-cash-payout-reasons"
-  | "cancel-labor-time-entries"
-  | "cancel-labor-jobs"
-  | "cancel-labor-break-types"
-  | "cancel-labor-tip-withholding"
-  | "cancel-labor-orders";
+export const FIXTURE_SCENARIOS = [
+  "success", "missing-scope", "malformed-source", "broken-pagination",
+  "cancel-active-report", "rate-limit-wait", "missing-cash-scope",
+  "missing-labor-order-scope", "malformed-cash-source", "malformed-labor-source",
+  "malformed-cash-deposits", "malformed-cash-drawers", "malformed-cash-no-sale-reasons",
+  "malformed-cash-payout-reasons", "malformed-labor-jobs", "malformed-labor-break-types",
+  "malformed-labor-tip-withholding", "malformed-labor-orders", "cancel-cash-report",
+  "cancel-labor-report", "rate-limit-cash", "labor-revised-archived", "labor-active-entry",
+  "missing-menu-item", "menu-refresh-fails-after-cache", "menu-unavailable-no-cache",
+  "missing-config-category", "malformed-menu-structure", "missing-menus-scope",
+  "missing-config-scope", "multi-group-tags", "missing-item-group", "conflicting-item-group",
+  "conflicting-group-tags", "missing-item-group-singleton", "alternate-restaurant",
+  "cancel-cash-entries", "cancel-cash-deposits", "cancel-cash-drawers",
+  "cancel-cash-no-sale-reasons", "cancel-cash-payout-reasons", "cancel-labor-time-entries",
+  "cancel-labor-jobs", "cancel-labor-break-types", "cancel-labor-tip-withholding",
+  "cancel-labor-orders",
+] as const;
+
+export type FixtureScenario = typeof FIXTURE_SCENARIOS[number];
+const fixtureScenarioSet = new Set<string>(FIXTURE_SCENARIOS);
 
 export function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GROUP_GUID }): object {
   return {
@@ -382,57 +355,8 @@ function menuItem(
 }
 
 export function parseScenario(value: string | undefined): FixtureScenario {
-  if (
-    value === undefined
-    || value === "success"
-    || value === "missing-scope"
-    || value === "malformed-source"
-    || value === "broken-pagination"
-    || value === "cancel-active-report"
-    || value === "rate-limit-wait"
-    || value === "missing-cash-scope"
-    || value === "missing-labor-order-scope"
-    || value === "malformed-cash-source"
-    || value === "malformed-labor-source"
-    || value === "malformed-cash-deposits"
-    || value === "malformed-cash-drawers"
-    || value === "malformed-cash-no-sale-reasons"
-    || value === "malformed-cash-payout-reasons"
-    || value === "malformed-labor-jobs"
-    || value === "malformed-labor-break-types"
-    || value === "malformed-labor-tip-withholding"
-    || value === "malformed-labor-orders"
-    || value === "cancel-cash-report"
-    || value === "cancel-labor-report"
-    || value === "rate-limit-cash"
-    || value === "labor-revised-archived"
-    || value === "labor-active-entry"
-    || value === "missing-menu-item"
-    || value === "menu-refresh-fails-after-cache"
-    || value === "menu-unavailable-no-cache"
-    || value === "missing-config-category"
-    || value === "malformed-menu-structure"
-    || value === "missing-menus-scope"
-    || value === "missing-config-scope"
-    || value === "multi-group-tags"
-    || value === "missing-item-group"
-    || value === "conflicting-item-group"
-    || value === "conflicting-group-tags"
-    || value === "missing-item-group-singleton"
-    || value === "alternate-restaurant"
-    || value === "cancel-cash-entries"
-    || value === "cancel-cash-deposits"
-    || value === "cancel-cash-drawers"
-    || value === "cancel-cash-no-sale-reasons"
-    || value === "cancel-cash-payout-reasons"
-    || value === "cancel-labor-time-entries"
-    || value === "cancel-labor-jobs"
-    || value === "cancel-labor-break-types"
-    || value === "cancel-labor-tip-withholding"
-    || value === "cancel-labor-orders"
-  ) {
-    return value ?? "success";
-  }
+  const scenario = value ?? "success";
+  if (fixtureScenarioSet.has(scenario)) return scenario as FixtureScenario;
   throw new Error("unknown synthetic report fixture scenario");
 }
 

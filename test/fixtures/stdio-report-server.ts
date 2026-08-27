@@ -8,14 +8,11 @@ import {
 import {
   ALTERNATE_RESTAURANT_GUID,
   BUSINESS_DATE,
-  CASH_DRAWER_GUID,
   ITEM_GROUP_GUID,
   LABOR_BREAK_TYPE_GUID,
   LABOR_JOB_GUID,
   MENU_UPDATED_AT,
-  NO_SALE_REASON_GUID,
   NOW,
-  PAYOUT_REASON_GUID,
   RESTAURANT_GUID,
   SALES_CATEGORY_GUID,
   REVENUE_CENTER_GUID,
@@ -24,14 +21,13 @@ import {
   TIP_WITHHOLDING_GUID,
   jsonResponse,
   parseScenario,
-  syntheticCashDeposits,
-  syntheticCashEntries,
   syntheticJwt,
   syntheticLaborTimeEntries,
   syntheticMenus,
   syntheticOrder,
   type FixtureScenario,
 } from "./stdio-report-data.js";
+import { createCashRouteHandlers } from "./stdio-report-cash-routes.js";
 import { handlePaymentRoute } from "./stdio-report-payment-routes.js";
 
 const scenario = parseScenario(process.argv[2]);
@@ -55,13 +51,20 @@ let menuMetadataCalls = 0;
 let fullMenuCalls = 0;
 let salesCategoryCalls = 0;
 const configSuccessCalls = new Map<string, number>();
-let cashEntriesFetchCount = 0;
+const useRealRateLimitClock = scenario === "rate-limit-wait" || scenario === "rate-limit-cash";
+const cashRouteHandlers = createCashRouteHandlers(scenario, {
+  assertRestaurantHeader,
+  assertBusinessDataAllowed,
+  assertBusinessDateQuery,
+  sourceCancellationMarker,
+  waitForAbort,
+});
 
 const runtime = createApplicationRuntime({
   env: SYNTHETIC_VALID_RUNTIME_ENV,
-  now: scenario === "rate-limit-wait" || scenario === "rate-limit-cash" ? Date.now : () => NOW,
+  now: useRealRateLimitClock ? Date.now : () => NOW,
   random: () => 0,
-  sleep: scenario === "rate-limit-wait"
+  sleep: useRealRateLimitClock
     ? (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
     : async () => undefined,
   maxAttempts: 1,
@@ -114,7 +117,7 @@ type FixtureRouteHandler = (
 
 const fixtureRouteHandlers: readonly FixtureRouteHandler[] = [
   handleLocationRoute,
-  handleCashRoute,
+  ...cashRouteHandlers,
   handleLaborRoute,
   handleMenuRoute,
   handleConfigurationRoute,
@@ -179,77 +182,6 @@ async function handleLocationRoute(
         managementGroupGuid: null,
       },
     }, "fixture-restaurant-request");
-  }
-
-  return undefined;
-}
-
-async function handleCashRoute(
-  url: URL,
-  headers: Headers,
-  init?: RequestInit,
-): Promise<Response | undefined> {
-  if (url.pathname === "/cashmgmt/v1/entries") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    assertBusinessDateQuery(url);
-    if (scenario === "malformed-cash-source") {
-      return jsonResponse({ entries: "invalid" }, "fixture-malformed-cash-entries");
-    }
-    const cancellationMarker = sourceCancellationMarker(url.pathname);
-    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
-    if (scenario === "rate-limit-cash") {
-      cashEntriesFetchCount += 1;
-      return jsonResponse(
-        syntheticCashEntries(),
-        `fixture-rate-limited-cash-${cashEntriesFetchCount}`,
-        cashEntriesFetchCount === 1
-          ? {
-              "x-toast-ratelimit-by": "GLOBAL",
-              "x-toast-ratelimit-remaining": "0",
-              "x-toast-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 2),
-            }
-          : {},
-      );
-    }
-    return jsonResponse(syntheticCashEntries(), "fixture-cash-entries");
-  }
-
-  if (url.pathname === "/cashmgmt/v1/deposits") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    assertBusinessDateQuery(url);
-    if (scenario === "malformed-cash-deposits") return jsonResponse({ deposits: "invalid" });
-    const cancellationMarker = sourceCancellationMarker(url.pathname);
-    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
-    return jsonResponse(syntheticCashDeposits(), "fixture-cash-deposits");
-  }
-
-  if (url.pathname === "/config/v2/cashDrawers") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    if (scenario === "malformed-cash-drawers") return jsonResponse({ drawers: "invalid" });
-    const cancellationMarker = sourceCancellationMarker(url.pathname);
-    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
-    return jsonResponse([{ guid: CASH_DRAWER_GUID }], "fixture-cash-drawers");
-  }
-
-  if (url.pathname === "/config/v2/noSaleReasons") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    if (scenario === "malformed-cash-no-sale-reasons") return jsonResponse({ reasons: "invalid" });
-    const cancellationMarker = sourceCancellationMarker(url.pathname);
-    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
-    return jsonResponse([{ guid: NO_SALE_REASON_GUID }], "fixture-no-sale-reasons");
-  }
-
-  if (url.pathname === "/config/v2/payoutReasons") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    if (scenario === "malformed-cash-payout-reasons") return jsonResponse({ reasons: "invalid" });
-    const cancellationMarker = sourceCancellationMarker(url.pathname);
-    if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
-    return jsonResponse([{ guid: PAYOUT_REASON_GUID }], "fixture-payout-reasons");
   }
 
   return undefined;
