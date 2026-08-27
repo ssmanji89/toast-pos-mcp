@@ -78,6 +78,21 @@ The source model keeps structured dimensions that downstream reports cannot reco
 
 Only identifiers survive. Human-readable free-text values from selections, check tabs, customers, delivery fields, and tax display/jurisdiction fields are intentionally excluded.
 
+### Identifier-only server attribution
+
+The source `Order.server.guid` is validated as a Toast GUID at ingress. The
+normalization traversal copies only that GUID to immutable
+`NormalizedOrder.serverGuid`. No source server name, contact field, external
+identifier, role, free text, or raw employee object crosses the normalization
+boundary.
+
+`serverGuid` is an internal in-memory join key for `toast_labor_summary`. The
+labor fold matches it to the validated TimeEntry employee GUID so it can derive
+aggregate Orders sales and tips. The join key is never displayed, returned in
+structured MCP output, persisted as reconciliation state, or expanded through
+an employee lookup. An absent server GUID simply cannot contribute to that
+labor attribution count.
+
 ## Lifecycle state retained
 
 The model preserves enough explicit state for later formulas to make their exclusions visible:
