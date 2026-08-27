@@ -3,9 +3,9 @@
 milestone: v1.0
 milestone_name: Public local Toast reporting MCP
 
-**Generated:** 2026-08-26
+**Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `5714eac747375d2410adab6ff62bb34a230e4c04`
+**Observed `main`:** `e0effdb`
 
 ## Canonical campaign position
 
@@ -15,7 +15,8 @@ milestone_name: Public local Toast reporting MCP
 - T1-001 through T1-006 CLOSED;
 - T2-001 production location-source repair is CLOSED after PR #27 merged and passed its Node 20/22 and mutation gates;
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
-- T3/T4/T5 remain open;
+- T3-001, T3-002, and T3-003 are CLOSED on `main`;
+- T4/T5 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
 ## Campaign work observed
@@ -31,9 +32,9 @@ milestone_name: Public local Toast reporting MCP
 | ordersBulk bounded-memory/page-fold prerequisite | #31 / PR #35 | merged as `ca02850f6a052ffe0ec68bf3ce7679176b08bd85` | CLOSED; Node 20/22 gates passed, independent review CLEAN, issue #31 closed |
 | Toast rate-limit reset semantics and hierarchy | #32 / #36 / PR #37 | merged as `793784e69bb538624ef5b0281abd9ab25481a25e` | CLOSED; Node 20/22 gates passed, 13/13 mutations caught, independent review CLEAN, issue #32 closed |
 | Standard request cancellation | PR #39 | merged as `5714eac747375d2410adab6ff62bb34a230e4c04` | CLOSED; Node 20/22 gates passed, 11/11 cancellation mutations caught, independent review CLEAN; internal pre-T3 boundary only |
-| T3 normalization | #18 / PR #34 | `64a6d79788eee344884e2dc9bd5b7450b7c94724` | FINDINGS; strict calendar validation, required applied-tax references, and harness compile-before-test accounting are active repairs |
-| Standard sales/payment MCP tools | #19 / PR #40 | `67239a7788418df3cd2e6a7db1c9c234352171da` | open draft; waits on PR #34 and the PR #35 → #37 → #39 chain |
-| item/dimension sales MCP tools | PR #41 | `a48ed600aa0827de8a223b4e0f576fda0e386035` | open draft; reviewed findings remain; rebase only after PR #40 stabilizes |
+| T3 normalization | #18 / PR #34 | merged as `1ab7cb7` | CLOSED; normalized Orders is consumed by the production report paths |
+| Standard sales/payment MCP tools | #19 / PR #40 | merged as `291cda2` | CLOSED; production stdio tools, structured denials, cancellation, provenance, and Node 20/22/package evidence merged |
+| item/dimension sales MCP tools | PR #41 | merged as `e0effdb` | CLOSED; item/dimension stdio reporting, menu/config context, selected-group tags, and final structured-denial repairs merged |
 
 ## Current executor capability
 
@@ -43,9 +44,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- repair and revalidate PR #34;
-- rebase PR #40 after its prerequisites, then prove the complete stdio-to-report response path;
-- review PR #41 in parallel without rebuilding it.
+- start T4-001 with T3's merged production tool chain as its prerequisite;
+- retain the external release gates without converting synthetic evidence into live proof.
 
 ### Human/external gates
 
@@ -55,9 +55,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Repair, mutate, and independently review PR #34 on its next exact head.
-2. Rebase PR #40 after PR #34 lands, then run its complete production-chain validation and independent review.
-3. Rebase, validate, and merge PR #41 only after PR #40 stabilizes.
+1. Start T4-001 after confirming its source and capability boundaries.
+2. Keep #4/T6-003, #28, and T6 publication/signing as owned external gates.
 
 ## Refresh rule
 

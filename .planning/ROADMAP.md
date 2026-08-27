@@ -185,6 +185,11 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 
 **Goal:** Deliver deterministic Standard sales, payment, item, and dimension reports through the real stdio MCP boundary.
 
+**Status:** CLOSED on `main`. T3-001 merged as `1ab7cb7`, T3-002 as
+`291cda2`, and T3-003 as `e0effdb`. The merged evidence proves the local
+production chain against synthetic fixtures. It does not satisfy live Toast,
+first-tool-request cancellation, signing, or publication gates.
+
 ### Outcome
 
 An MCP client can call real read-only Standard API reporting tools through the production process and receive deterministic, source-attributed, business-date-correct results with explicit completeness/freshness/provenance.

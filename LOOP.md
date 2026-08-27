@@ -56,9 +56,9 @@ The server must support operators using their own authorized Toast credentials, 
 | T1-006 | T1 | Implement `/ordersBulk` fixed `page`/`pageSize` and Link-header traversal with termination and duplicate-page guards | T1-005 CLOSED | CLOSED |
 | T2-001 | T2 | Discover locations and bind all state to restaurant GUID | T1-006 CLOSED | CLOSED |
 | T2-002 | T2 | Decode scopes and expose deterministic capability denials | T2-001 CLOSED | CLOSED |
-| T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | OPEN |
-| T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | OPEN |
-| T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | OPEN |
+| T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | CLOSED |
+| T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | CLOSED |
+| T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | CLOSED |
 | T4-001 | T4 | Implement cash-entry and deposit summaries | T3-003 | OPEN |
 | T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T4-001 | OPEN |
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
@@ -80,7 +80,19 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-PR #34 is the current dependency-safe pre-T3 slice. PR #39 is merged and closed. PR #34 must close its exact-head normalization findings before PR #40 can rebase.
+T3-001, T3-002, and T3-003 are merged on `main`. PR #40 merged as
+`291cda2`; PR #41 merged as `e0effdb`. These merges do not close the live
+Toast gate #28, the stdio lifecycle gate #4/T6-003, or publication gates.
+
+### Phase 3 reporting — CLOSED on `main`
+
+- T3-001 / PR #34 merged as `1ab7cb7`.
+- T3-002 / PR #40 merged as `291cda2` after production stdio, denial,
+  cancellation, provenance, and package validation evidence.
+- T3-003 / PR #41 merged as `e0effdb` after item/dimension stdio,
+  selected-group tag, conflict, and structured-denial evidence.
+- This is local synthetic implementation and validation evidence. It is not
+  live Toast compatibility, publication, or first-request cancellation proof.
 
 ### Pre-T3 MCP SDK v2 gate — CLOSED
 
@@ -400,7 +412,8 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** PR #34 — T3 orders normalization.
-- **Required action:** close the strict calendar, required applied-tax reference, and mutation-harness compile-accounting findings. Re-run Node 20/22 validation, the complete 64-case mutation matrix, and a fresh exact-head review.
-- **Parallel control-plane work:** PR #45 is an independently reviewed GSD Phase 1 candidate. It does not change product reachability or release status.
-- **After the pre-T3 stack:** rebase PR #40 only after its prerequisite chain lands. Then run the full stdio-to-structured-response proof and a new exact-head review.
+- **Next slice:** T4-001 — cash-entry and deposit reporting.
+- **Required action:** preserve the closed T3 production chain and retain every
+  external release gate as an explicit dependency.
+- **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
+  Toast compatibility, and T6 packaging/signing/publication remain open.
