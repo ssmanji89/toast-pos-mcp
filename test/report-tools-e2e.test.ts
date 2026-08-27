@@ -531,6 +531,32 @@ test(
 );
 
 test(
+  "modern stdio returns item-report denials for malformed Orders and broken pagination",
+  { timeout: 20_000 },
+  async () => {
+    for (const [scenario, expectedCode] of [
+      ["malformed-source", "orders_source_invalid"],
+      ["broken-pagination", "pagination_integrity_failed"],
+    ] as const) {
+      const connection = createConnection("modern", scenario);
+      try {
+        await connectWithTimeout(connection);
+        const result = await connection.client.callTool({
+          name: "toast_item_sales_summary",
+          arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+        });
+        assert.equal(result.isError, true, scenario);
+        const output = structured(result.structuredContent);
+        assert.equal(output.status, "denied", scenario);
+        assert.equal(structured(output.denial).code, expectedCode, scenario);
+      } finally {
+        await connection.client.close();
+      }
+    }
+  },
+);
+
+test(
   "a nonzero-ID active report cancellation aborts Standard fetch and returns a structured denial",
   { timeout: 20_000 },
   async () => {

@@ -225,7 +225,7 @@ async function buildItemSalesSummaryReportInternal(
       );
     }
 
-    return foldAndCompleteItemSalesReport(
+    return await foldAndCompleteItemSalesReport(
       runtime, input, location, menuContext, configContext, generatedAtEpochMs,
       contextFreshness, contextProvenance, warnings, options.signal,
     );
