@@ -207,7 +207,7 @@ DOX: updated this plan summary because wage-state finality, break-reference vali
 ## Self-Check: PASSED
 
 - Source, report, and focused test files exist.
-- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, `bef762a`, and review-fix commit `719bdc7` exist.
+- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, `bef762a`, `719bdc7`, and review-fix commit `42ab569` exist.
 
 ## Review Round 5 Fixes
 
