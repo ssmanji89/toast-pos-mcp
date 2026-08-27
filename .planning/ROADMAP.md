@@ -2,14 +2,14 @@
 
 **Method:** GSD-style outcome planning over the binding `LOOP.md` slice ledger  
 **Authority:** `LOOP.md` + GitHub are canonical for atomic state; this ROADMAP is the outcome/verification projection  
-**Updated:** 2026-08-26
+**Updated:** 2026-08-27
 
 ## v1.0 — Public local Toast reporting MCP
 
 - [x] **Phase 0: Product and safety foundation**
 - [ ] **Phase 1: Local runtime and Standard transport foundation**
 - [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
-- [ ] **Phase 3: Core Standard reporting and real MCP tool wiring**
+- [x] **Phase 3: Core Standard reporting and real MCP tool wiring**
 - [ ] **Phase 4: Cash and labor reporting**
 - [ ] **Phase 5: Source-distinct Analytics adapter and tools**
 - [ ] **Phase 6: Release hardening and public compatibility proof**
@@ -66,7 +66,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - T1-001 through T1-006 — closed in `LOOP.md`
 - #32 / PR #37 — closed with exact-head rate-limit evidence
-- #4 / PR #45 — local stdio compatibility candidate built with a first-request cancellation limitation; final validation and review pending
+- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete, while first-tool-request cancellation remains an explicit T6-003 gate
 
 ### Implemented/wired evidence
 
@@ -77,13 +77,12 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 - official legacy and modern clients prove sequential and concurrent requests on one retained process and clean process restart;
 - an official modern client proves handler-observed cancellation and same-process reuse through a synthetic test-only handler after a nonzero request ID;
 - a first-tool-request fixture records that MCP SDK 2.0.0 does not abort handler request ID `0`;
-- no Toast reporting tool is yet registered, so transport reachability is internal rather than user-visible.
+- PR #40 and PR #41 register and prove the Standard reporting tools through the production stdio boundary; Phase 3 cancellation evidence covers report handlers and page-fold paths.
 
 ### Production proof still required
 
-- PR #45 — run authentic locked Node 20.20.2 and Node 22.22.2 gates on one immutable candidate, then obtain independent exact-head CLEAN review;
 - T6-003 — resolve first-tool-request handler cancellation through an SDK correction or separately reviewed local runtime correction before release claims;
-- Phase 3 — prove cancellation through real production report handlers and Toast page-fold paths;
+- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence; retain the distinct first-tool-request handler gate;
 - #28 and Phase 6 — retain owner-authorized live Standard compatibility, terms, packaging, signing, and publication gates.
 
 ---
@@ -184,6 +183,11 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 ## Phase 3: Core Standard reporting and real MCP tool wiring
 
 **Goal:** Deliver deterministic Standard sales, payment, item, and dimension reports through the real stdio MCP boundary.
+
+**Status:** CLOSED on `main`. T3-001 merged as `1ab7cb7`, T3-002 as
+`291cda2`, and T3-003 as `e0effdb`. The merged evidence proves the local
+production chain against synthetic fixtures. It does not satisfy live Toast,
+first-tool-request cancellation, signing, or publication gates.
 
 ### Outcome
 
