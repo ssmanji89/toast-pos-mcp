@@ -18,10 +18,12 @@ key-files:
   created:
     - src/cash-report-source.ts
     - src/cash-report.ts
+    - src/cash-report-fold.ts
     - test/cash-report.test.ts
   modified:
     - src/cash-report-source.ts
     - src/cash-report.ts
+    - src/cash-report-fold.ts
     - test/cash-report.test.ts
 key-decisions:
   - "Cash entries and deposits remain source-distinct Cash Management facts, not guest cash payments or expected deposits."
@@ -46,7 +48,7 @@ status: complete
 - **Started:** 2026-08-27T16:35:53Z
 - **Completed:** 2026-08-27T16:43:41Z
 - **Tasks:** 2/2
-- **Files modified:** 3
+- **Files modified:** 4
 
 ## Accomplishments
 
@@ -54,6 +56,7 @@ status: complete
 - Added a pure cash fold that preserves unknown entry types, source references, observed reversals, and unresolved cross-date reversal counts.
 - Added `buildCashSummaryReport` with selected-location authority, `cashmgmt:read` and `config:read` preflight, cancellable source reads, detailed provenance, and structured denials.
 - Corrected Deposit reversal treatment, removed unsupported drawer-to-Deposit attribution, and recorded absent drawers as an explicit completeness fact.
+- Canonicalized Cash Management GUID identity in the fold and rejected duplicate canonical Entry and Deposit records.
 
 ## Task Commits
 
@@ -67,14 +70,16 @@ status: complete
    - `80843e5` `fix(04-01): correct cash source reversal facts`
    - `903b304` `test(04-01): cover cash source boundary failures`
    - `9a83660` `refactor(04-01): split cash report builder`
+4. **Second independent review corrections**
+   - `a0e67a4` `fix(04-01): harden cash source identity`
 
 ## Verification
 
 `npm run build:test && node --test dist-test/test/cash-report.test.js`
 
 - PASS: TypeScript compiled the cash source, fold, builder, and synthetic doubles.
-- PASS: 12 focused tests passed.
-- PASS: Tests cover type buckets, same-day and cross-date Entry and Deposit reversals, deposits, optional drawers, malformed entry/deposit/configuration sources, money precision, overflow, location binding, scopes, real cancellation, paths, queries, headers, provenance, and denied-output privacy.
+- PASS: 15 focused tests passed.
+- PASS: Tests cover canonical GUID identity, duplicate source rejection, every recognized Entry counter type, same-day and cross-date Entry and Deposit reversals, malformed entry/deposit/configuration sources, real cancellation, controlled HTTP 503 denial, paths, queries, headers, provenance, and denied-output privacy.
 - PASS: `git diff --check 523fdd3a7aba64be3ab68a86fd89874bb2b616ba..HEAD` reported no whitespace errors.
 
 ## Negative Checks
@@ -137,6 +142,18 @@ DOX: no durable change. This plan intentionally does not modify shared report re
 - **Result:** `npm run build:test && node --test dist-test/test/cash-report.test.js` passed 12/12 tests after every mutation was restored.
 - **Review status:** This correction set is not self-approved. It requires a fresh independent review.
 
+## Independent Review Round R2
+
+- **Review input:** PR #46 independent-review comment `issuecomment-5442610405` on head `384ab05`.
+- **Canonical identity:** Entry and Deposit GUID identity is lower-case UUID identity. The fold rejects repeated canonical Entry or Deposit GUIDs before it calculates totals. Reference GUIDs are also emitted in canonical lower case.
+- **Recognized types:** A table test covers `NO_SALE`, `CASH_IN`, `CASH_OUT`, `CASH_COLLECTED`, `TIP_OUT`, `PAY_OUT`, `UNDO_PAY_OUT`, `DRIVER_REIMBURSEMENT`, and all three closeout forms.
+- **HTTP denial:** A controlled, real Toast transport 503 response preserves `request_failed`, `retryable: true`, status `503`, and `toast-request-id`. It returns no totals and starts no later business-data request.
+- **Cancellation:** The source-entry barrier is deterministic. The node:test timeout is 1 second. A removed request signal now fails and times out within that bound.
+- **Complexity:** `cash-report-fold.ts` owns cash fold types and logic. `cash-report.ts` owns builder orchestration. The files contain 257 and 413 lines. A focused script confirmed every function in both files is 100 lines or fewer.
+- **Mutation checks:** Focused tests caught raw-case duplicate identity, omitted `UNDO_PAY_OUT` counting, and removed source cancellation propagation.
+- **Result:** `npm run build:test && node --test dist-test/test/cash-report.test.js` passed 15/15 after every mutation was restored.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
 ## Evidence Limits
 
 - Synthetic fixtures are implementation evidence only.
@@ -149,5 +166,5 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 
 ## Self-Check: PASSED
 
-- Confirmed all three implementation artifacts and this summary exist.
-- Confirmed all seven TDD, implementation, correction, and refactor commits exist in the repository history.
+- Confirmed all four implementation artifacts and this summary exist.
+- Confirmed all eight TDD, implementation, correction, and refactor commits exist in the repository history.
