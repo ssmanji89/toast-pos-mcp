@@ -80,9 +80,23 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-T3-001, T3-002, and T3-003 are merged on `main`. PR #40 merged as
-`291cda2`; PR #41 merged as `e0effdb`. These merges do not close the live
-Toast gate #28, the stdio lifecycle gate #4/T6-003, or publication gates.
+T4 source slices are merged on `main`. T4-001 / PR #46 merged as `b52f394`
+after a CLEAN review of `f34c083`; T4-002 / PR #47 merged as `428cca1`
+after a CLEAN review of `f7cd0dc`. Both merges passed rebuilt main tests.
+T4 remains OPEN until the shared stdio registration and exact-head integration
+evidence in Plan 04-03 merge. These source merges do not close the live Toast
+gate #28, the stdio lifecycle gate #4/T6-003, or publication gates.
+
+### Phase 4 source slices — MERGED; shared integration OPEN
+
+- T4-001 / PR #46 merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac`.
+  The reviewed source head was `f34c08337a7017d0566b5ccc68cfbc03ce2eb578`.
+  Rebuilt `main` tests discovered 34 files and passed 342 tests.
+- T4-002 / PR #47 merged as `428cca196aba6497d72e942f7dd7cb021ae49e77`.
+  The reviewed source head was `f7cd0dc739930d1a0fd4187685fc6d575e7ff9ed`.
+  Rebuilt `main` tests discovered 29 files and passed 319 tests.
+- Both results prove source behavior only. Plan 04-03 owns MCP registration,
+  child-process stdio evidence, combined Node 20/22 gates, and T4 closure.
 
 ### Phase 3 reporting — CLOSED on `main`
 
@@ -412,11 +426,10 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slices:** T4-001 cash-entry/deposit reporting and T4-002 labor
-  reporting. They are independent after T3-002 merged. This follows GitHub
-  issue #20. Their branches must isolate source work and reconcile the shared
-  tool-registration surface before merge.
-- **Required action:** preserve the closed T3 production chain and retain every
-  external release gate as an explicit dependency.
+- **Next slice:** Plan 04-03. Reconcile the merged cash and labor sources at
+  the shared MCP registration surface. Prove the compiled official-client
+  stdio chain, then run exact-head Node 20/22 and package gates.
+- **Required action:** preserve the closed T3 production chain. Keep T4 OPEN
+  until the shared tool path has independent CLEAN review and merged evidence.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
   Toast compatibility, and T6 packaging/signing/publication remain open.

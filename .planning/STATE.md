@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `b63b6e2`
+**Observed `main`:** `b52f3949d585435d19bab1fcc2c452fc1326d3ac`
 
 ## Canonical campaign position
 
@@ -16,7 +16,8 @@ milestone_name: Public local Toast reporting MCP
 - T2-001 production location-source repair is CLOSED after PR #27 merged and passed its Node 20/22 and mutation gates;
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - T3-001, T3-002, and T3-003 are CLOSED on `main`;
-- T4/T5 remain open;
+- T4 source slices are merged, while shared MCP integration remains open;
+- T5 remains open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
 ## Campaign work observed
@@ -35,6 +36,8 @@ milestone_name: Public local Toast reporting MCP
 | T3 normalization | #18 / PR #34 | merged as `1ab7cb7` | CLOSED; normalized Orders is consumed by the production report paths |
 | Standard sales/payment MCP tools | #19 / PR #40 | merged as `291cda2` | CLOSED; production stdio tools, structured denials, cancellation, provenance, and Node 20/22/package evidence merged |
 | item/dimension sales MCP tools | PR #41 | merged as `e0effdb` | CLOSED; item/dimension stdio reporting, menu/config context, selected-group tags, and final structured-denial repairs merged |
+| T4 cash source/report | PR #46 | merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac` | source slice merged after CLEAN review; rebuilt main suite passed 342 tests; Plan 04-03 still owns MCP wiring and phase closure |
+| T4 labor source/report | PR #47 | merged as `428cca196aba6497d72e942f7dd7cb021ae49e77` | source slice merged after CLEAN review; rebuilt main suite passed 319 tests; Plan 04-03 still owns MCP wiring and phase closure |
 
 ## Current executor capability
 
@@ -44,9 +47,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- start T4-001 and T4-002 independently with T3-002's merged production tool
-  chain as their prerequisite; GitHub issue #20 records this dependency
-  correction;
+- execute Plan 04-03 on the single reconciled T4 source base;
 - retain the external release gates without converting synthetic evidence into live proof.
 
 ### Human/external gates
@@ -57,8 +58,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Start T4-001 and T4-002 with separate source ownership after confirming
-   their source and capability boundaries.
+1. Register the merged T4 reports through the production stdio boundary.
 2. Keep #4/T6-003, #28, and T6 publication/signing as owned external gates.
 
 ## Refresh rule
