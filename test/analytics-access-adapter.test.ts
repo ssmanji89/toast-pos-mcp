@@ -145,6 +145,44 @@ test("Analytics selected sets require a canonical non-empty UUID subset", async 
   }
 });
 
+test("Analytics selections require the private identity that minted their registry", async () => {
+  const firstIdentity = {};
+  const firstAdapter = createAdapter({ identity: firstIdentity });
+  const secondAdapter = createAdapter({ identity: {} });
+  const registry = await firstAdapter.refreshManagementGroupRestaurants();
+  const selection = validateAnalyticsRestaurantSelection(registry, [FIRST_GUID]);
+
+  assert.doesNotThrow(() => firstAdapter.assertSelectionForCurrentIdentity(selection));
+  assert.throws(
+    () => secondAdapter.assertSelectionForCurrentIdentity(selection),
+    (error: unknown) =>
+      error instanceof AnalyticsAccessError
+      && error.code === "analytics_selection_invalid"
+      && !error.message.includes("identity"),
+  );
+
+  const forgedRegistry = Object.freeze({ restaurants: registry.restaurants });
+  assert.throws(
+    () => validateAnalyticsRestaurantSelection(forgedRegistry, [FIRST_GUID]),
+    (error: unknown) =>
+      error instanceof AnalyticsAccessError
+      && error.code === "analytics_selection_invalid",
+  );
+
+  const forgedSelection = Object.freeze({ restaurantGuids: selection.restaurantGuids });
+  assert.throws(
+    () => firstAdapter.assertSelectionForCurrentIdentity(forgedSelection),
+    (error: unknown) =>
+      error instanceof AnalyticsAccessError
+      && error.code === "analytics_selection_invalid",
+  );
+
+  const serialized = JSON.stringify({ registry, selection });
+  assert.equal(serialized.includes("identity"), false);
+  assert.equal(serialized.includes(TOKEN_MARKER), false);
+  assert.equal(serialized.includes("analytics.synthetic-toast-fixture.test"), false);
+});
+
 test("Analytics identities do not share registry or limiter state", async () => {
   const firstIdentity = {};
   const secondIdentity = {};
