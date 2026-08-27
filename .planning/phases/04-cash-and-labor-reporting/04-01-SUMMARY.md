@@ -19,7 +19,10 @@ key-files:
     - src/cash-report-source.ts
     - src/cash-report.ts
     - test/cash-report.test.ts
-  modified: []
+  modified:
+    - src/cash-report-source.ts
+    - src/cash-report.ts
+    - test/cash-report.test.ts
 key-decisions:
   - "Cash entries and deposits remain source-distinct Cash Management facts, not guest cash payments or expected deposits."
   - "Cross-date reversal references remain observed entries and create a warning instead of guessed netting."
@@ -50,6 +53,7 @@ status: complete
 - Added transient Cash Entry, Deposit, Cash Drawer, No Sale Reason, and Payout Reason schemas.
 - Added a pure cash fold that preserves unknown entry types, source references, observed reversals, and unresolved cross-date reversal counts.
 - Added `buildCashSummaryReport` with selected-location authority, `cashmgmt:read` and `config:read` preflight, cancellable source reads, detailed provenance, and structured denials.
+- Corrected Deposit reversal treatment, removed unsupported drawer-to-Deposit attribution, and recorded absent drawers as an explicit completeness fact.
 
 ## Task Commits
 
@@ -59,14 +63,18 @@ status: complete
 2. **Task 2: Build the location-bound cash report with capability and denial contracts**
    - `6fdde65` `test(04-01): add failing cash builder contract`
    - `0531b89` `feat(04-01): build location-bound cash summary`
+3. **Independent review corrections**
+   - `80843e5` `fix(04-01): correct cash source reversal facts`
+   - `903b304` `test(04-01): cover cash source boundary failures`
+   - `9a83660` `refactor(04-01): split cash report builder`
 
 ## Verification
 
 `npm run build:test && node --test dist-test/test/cash-report.test.js`
 
 - PASS: TypeScript compiled the cash source, fold, builder, and synthetic doubles.
-- PASS: 8 focused tests passed.
-- PASS: Tests cover type buckets, same-day and cross-date reversals, no-sales, deposits, references, malformed arrays, money precision, overflow, unknown types, location binding, scopes, signals, rate-limit keys, provenance, and denied-output privacy.
+- PASS: 12 focused tests passed.
+- PASS: Tests cover type buckets, same-day and cross-date Entry and Deposit reversals, deposits, optional drawers, malformed entry/deposit/configuration sources, money precision, overflow, location binding, scopes, real cancellation, paths, queries, headers, provenance, and denied-output privacy.
 - PASS: `git diff --check 523fdd3a7aba64be3ab68a86fd89874bb2b616ba..HEAD` reported no whitespace errors.
 
 ## Negative Checks
@@ -116,10 +124,23 @@ None. The report has a production-shaped runtime path and does not return placeh
 
 DOX: no durable change. This plan intentionally does not modify shared report registration or durable documentation.
 
+## Independent Review Round R1
+
+- **Review input:** PR #46 independent-review comment `issuecomment-5442396740` on pre-correction head `977316c`.
+- **Deposit reversals:** Positive Deposits remain required. An `undoes` Deposit subtracts its amount. Same-date reversals net in the invocation. Cross-date reversals remain negative observed facts and increment an unresolved count.
+- **Drawer attribution:** Drawer references now contain Entry counts only. The report does not invent a Deposit-to-drawer relationship.
+- **Optional drawers:** A missing or null Cash Entry `cashDrawer` is valid. The fold records `cashEntriesWithoutDrawerCount`.
+- **Boundary and cancellation coverage:** Tests independently deny malformed entry, Deposit, and each configuration source. The builder uses the caller signal for every source request. An `AbortController` test stops after its first cancelled read.
+- **Route contract coverage:** The runtime test checks the documented Cash Management paths, `businessDate` query for entry and Deposit requests, and the selected restaurant header on every request.
+- **Complexity:** `buildCashSummaryReport` is now a coordinator. Context resolution, source loading, completion, denial, and warnings are separate helpers.
+- **Mutation checks:** Focused tests caught an incorrect Deposit reversal sign, acceptance of zero Deposit amounts, rejection of null drawers, an incorrect Deposit route, and loss of the cancellation signal. The lost-signal mutation left the cancellation test pending until the test process was stopped.
+- **Result:** `npm run build:test && node --test dist-test/test/cash-report.test.js` passed 12/12 tests after every mutation was restored.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
 ## Evidence Limits
 
 - Synthetic fixtures are implementation evidence only.
-- This plan does not claim live Toast API compatibility, public package publication, signing, or first-tool-request cancellation proof.
+- This plan does not claim live Toast API compatibility, MCP tool registration, Node 20/22 compatibility, public package publication, signing, or first-tool-request cancellation proof.
 - Owner-authorized Merchant consent and live credential evidence remain external release gates.
 
 ## Next Phase Readiness
@@ -129,4 +150,4 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 ## Self-Check: PASSED
 
 - Confirmed all three implementation artifacts and this summary exist.
-- Confirmed all four TDD and implementation commits exist in the repository history.
+- Confirmed all seven TDD, implementation, correction, and refactor commits exist in the repository history.
