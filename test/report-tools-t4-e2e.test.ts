@@ -5,6 +5,8 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
+import { SYNTHETIC_CLIENT_SECRET_MARKER } from "./support/synthetic-runtime-env.js";
+
 const BUSINESS_DATE = 20260816;
 const ALTERNATE_RESTAURANT_GUID = "00000000-0000-4000-8000-000000000003";
 const REPORT_SERVER_PATH = path.resolve(
@@ -113,7 +115,7 @@ test("explicit accessible restaurantGuid binds both reports to the alternate res
       results.push(result);
     }
     const serialized = JSON.stringify(results);
-    for (const marker of ["synthetic-signature", "Bearer", "synthetic-guest-must-not-survive", "synthetic-contact-must-not-survive", "synthetic-labor-guest-must-not-survive", "synthetic-labor-contact-must-not-survive", "must-not-leak@example.invalid", "synthetic-employee", "raw-source", "synthetic-cash-card", "123456", "7890"]) {
+    for (const marker of ["synthetic-signature", "Bearer", SYNTHETIC_CLIENT_SECRET_MARKER, "synthetic-guest-must-not-survive", "synthetic-contact-must-not-survive", "synthetic-labor-guest-must-not-survive", "synthetic-labor-contact-must-not-survive", "must-not-leak@example.invalid", "synthetic-employee", "raw-source", "synthetic-cash-card", "123456", "7890"]) {
       assert.equal(serialized.toLowerCase().includes(marker.toLowerCase()), false, marker);
     }
     for (const pathValue of SOURCE_PATHS) {
