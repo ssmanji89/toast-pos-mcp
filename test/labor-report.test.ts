@@ -97,6 +97,73 @@ test("uses reportable jobs and payment facts, then applies tip withholding with 
   assert.ok(!JSON.stringify(result).includes("synthetic-name-must-not-survive"));
 });
 
+test("records location context, every source request, and complete retrieval provenance", async () => {
+  const harness = laborRuntime();
+  const result = await buildLaborSummaryReport(harness.runtime, {
+    businessDate: 20260816,
+    restaurantGuid: harness.restaurantGuid,
+  });
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.contextFreshness, {
+    retrievedThroughEpochMs: 1_799_999_999_000,
+    ageMs: 1_000,
+    maxAgeMs: 60_000,
+  });
+  assert.deepEqual(result.contextProvenance, {
+    retrievedThroughEpochMs: 1_799_999_999_000,
+    upstreamRequestIds: ["synthetic-location"],
+    upstreamRequestIdCount: 1,
+    upstreamRequestIdsTruncated: false,
+  });
+  assert.deepEqual(result.provenance, {
+    retrievedThroughEpochMs: 1_800_000_000_000,
+    upstreamRequestIds: [
+      "synthetic-time-entries",
+      "synthetic-jobs",
+      "synthetic-break-types-0",
+      "synthetic-withholding",
+      "synthetic-orders-0",
+    ],
+    upstreamRequestIdCount: 5,
+    upstreamRequestIdsTruncated: false,
+  });
+  assert.deepEqual(harness.requests, [
+    {
+      path: "/labor/v1/timeEntries",
+      restaurantGuid: harness.restaurantGuid,
+      query: {
+        startDate: "2026-08-16T09:00:00.000Z",
+        endDate: "2026-08-17T09:00:00.000Z",
+        includeArchived: true,
+        includeMissedBreaks: true,
+      },
+      rateLimitKey: "labor-time-entries",
+    },
+    {
+      path: "/labor/v1/jobs",
+      restaurantGuid: harness.restaurantGuid,
+      query: { jobIds: JOB_GUID },
+      rateLimitKey: "labor-jobs",
+    },
+    {
+      path: "/config/v2/tipWithholding",
+      restaurantGuid: harness.restaurantGuid,
+      rateLimitKey: "config-tip-withholding",
+    },
+    {
+      restaurantGuid: harness.restaurantGuid,
+      query: { businessDate: 20260816 },
+      pageSize: 100,
+    },
+  ]);
+  assert.deepEqual(harness.configurationRequests, [{
+    path: "/config/v2/breakTypes",
+    restaurantGuid: harness.restaurantGuid,
+    rateLimitKey: "config-break-types",
+  }]);
+});
+
 test("denies before every business read when any required scope is missing", async () => {
   for (const scopes of [
     ["config:read", "orders:read"],
@@ -128,6 +195,27 @@ test("denies source failures, restaurant mismatch, and staged cancellation witho
     assert.equal(harness.signals.every((signal) => signal === controller.signal), true);
     assert.deepEqual(harness.calledStages, stagesThrough(stage));
   }
+});
+
+test("propagates cancellation into deferred location resolution before any source request", async () => {
+  const controller = new AbortController();
+  const harness = laborRuntime({ deferLocation: true });
+  const report = buildLaborSummaryReport(
+    harness.runtime,
+    { businessDate: 20260816, restaurantGuid: harness.restaurantGuid },
+    { signal: controller.signal },
+  );
+
+  assert.deepEqual(harness.locationSignals, [controller.signal]);
+  controller.abort();
+
+  const result = await report;
+  assert.equal(result.status, "denied");
+  assert.equal(result.denial.code, "request_cancelled");
+  assert.deepEqual(harness.calledStages, []);
+  assert.equal(harness.requests.length, 0);
+  assert.equal(harness.configurationRequests.length, 0);
+  assert.equal(harness.orderRequests, 0);
 });
 
 test("uses closeout-hour bounds across DST and rejects unresolved jobs and repeated Orders identities", async () => {
@@ -312,6 +400,7 @@ function laborRuntime(options: {
   readonly scopes?: readonly string[];
   readonly sourceFailure?: boolean;
   readonly locationMismatch?: boolean;
+  readonly deferLocation?: boolean;
   readonly cancelAt?: "timeEntries" | "jobs" | "breakTypes" | "tipWithholding" | "orders";
   readonly expectedSignal?: AbortSignal;
   readonly businessDate?: number;
@@ -326,12 +415,17 @@ function laborRuntime(options: {
   const requests: Array<Record<string, any>> = [];
   const configurationRequests: Array<Record<string, any>> = [];
   const signals: Array<AbortSignal | undefined> = [];
+  const locationSignals: Array<AbortSignal | undefined> = [];
   const calledStages: string[] = [];
   let orderRequests = 0;
   const location = { restaurantGuid, name: "Synthetic Labor Cafe", timezone: "America/Chicago", closeoutHour: 4, currencyCode: "USD", managementGroupGuid: undefined, connectionScopes: Object.freeze(options.scopes ?? ["labor:read", "config:read", "orders:read"]) };
   const runtime = {
     now: () => 1_800_000_000_000,
-    getLocationContext: async () => ({ location, freshness: Object.freeze({ retrievedThroughEpochMs: 1_799_999_999_000, ageMs: 1_000, maxAgeMs: 60_000 }), provenance: Object.freeze({ retrievedThroughEpochMs: 1_799_999_999_000, upstreamRequestIds: Object.freeze(["synthetic-location"]), upstreamRequestIdCount: 1, upstreamRequestIdsTruncated: false }) }),
+    getLocationContext: async (_requestedRestaurantGuid: string | undefined, requestOptions: { readonly signal?: AbortSignal } = {}) => {
+      locationSignals.push(requestOptions.signal);
+      if (options.deferLocation) await rejectWhenAborted(requestOptions.signal);
+      return { location, freshness: Object.freeze({ retrievedThroughEpochMs: 1_799_999_999_000, ageMs: 1_000, maxAgeMs: 60_000 }), provenance: Object.freeze({ retrievedThroughEpochMs: 1_799_999_999_000, upstreamRequestIds: Object.freeze(["synthetic-location"]), upstreamRequestIdCount: 1, upstreamRequestIdsTruncated: false }) };
+    },
     tokenManager: { getProvisionedScopes: async () => options.scopes ?? ["labor:read", "config:read", "orders:read"] },
     toastHttpClient: {
       getJsonDetailedCancellable: async (request: Record<string, any>, requestOptions: { readonly signal?: AbortSignal }) => {
@@ -365,7 +459,19 @@ function laborRuntime(options: {
       },
     },
   };
-  return { runtime: runtime as any, restaurantGuid, requests, configurationRequests, signals, calledStages, get orderRequests() { return orderRequests; } };
+  return { runtime: runtime as any, restaurantGuid, requests, configurationRequests, signals, locationSignals, calledStages, get orderRequests() { return orderRequests; } };
+}
+
+function rejectWhenAborted(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal?.aborted) {
+      reject(new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false }));
+      return;
+    }
+    signal?.addEventListener("abort", () => {
+      reject(new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false }));
+    }, { once: true });
+  });
 }
 
 function order(): Record<string, unknown> {
