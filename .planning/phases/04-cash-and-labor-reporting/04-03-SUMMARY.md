@@ -124,6 +124,20 @@ Alternate restaurant assertions now validate name, requested and effective busin
 
 Both Node `v20.20.2` and `v22.22.2` exact-head gates passed with 36 discovered test files and 361 tests. The three compiled report E2E files passed 41 tests. Each package dry-run listed 139 files.
 
+## R3 Review Remediation
+
+Candidate `c673e0c71e7dda74d78ac3214ccc946aa9a55fb1` resolves PR #48 findings T4-003-R3-F1 through T4-003-R3-F4.
+
+- The malformed first cash and labor source cases now prove the exact initial request paths: `/cashmgmt/v1/entries` and `/labor/v1/timeEntries`.
+- The alternate-restaurant path now asserts both context provenance request IDs and every freshness field.
+- Invoked cash and labor fixtures now contain unique synthetic guest and contact markers. Full MCP result serialization proves those markers never reach tool output.
+- Both exact-runtime gates passed on the immutable candidate with 36 test files and 362 tests. The three compiled report E2E files passed 41 tests. Each package dry-run listed 139 files.
+
+| Runtime | Head before | Result | Head after |
+| --- | --- | --- | --- |
+| Node `v20.20.2`, npm `10.8.2` | `c673e0c` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. | `c673e0c` |
+| Node `v22.22.2`, npm `10.9.7` | `c673e0c` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. | `c673e0c` |
+
 ## Known Stubs
 
 None. The plan does not leave an unwired report path or an empty UI data source.
