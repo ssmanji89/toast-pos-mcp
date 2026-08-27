@@ -95,6 +95,37 @@ async function syntheticToastFetch(
     `fixture-request:${url.pathname}:${headers.get("toast-restaurant-external-id") ?? "none"}`,
   );
 
+  for (const handler of fixtureRouteHandlers) {
+    const response = await handler(url, headers, init);
+    if (response !== undefined) return response;
+  }
+
+  return new Response("{}", {
+    status: 404,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+type FixtureRouteHandler = (
+  url: URL,
+  headers: Headers,
+  init?: RequestInit,
+) => Promise<Response | undefined>;
+
+const fixtureRouteHandlers: readonly FixtureRouteHandler[] = [
+  handleLocationRoute,
+  handleCashRoute,
+  handleLaborRoute,
+  handleMenuRoute,
+  handleConfigurationRoute,
+  handleOrdersRoute,
+  handlePaymentRoute,
+];
+
+async function handleLocationRoute(
+  url: URL,
+  headers: Headers,
+): Promise<Response | undefined> {
   if (url.pathname === "/partners/v1/restaurants") {
     assertNoRestaurantHeader(headers);
     return jsonResponse([
@@ -150,27 +181,14 @@ async function syntheticToastFetch(
     }, "fixture-restaurant-request");
   }
 
-  if (url.pathname === "/menus/v2/metadata") {
-    assertRestaurantHeader(headers);
-    menuMetadataCalls += 1;
-    if (
-      scenario === "menu-unavailable-no-cache"
-      || (
-        scenario === "menu-refresh-fails-after-cache"
-        && menuMetadataCalls > 1
-      )
-    ) {
-      return new Response("{}", {
-        status: 503,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    return jsonResponse({
-      restaurantGuid: RESTAURANT_GUID,
-      lastUpdated: MENU_UPDATED_AT,
-    }, `fixture-menu-metadata-${menuMetadataCalls}`);
-  }
+  return undefined;
+}
 
+async function handleCashRoute(
+  url: URL,
+  headers: Headers,
+  init?: RequestInit,
+): Promise<Response | undefined> {
   if (url.pathname === "/cashmgmt/v1/entries") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
@@ -234,6 +252,14 @@ async function syntheticToastFetch(
     return jsonResponse([{ guid: PAYOUT_REASON_GUID }], "fixture-payout-reasons");
   }
 
+  return undefined;
+}
+
+async function handleLaborRoute(
+  url: URL,
+  headers: Headers,
+  init?: RequestInit,
+): Promise<Response | undefined> {
   if (url.pathname === "/labor/v1/timeEntries") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
@@ -286,6 +312,34 @@ async function syntheticToastFetch(
     }, "fixture-labor-tip-withholding");
   }
 
+  return undefined;
+}
+
+async function handleMenuRoute(
+  url: URL,
+  headers: Headers,
+): Promise<Response | undefined> {
+  if (url.pathname === "/menus/v2/metadata") {
+    assertRestaurantHeader(headers);
+    menuMetadataCalls += 1;
+    if (
+      scenario === "menu-unavailable-no-cache"
+      || (
+        scenario === "menu-refresh-fails-after-cache"
+        && menuMetadataCalls > 1
+      )
+    ) {
+      return new Response("{}", {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return jsonResponse({
+      restaurantGuid: RESTAURANT_GUID,
+      lastUpdated: MENU_UPDATED_AT,
+    }, `fixture-menu-metadata-${menuMetadataCalls}`);
+  }
+
   if (url.pathname === "/menus/v2/menus") {
     assertRestaurantHeader(headers);
     fullMenuCalls += 1;
@@ -306,6 +360,13 @@ async function syntheticToastFetch(
     );
   }
 
+  return undefined;
+}
+
+async function handleConfigurationRoute(
+  url: URL,
+  headers: Headers,
+): Promise<Response | undefined> {
   if (url.pathname === "/config/v2/salesCategories") {
     assertRestaurantHeader(headers);
     salesCategoryCalls += 1;
@@ -359,6 +420,14 @@ async function syntheticToastFetch(
     ], "fixture-config-restaurant-service");
   }
 
+  return undefined;
+}
+
+async function handleOrdersRoute(
+  url: URL,
+  headers: Headers,
+  init?: RequestInit,
+): Promise<Response | undefined> {
   if (url.pathname === "/orders/v2/ordersBulk") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
@@ -423,6 +492,13 @@ async function syntheticToastFetch(
     );
   }
 
+  return undefined;
+}
+
+async function handlePaymentRoute(
+  url: URL,
+  headers: Headers,
+): Promise<Response | undefined> {
   if (url.pathname === "/orders/v2/payments") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
@@ -465,10 +541,7 @@ async function syntheticToastFetch(
     }, "fixture-payment-detail");
   }
 
-  return new Response("{}", {
-    status: 404,
-    headers: { "content-type": "application/json" },
-  });
+  return undefined;
 }
 
 function assertSingleConfigSuccess(pathname: string): void {
