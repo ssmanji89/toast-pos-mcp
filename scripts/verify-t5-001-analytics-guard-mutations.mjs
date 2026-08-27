@@ -5,7 +5,7 @@ const accessSourcePath = new URL("../src/analytics-access.ts", import.meta.url);
 const capabilitiesSourcePath = new URL("../src/capabilities.ts", import.meta.url);
 const configSourcePath = new URL("../src/config.ts", import.meta.url);
 const runtimeSourcePath = new URL("../src/runtime.ts", import.meta.url);
-const testCommand = "npm run build:test && node --test dist-test/test/analytics-config.test.js dist-test/test/analytics-capabilities.test.js dist-test/test/analytics-access-adapter.test.js";
+const testCommand = "npm run clean && npm run build:test && node --test dist-test/test/analytics-config.test.js dist-test/test/analytics-capabilities.test.js dist-test/test/analytics-access-adapter.test.js";
 
 const requiredGuardNames = Object.freeze([
   "analytics-config-optional-standard-compatibility",

@@ -36,6 +36,7 @@ function createAdapter(options: {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly identity?: object;
 } = {}) {
+  let defaultNow = 0;
   return createAnalyticsAccessAdapter({
     identity: options.identity ?? {},
     tokenManager: {
@@ -48,8 +49,10 @@ function createAdapter(options: {
     },
     hostname: "analytics.synthetic-toast-fixture.test",
     fetch: options.fetch ?? (async () => validResponse()),
-    now: options.now ?? (() => 0),
-    sleep: options.sleep ?? (async () => undefined),
+    now: options.now ?? (() => defaultNow),
+    sleep: options.sleep ?? (async (milliseconds) => {
+      defaultNow += milliseconds;
+    }),
   });
 }
 

@@ -32,7 +32,7 @@ This matrix maps T5-001 safety guards to focused compiled tests and source mutat
 
 ## Candidate-selection rule
 
-Candidate selection is blocked until the harness accepts exactly the 22 identifiers above and each focused test fails for its corresponding mutation.
+Candidate selection is blocked until the harness accepts exactly the 22 identifiers above, performs a clean focused compile for each mutation, and each focused test fails for its corresponding mutation.
 
 ## Scope boundary
 
