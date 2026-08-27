@@ -20,7 +20,7 @@ key-files:
 decisions:
   - Orders server attribution retains only a normalized GUID and remains internal to the labor fold.
   - Active validated entries produce incomplete; malformed or inaccessible sources produce denied.
-  - Regular wages use exact minor-unit arithmetic; overtime has hours only because no multiplier source exists.
+  - Regular wages round each documented fractional-hour product to the nearest minor unit, with exact halves rounded up.
 metrics:
   tasks_completed: 2
   files_changed: 7
@@ -45,7 +45,7 @@ Passed:
 
 ```text
 npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
-16 tests passed.
+15 tests passed.
 ```
 
 Negative checks passed:
@@ -61,11 +61,11 @@ Negative checks passed:
 - Every labor, configuration, and Orders request uses the selected restaurant GUID and caller abort signal.
 - One capability decision requires `labor:read`, `config:read`, and `orders:read` before any business-data read.
 - The output excludes employee identifiers, names, external IDs, guest fields, card fields, raw source arrays, and credentials.
-- Revised and archived facts are limited to the current invocation. Deleted facts are exclusions. Active facts produce `incomplete` only after all required sources validate.
+- Deleted facts are exclusions. Active facts produce `incomplete` only after all required sources validate.
 
 ## Decisions Made
 
-- Use Orders check amounts and payment tips only for sales/tip attribution.
+- Use non-voided Orders payment amounts and tip amounts, less their explicit refunds, for sales/tip attribution.
 - Do not request employee or shifts endpoints.
 - Do not calculate an overtime wage.
 
@@ -91,7 +91,32 @@ None. The builder is intentionally not registered with MCP until Plan 04-03.
 - Live Toast API payload, scope, and cancellation compatibility remains an external authorization gate.
 - Plan 04-03 owns real stdio wiring and independent integration review.
 
+## Review Round 1 Fixes
+
+The independent review at `784ba6e` found five blockers. Commit `f4c9f12` resolves them.
+
+1. `labor-report-source.ts` now accepts documented TimeEntry nested `employeeReference`, `jobReference`, and `breakType` objects.
+   It validates string `businessDate` values and strips names and external IDs.
+2. The labor fold now excludes entries for documented `Job.excludeFromReporting=true` jobs.
+   It reports the aggregate exclusion count.
+3. Enabled documented `TipWithholding` now produces aggregate withheld and net tip totals.
+4. Orders sales and tips now use non-voided payment values less explicit refund values.
+   Check totals do not determine employee sales.
+5. Fractional-hour wages now use nine-decimal integer normalization and half-up minor-unit rounding.
+
+The replacement synthetic fixtures use documented TimeEntry, Job, BreakType, and TipWithholding shapes.
+They cover source validation, cancellation, source failures, restaurant-scope mismatch, payment/check mismatch, job exclusion, active/deleted finality, and serialization privacy.
+
+Review-fix verification passed:
+
+```text
+npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+15 tests passed.
+```
+
+Review-fix mutation checks passed. Removing job exclusion, withholding, payment-level totals, or half-up rounding each caused the focused labor test to fail. The implementation was restored before final verification.
+
 ## Self-Check: PASSED
 
 - Source, report, and focused test files exist.
-- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, and `ececd13` exist.
+- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, and review-fix commit `f4c9f12` exist.
