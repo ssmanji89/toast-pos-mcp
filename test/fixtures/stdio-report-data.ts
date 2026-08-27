@@ -237,6 +237,8 @@ export function syntheticCashEntries(): readonly object[] {
     payoutReason: { guid: PAYOUT_REASON_GUID },
     employeeName: "synthetic-cash-employee-must-not-survive",
     cardMarker: "synthetic-cash-card-must-not-survive",
+    guestMarker: "synthetic-guest-must-not-survive",
+    contactMarker: "synthetic-contact-must-not-survive",
   }];
 }
 
@@ -309,6 +311,8 @@ function syntheticLaborTimeEntry(overrides: Readonly<Record<string, unknown>> = 
       auditResponse: null,
     }],
     employeeName: "synthetic-employee-name-must-not-survive",
+    guestMarker: "synthetic-labor-guest-must-not-survive",
+    contactMarker: "synthetic-labor-contact-must-not-survive",
     ...overrides,
   };
 }

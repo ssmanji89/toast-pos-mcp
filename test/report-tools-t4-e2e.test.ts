@@ -105,11 +105,15 @@ test("explicit accessible restaurantGuid binds both reports to the alternate res
       assert.equal(output.effectiveBusinessDate, BUSINESS_DATE, name);
       assert.equal(output.timezone, "America/Chicago", name);
       assert.equal(output.currencyCode, "USD", name);
-      assert.ok(Array.isArray(structured(output.contextProvenance).upstreamRequestIds), name);
+      assert.deepEqual(structured(output.contextProvenance).upstreamRequestIds, ["fixture-partners-request", "fixture-restaurant-request"], name);
+      const freshness = structured(output.contextFreshness);
+      assert.equal(freshness.retrievedThroughEpochMs, 1786910400000, name);
+      assert.equal(freshness.ageMs, 0, name);
+      assert.equal(freshness.maxAgeMs, 21_600_000, name);
       results.push(result);
     }
     const serialized = JSON.stringify(results);
-    for (const marker of ["synthetic-signature", "Bearer", "synthetic-guest", "must-not-leak@example.invalid", "synthetic-employee", "raw-source", "synthetic-cash-card", "123456", "7890"]) {
+    for (const marker of ["synthetic-signature", "Bearer", "synthetic-guest-must-not-survive", "synthetic-contact-must-not-survive", "synthetic-labor-guest-must-not-survive", "synthetic-labor-contact-must-not-survive", "must-not-leak@example.invalid", "synthetic-employee", "raw-source", "synthetic-cash-card", "123456", "7890"]) {
       assert.equal(serialized.toLowerCase().includes(marker.toLowerCase()), false, marker);
     }
     for (const pathValue of SOURCE_PATHS) {
@@ -129,6 +133,8 @@ test("explicit accessible restaurantGuid binds both reports to the alternate res
 
 test("malformed later sources deny and stop the report", { timeout: 30_000 }, async () => {
   for (const [scenario, name, code, expectedPaths] of [
+    ["malformed-cash-source", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries"]],
+    ["malformed-labor-source", "toast_labor_summary", "labor_time_entries_source_invalid", ["/labor/v1/timeEntries"]],
     ["malformed-cash-deposits", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits"]],
     ["malformed-cash-drawers", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits", "/config/v2/cashDrawers"]],
     ["malformed-cash-no-sale-reasons", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits", "/config/v2/cashDrawers", "/config/v2/noSaleReasons"]],
