@@ -25,7 +25,7 @@ test("constructs a server without starting process IO", async () => {
 });
 
 test(
-  "serves retained legacy 2025 requests without advertising Toast tools",
+  "serves retained legacy 2025 requests with the production report tools",
   { timeout: STDIO_CONNECT_TIMEOUT_MS * 5 + 5_000 },
   async () => {
     const connection = createStdioClient("legacy");
@@ -33,7 +33,7 @@ test(
     try {
       await connectWithTimeout(connection);
       const pid = requireRetainedPid(connection);
-      assertEmptyServerIdentity(connection.client);
+      await assertReportServerIdentity(connection.client);
       await proveRetainedProcessRequests(connection, "legacy", pid);
     } finally {
       await closeWithTimeout(connection);
@@ -42,7 +42,7 @@ test(
 );
 
 test(
-  "serves retained pinned 2026-07-28 requests without advertising Toast tools",
+  "serves retained pinned 2026-07-28 requests with the production report tools",
   { timeout: STDIO_CONNECT_TIMEOUT_MS * 5 + 5_000 },
   async () => {
     const connection = createStdioClient("modern");
@@ -53,7 +53,7 @@ test(
       // Pinned negotiation has no legacy fallback. Reaching the common server
       // assertions therefore proves that this executable served the modern
       // 2026-07-28 era rather than silently using the legacy handshake.
-      assertEmptyServerIdentity(connection.client);
+      await assertReportServerIdentity(connection.client);
       await proveRetainedProcessRequests(connection, "modern", pid);
     } finally {
       await closeWithTimeout(connection);
@@ -71,7 +71,7 @@ test(
     try {
       await connectWithTimeout(first);
       firstPid = requireRetainedPid(first);
-      assertEmptyServerIdentity(first.client);
+      await assertReportServerIdentity(first.client);
     } finally {
       await closeWithTimeout(first);
     }
@@ -81,7 +81,7 @@ test(
       await connectWithTimeout(second);
       const secondPid = requireRetainedPid(second);
       assert.notEqual(secondPid, firstPid);
-      assertEmptyServerIdentity(second.client);
+      await assertReportServerIdentity(second.client);
       await requestForEraWithTimeout(second, "modern");
       assert.equal(second.transport.pid, secondPid);
     } finally {
@@ -210,11 +210,15 @@ async function requestForEraWithTimeout(
   );
 }
 
-function assertEmptyServerIdentity(client: Client): void {
+async function assertReportServerIdentity(client: Client): Promise<void> {
   const serverVersion = client.getServerVersion();
   assert.equal(serverVersion?.name, SERVER_IDENTITY.name);
   assert.equal(serverVersion?.version, SERVER_IDENTITY.version);
-  assert.equal(client.getServerCapabilities()?.tools, undefined);
+  const listed = await client.listTools();
+  assert.deepEqual(
+    listed.tools.map((tool) => tool.name).sort(),
+    ["toast_payment_summary", "toast_sales_summary"],
+  );
 }
 
 interface RunResult {

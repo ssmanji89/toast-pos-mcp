@@ -67,7 +67,7 @@ export class RateLimitAwareToastHttpClient extends ToastHttpClient {
     const { rateLimitCoordinator, ...transportOptions } = options;
     const coordinator = rateLimitCoordinator ?? new ToastRateLimitCoordinator();
     const underlyingFetch = transportOptions.fetch ?? fetch;
-    const rawSleep = transportOptions.sleep ?? defaultSleep;
+    const rawSleep = transportOptions.sleep;
     const now = transportOptions.now ?? Date.now;
     const maxWaitMs = transportOptions.maxRateLimitWaitMs ?? 15 * 60 * 1000;
     const cancellationContext = new AsyncLocalStorage<RequestCancellationContext>();
@@ -277,12 +277,15 @@ async function waitForTurn(
 }
 
 async function sleepUntilOrCancelled(
-  sleep: (milliseconds: number) => Promise<void>,
+  injectedSleep: ((milliseconds: number) => Promise<void>) | undefined,
   milliseconds: number,
   signal: AbortSignal | undefined,
 ): Promise<boolean> {
+  if (injectedSleep === undefined) {
+    return defaultSleepUntilOrCancelled(milliseconds, signal);
+  }
   if (signal === undefined) {
-    await sleep(milliseconds);
+    await injectedSleep(milliseconds);
     return true;
   }
   if (signal.aborted) return false;
@@ -296,7 +299,7 @@ async function sleepUntilOrCancelled(
     };
     const onAbort = (): void => finish(false);
     signal.addEventListener("abort", onAbort, { once: true });
-    Promise.resolve(sleep(milliseconds)).then(
+    Promise.resolve(injectedSleep(milliseconds)).then(
       () => finish(true),
       (error: unknown) => {
         if (settled) return;
@@ -305,6 +308,32 @@ async function sleepUntilOrCancelled(
         reject(error);
       },
     );
+  });
+}
+
+function defaultSleepUntilOrCancelled(
+  milliseconds: number,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal?.aborted) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      signal?.removeEventListener("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = (): void => finish(false);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    timeout = setTimeout(() => finish(true), milliseconds);
   });
 }
 
@@ -353,8 +382,4 @@ function endpointKeyFromPath(pathname: string): string {
     .filter((segment) => segment.length > 0)
     .map((segment) => UUID_PATH_SEGMENT.test(segment) ? ":id" : segment.toLowerCase())
     .join("/");
-}
-
-async function defaultSleep(milliseconds: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
