@@ -7,6 +7,7 @@ import {
   type AnalyticsReportJobCreateInput,
 } from "../src/analytics-report-jobs.js";
 import {
+  AnalyticsAccessError,
   createAnalyticsAccessAdapter,
   validateAnalyticsRestaurantSelection,
 } from "../src/analytics-access.js";
@@ -115,15 +116,17 @@ test("Analytics report jobs use exactly the six reviewed create and retrieval ro
   ] as const;
   const { access, selection } = await createSelection();
   const requests: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-  let requestIndex = 0;
+  let createIndex = 0;
   const adapter = createAnalyticsReportJobAdapter({
     access,
     tokenManager: createTokenManager(),
     hostname: "analytics.synthetic-toast-fixture.test",
     fetch: async (url, init) => {
       requests.push({ url: String(url), init: init ?? {} });
-      const next = expected[requestIndex++];
-      if (init?.method === "POST") return new Response(JSON.stringify(`opaque-${next?.[0]}`), { status: 200 });
+      if (init?.method === "POST") {
+        const next = expected[createIndex++];
+        return new Response(JSON.stringify(`opaque-${next?.[0]}`), { status: 200 });
+      }
       return unreadableCompleteResponse();
     },
   });
@@ -143,7 +146,7 @@ test("Analytics report jobs use exactly the six reviewed create and retrieval ro
     assert.deepEqual(JSON.parse(String(createRequest?.init.body)), {
       restaurantIds: [FIRST_GUID, SECOND_GUID],
       excludedRestaurantIds: [],
-      ...createInput(operation),
+      ...expectedCreateBody(createInput(operation)),
     });
   }
   assert.equal(requests.length, 12);
@@ -167,6 +170,7 @@ test("Analytics report jobs reject forged authority and unreviewed outbound form
     { ...createInput("metrics"), route: "/era/v1/guest/payments/day" },
     { ...createInput("metrics"), method: "PATCH" },
     { ...createInput("metrics"), timeRange: "hour" },
+    { ...createInput("metrics"), restaurantIds: [SECOND_GUID] },
     { ...createInput("metrics"), excludedRestaurantIds: [SECOND_GUID] },
     { ...createInput("metrics"), onlyInactiveRestaurants: true },
     { ...createInput("metrics"), aggregateBy: "HOUR" },
@@ -179,8 +183,8 @@ test("Analytics report jobs reject forged authority and unreviewed outbound form
       isContractError,
     );
   }
-  await assert.rejects(adapter.create(foreign.selection, createInput("metrics")), isContractError);
-  await assert.rejects(adapter.create(forged, createInput("metrics")), isContractError);
+  await assert.rejects(adapter.create(foreign.selection, createInput("metrics")), isSafeAuthorityError);
+  await assert.rejects(adapter.create(forged, createInput("metrics")), isSafeAuthorityError);
   assert.equal(fetchCalls, 0);
 });
 
@@ -189,10 +193,10 @@ test("Analytics report jobs retain only an opaque bounded create identifier and 
   const responses: Response[] = [
     new Response(JSON.stringify("opaque-report-request-id-5504"), { status: 200 }),
     unreadableCompleteResponse(),
-    new Response(RESULT_MARKER, { status: 202 }),
-    new Response(RESULT_MARKER, { status: 404 }),
-    new Response(RESULT_MARKER, { status: 409 }),
-    new Response(RESULT_MARKER, { status: 500 }),
+    unreadableResponse(202),
+    unreadableResponse(404),
+    unreadableResponse(409),
+    unreadableResponse(500),
   ];
   const adapter = createAnalyticsReportJobAdapter({
     access,
@@ -222,11 +226,23 @@ test("Analytics report jobs reject malformed create identifiers without publishi
     fetch: async () => new Response(JSON.stringify(""), { status: 200 }),
   });
   await assert.rejects(adapter.create(selection, createInput("metrics")), isContractError);
+
+  const tooLong = createAnalyticsReportJobAdapter({
+    access,
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => new Response(JSON.stringify("a".repeat(513)), { status: 200 }),
+  });
+  await assert.rejects(tooLong.create(selection, createInput("metrics")), isContractError);
 });
 
 function unreadableCompleteResponse(): Response {
+  return unreadableResponse(200);
+}
+
+function unreadableResponse(status: number): Response {
   return {
-    status: 200,
+    status,
     async json() {
       throw new Error(`The completed body must stay unread: ${RESULT_MARKER}`);
     },
@@ -237,4 +253,17 @@ function isContractError(error: unknown): boolean {
   return error instanceof AnalyticsReportJobError
     && !error.message.includes(TOKEN_MARKER)
     && !error.message.includes(RESULT_MARKER);
+}
+
+function isSafeAuthorityError(error: unknown): boolean {
+  return (error instanceof AnalyticsAccessError || error instanceof AnalyticsReportJobError)
+    && !error.message.includes(TOKEN_MARKER)
+    && !error.message.includes(RESULT_MARKER);
+}
+
+function expectedCreateBody(
+  input: AnalyticsReportJobCreateInput,
+): Record<string, string> {
+  const { operation: _operation, timeRange: _timeRange, ...body } = input;
+  return body;
 }
