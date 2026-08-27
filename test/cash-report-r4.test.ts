@@ -61,6 +61,17 @@ test("cash builder accepts every configuration aggregate boundary", async () => 
   }
 });
 
+test("cash builder accepts every valid empty configuration source", async () => {
+  for (const source of CONFIG_SOURCES) {
+    const calls: string[] = [];
+    const result = await buildCashSummaryReport(syntheticCashRuntime({
+      calls, provisionedScopes: SCOPES, emptyAt: source,
+    }), { businessDate: BUSINESS_DATE });
+    assert.equal(result.status, "complete", source);
+    assert.deepEqual(calls, completeCalls(), source);
+  }
+});
+
 test("cash builder denies every configuration aggregate boundary plus one before later sources", async () => {
   for (const source of CONFIG_SOURCES) {
     const calls: string[] = [];

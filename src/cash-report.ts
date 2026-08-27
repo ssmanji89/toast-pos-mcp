@@ -127,6 +127,7 @@ interface LoadedCashSummary {
 interface ConfigurationSourceState<T> {
   readonly records: T[];
   readonly provenance: ReportSourceProvenance[];
+  pagesConsumed: number;
 }
 
 export async function buildCashSummaryReport(
@@ -328,7 +329,7 @@ async function readConfigurationRecords<T>(
 ): Promise<readonly T[]> {
   const state = await runtime.toastHttpClient.foldConfigurationPagesCancellable(
     { path, restaurantGuid, rateLimitKey },
-    (): ConfigurationSourceState<T> => ({ records: [], provenance: [] }),
+    (): ConfigurationSourceState<T> => ({ records: [], provenance: [], pagesConsumed: 0 }),
     (current, page) => {
       assertRestaurantSource(page, restaurantGuid);
       const pageRecords = parse(page.body);
@@ -340,11 +341,12 @@ async function readConfigurationRecords<T>(
         retrievedAtEpochMs: page.retrievedAtEpochMs,
         upstreamRequestId: page.upstreamRequestId,
       }));
+      current.pagesConsumed += 1;
       return current;
     },
     { signal },
   );
-  if (state.records.length === 0) throw cashSourceInvalid();
+  if (state.pagesConsumed === 0) throw cashSourceInvalid();
   for (const source of state.provenance) provenance.addSourceProvenance(source);
   return Object.freeze([...state.records]);
 }

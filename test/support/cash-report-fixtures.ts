@@ -58,6 +58,7 @@ export function syntheticCashRuntime(options: {
   readonly oversizedAt?: CashSourceKey;
   readonly mismatchAt?: CashSourceKey;
   readonly incomplete?: boolean;
+  readonly emptyAt?: Exclude<CashSourceKey, "cash-entries" | "cash-deposits">;
   readonly abort?: boolean;
   readonly sourceBarrier?: SourceEntryBarrier;
   readonly twoPageAt?: Exclude<CashSourceKey, "cash-entries" | "cash-deposits">;
@@ -76,6 +77,7 @@ export function syntheticCashRuntime(options: {
       (_value, index) => entry({ guid: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` }),
     );
     if (options.malformedAt === key) return [{}];
+    if (options.emptyAt === key) return [];
     if (key === "cash-entries") return [entry({})];
     if (key === "cash-deposits") return [deposit({ amount: 2 })];
     if (key === "config-cash-drawers") return [{ guid: IDS.drawerA }];
