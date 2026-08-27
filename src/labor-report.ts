@@ -10,6 +10,12 @@ import {
   parseLaborTimeEntriesForBusinessDate,
   type LaborTimeEntryFact,
 } from "./labor-report-source.js";
+import {
+  addExactDecimals,
+  exactDecimalFromNumber,
+  exactDecimalToString,
+  type ExactDecimal,
+} from "./exact-decimal.js";
 import type { ToastLocation, ToastLocationDiscoveryProvenance } from "./locations.js";
 import { normalizeOrdersPages } from "./orders-normalization.js";
 import { SalesCrossPageIdentityGuard } from "./sales-cross-page-identity.js";
@@ -41,12 +47,14 @@ export interface LaborSummaryAggregate {
   readonly activeTimeEntryCount: number;
   readonly deletedTimeEntryCount: number;
   readonly excludedJobTimeEntryCount: number;
+  readonly unresolvedJobTimeEntryCount: number;
   readonly salariedTimeEntryCount: number;
   readonly regularHours: number;
   readonly overtimeHours: number;
   readonly regularWagesMinor: number;
   readonly breakCount: number;
   readonly missedBreakCount: number;
+  readonly unresolvedBreakTypeCount: number;
   readonly ordersSalesMinor: number;
   readonly ordersTipsMinor: number;
   readonly tipWithholdingEnabled: boolean;
@@ -113,7 +121,7 @@ interface LaborSources {
   readonly tipWithholding: TipWithholding;
 }
 
-interface LaborJob { readonly guid: string; readonly excludeFromReporting: boolean; }
+interface LaborJob { readonly guid: string; readonly excludeFromReporting: boolean | undefined; }
 interface TipWithholding { readonly enabled: boolean; readonly percentage: number; }
 interface OrdersAttribution {
   readonly ordersSalesMinor: number;
@@ -224,10 +232,14 @@ async function loadJobsForEntries(
       path: "/labor/v1/jobs", restaurantGuid, query: { jobIds: batch.join(",") }, rateLimitKey: "labor-jobs",
     }, { signal });
     observeResult(result, restaurantGuid, provenance);
-    const parsed = parseRequired(laborJobsSchema, result.body, "labor_jobs_source_invalid") as readonly { readonly guid: string; readonly excludeFromReporting: boolean }[];
-    jobs.push(...parsed.map((job) => Object.freeze({ guid: job.guid.toLowerCase(), excludeFromReporting: job.excludeFromReporting })));
+    const parsed = parseRequired(laborJobsSchema, result.body, "labor_jobs_source_invalid") as readonly { readonly guid: string; readonly excludeFromReporting: boolean | undefined }[];
+    const responseJobs = parsed.map((job) => Object.freeze({ guid: job.guid.toLowerCase(), excludeFromReporting: job.excludeFromReporting }));
+    assertExactJobResponseSet(batch, responseJobs);
+    if (responseJobs.some((job) => job.excludeFromReporting === undefined)) {
+      throw new ReportComputationError("labor_job_reporting_flag_unresolved", "A required Job reporting-exclusion flag was absent.");
+    }
+    jobs.push(...responseJobs);
   }
-  assertResolvedJobGuids(requestedGuids, jobs);
   return Object.freeze(jobs);
 }
 
@@ -240,12 +252,19 @@ async function loadBreakTypeCount(
   const pages = await runtime.toastHttpClient.getConfigurationPagesDetailedCancellable({
     path: "/config/v2/breakTypes", restaurantGuid, rateLimitKey: "config-break-types",
   }, { signal });
-  let count = 0;
+  const seenBreakTypeGuids = new Set<string>();
   for (const page of pages) {
     observeResult(page, restaurantGuid, provenance);
-    count += (parseRequired(laborBreakTypesSchema, page.body, "labor_break_types_source_invalid") as readonly unknown[]).length;
+    const breakTypes = parseRequired(laborBreakTypesSchema, page.body, "labor_break_types_source_invalid") as readonly { readonly guid: string }[];
+    for (const breakType of breakTypes) {
+      const guid = breakType.guid.toLowerCase();
+      if (seenBreakTypeGuids.has(guid)) {
+        throw new ReportComputationError("labor_break_type_duplicate", "A BreakType GUID appeared more than once across source pages.");
+      }
+      seenBreakTypeGuids.add(guid);
+    }
   }
-  return count;
+  return seenBreakTypeGuids.size;
 }
 
 async function loadTipWithholding(
@@ -263,20 +282,22 @@ async function loadTipWithholding(
 }
 
 function foldLaborFacts(entries: readonly LaborTimeEntryFact[], excludedJobs: ReadonlySet<string>): Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingBasisMinor" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount"> {
-  const state = { active: 0, deleted: 0, excluded: 0, salaried: 0, regularHours: 0, overtimeHours: 0, regularWagesMinor: 0, breaks: 0, missedBreaks: 0, included: 0 };
+  const state = { active: 0, deleted: 0, excluded: 0, unresolvedJobs: 0, salaried: 0, regularHours: emptyDecimal(), overtimeHours: emptyDecimal(), regularWagesMinor: 0, breaks: 0, missedBreaks: 0, unresolvedBreakTypes: 0, included: 0 };
   for (const entry of entries) {
     if (entry.deleted) { state.deleted += 1; continue; }
+    if (entry.jobGuid === undefined) { state.unresolvedJobs += 1; continue; }
     if (excludedJobs.has(entry.jobGuid)) { state.excluded += 1; continue; }
     state.included += 1;
     if (entry.active) state.active += 1;
     if (entry.hourlyWage === null) state.salaried += 1;
-    state.regularHours += entry.regularHours;
-    state.overtimeHours += entry.overtimeHours;
+    state.regularHours = addDecimal(state.regularHours, entry.regularHours, "labor regular hours");
+    state.overtimeHours = addDecimal(state.overtimeHours, entry.overtimeHours, "labor overtime hours");
     if (entry.hourlyWage !== null) state.regularWagesMinor = addMinorUnits(state.regularWagesMinor, multiplyRegularWage(entry.hourlyWage, entry.regularHours));
     state.breaks += entry.breaks.length;
     state.missedBreaks += entry.breaks.filter((laborBreak) => laborBreak.missed && !laborBreak.waived).length;
+    state.unresolvedBreakTypes += entry.breaks.filter((laborBreak) => laborBreak.breakTypeGuid === undefined).length;
   }
-  return Object.freeze({ timeEntryCount: state.included, activeTimeEntryCount: state.active, deletedTimeEntryCount: state.deleted, excludedJobTimeEntryCount: state.excluded, salariedTimeEntryCount: state.salaried, regularHours: state.regularHours, overtimeHours: state.overtimeHours, regularWagesMinor: state.regularWagesMinor, breakCount: state.breaks, missedBreakCount: state.missedBreaks });
+  return Object.freeze({ timeEntryCount: state.included, activeTimeEntryCount: state.active, deletedTimeEntryCount: state.deleted, excludedJobTimeEntryCount: state.excluded, unresolvedJobTimeEntryCount: state.unresolvedJobs, salariedTimeEntryCount: state.salaried, regularHours: decimalToNumber(state.regularHours, "labor regular hours"), overtimeHours: decimalToNumber(state.overtimeHours, "labor overtime hours"), regularWagesMinor: state.regularWagesMinor, breakCount: state.breaks, missedBreakCount: state.missedBreaks, unresolvedBreakTypeCount: state.unresolvedBreakTypes });
 }
 
 async function foldOrdersAttribution(
@@ -288,7 +309,7 @@ async function foldOrdersAttribution(
   provenance: ReportProvenanceCollector,
   signal: AbortSignal | undefined,
 ): Promise<OrdersAttribution> {
-  const employeeGuids = new Set(entries.filter((entry) => !entry.deleted && !excludedJobs.has(entry.jobGuid)).map((entry) => entry.employeeGuid));
+  const employeeGuids = new Set(entries.filter((entry) => !entry.deleted && entry.jobGuid !== undefined && !excludedJobs.has(entry.jobGuid)).map((entry) => entry.employeeGuid));
   const state: MutableOrdersFold = { employeeGuids, identityGuard: new SalesCrossPageIdentityGuard(), provenance, ordersSalesMinor: 0, ordersTipsMinor: 0, creditCardTipsMinor: 0, ordersWithServerAttributionCount: 0 };
   await runtime.toastHttpClient.foldOrdersBulkPagesCancellable({ restaurantGuid: location.restaurantGuid, query: { businessDate }, pageSize: 100 }, state, (fold, page) => foldOrdersPage(fold, page, location, businessDate), { signal });
   return Object.freeze({ ordersSalesMinor: state.ordersSalesMinor, ordersTipsMinor: state.ordersTipsMinor, creditCardTipsMinor: state.creditCardTipsMinor, ordersWithServerAttributionCount: state.ordersWithServerAttributionCount });
@@ -320,8 +341,9 @@ function addPaymentAttribution(state: MutableOrdersFold, payment: { readonly voi
 
 function completeResult(context: EligibleContext, businessDate: number, generatedAtEpochMs: number, sources: LaborSources, provenance: ReportProvenanceCollector, aggregate: Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingBasisMinor" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount">, orders: OrdersAttribution): LaborSummaryComplete | LaborSummaryIncomplete {
   const tipWithholdingMinor = sources.tipWithholding.enabled ? multiplyAndRoundMinor(orders.creditCardTipsMinor, sources.tipWithholding.percentage) : 0;
-  const status = aggregate.activeTimeEntryCount === 0 ? "complete" as const : "incomplete" as const;
-  return Object.freeze({ schemaVersion: STANDARD_REPORT_SCHEMA_VERSION, status, report: "labor_summary", source: "standard_api", restaurantGuid: context.location.restaurantGuid, restaurantName: context.location.name, businessDate, requestedBusinessDate: businessDate, effectiveBusinessDate: businessDate, currencyCode: context.location.currencyCode, timezone: context.location.timezone, closeoutHour: context.location.closeoutHour, generatedAtEpochMs, contextFreshness: context.freshness, contextProvenance: context.provenance, jobsSourceCount: sources.jobs.length, breakTypeSourceCount: sources.breakTypeSourceCount, provenance: provenance.snapshot(), ...aggregate, ordersSalesMinor: orders.ordersSalesMinor, ordersTipsMinor: orders.ordersTipsMinor, ordersWithServerAttributionCount: orders.ordersWithServerAttributionCount, tipWithholdingEnabled: sources.tipWithholding.enabled, tipWithholdingBasisMinor: orders.creditCardTipsMinor, tipWithholdingMinor, netOrdersTipsMinor: addMinorUnits(orders.ordersTipsMinor, -tipWithholdingMinor), formulaNotes: FORMULA_NOTES, warnings: Object.freeze(status === "complete" ? [] : ["Active validated time entries make this labor result incomplete; source failures remain denied."]) });
+  const incomplete = aggregate.activeTimeEntryCount > 0 || aggregate.unresolvedJobTimeEntryCount > 0 || aggregate.unresolvedBreakTypeCount > 0;
+  const status = incomplete ? "incomplete" as const : "complete" as const;
+  return Object.freeze({ schemaVersion: STANDARD_REPORT_SCHEMA_VERSION, status, report: "labor_summary", source: "standard_api", restaurantGuid: context.location.restaurantGuid, restaurantName: context.location.name, businessDate, requestedBusinessDate: businessDate, effectiveBusinessDate: businessDate, currencyCode: context.location.currencyCode, timezone: context.location.timezone, closeoutHour: context.location.closeoutHour, generatedAtEpochMs, contextFreshness: context.freshness, contextProvenance: context.provenance, jobsSourceCount: sources.jobs.length, breakTypeSourceCount: sources.breakTypeSourceCount, provenance: provenance.snapshot(), ...aggregate, ordersSalesMinor: orders.ordersSalesMinor, ordersTipsMinor: orders.ordersTipsMinor, ordersWithServerAttributionCount: orders.ordersWithServerAttributionCount, tipWithholdingEnabled: sources.tipWithholding.enabled, tipWithholdingBasisMinor: orders.creditCardTipsMinor, tipWithholdingMinor, netOrdersTipsMinor: addMinorUnits(orders.ordersTipsMinor, -tipWithholdingMinor), formulaNotes: FORMULA_NOTES, warnings: Object.freeze(status === "complete" ? [] : ["Active or unresolved labor facts make this labor result incomplete; source failures remain denied."]) });
 }
 
 function capabilityDenied(businessDate: number, generatedAtEpochMs: number, context: { readonly denial: CapabilityDenial; readonly location: ToastLocation; readonly freshness: ReportContextFreshness; readonly provenance: ToastLocationDiscoveryProvenance }): LaborSummaryDenied {
@@ -349,7 +371,7 @@ function parseRequiredTimeEntries(value: unknown, businessDate: number): readonl
 }
 
 function distinctJobGuids(entries: readonly LaborTimeEntryFact[]): readonly string[] {
-  return Object.freeze([...new Set(entries.map((entry) => entry.jobGuid))]);
+  return Object.freeze([...new Set(entries.flatMap((entry) => entry.jobGuid === undefined ? [] : [entry.jobGuid]))]);
 }
 
 function chunks<T>(values: readonly T[], size: number): readonly (readonly T[])[] {
@@ -358,13 +380,31 @@ function chunks<T>(values: readonly T[], size: number): readonly (readonly T[])[
   return Object.freeze(result.map((batch) => Object.freeze(batch)));
 }
 
-function assertResolvedJobGuids(requestedGuids: readonly string[], jobs: readonly LaborJob[]): void {
+function assertExactJobResponseSet(requestedGuids: readonly string[], jobs: readonly LaborJob[]): void {
   const returned = new Set(jobs.map((job) => job.guid));
-  if (requestedGuids.some((guid) => !returned.has(guid))) throw new ReportComputationError("labor_jobs_unresolved", "A referenced TimeEntry job was not returned by the bounded job lookup.");
+  if (returned.size !== jobs.length || returned.size !== requestedGuids.length || requestedGuids.some((guid) => !returned.has(guid))) {
+    throw new ReportComputationError("labor_jobs_response_set_invalid", "A Jobs response did not exactly match its requested GUID set.");
+  }
 }
 
 function excludedJobGuids(jobs: readonly LaborJob[]): ReadonlySet<string> {
   return new Set(jobs.filter((job) => job.excludeFromReporting).map((job) => job.guid));
+}
+
+function emptyDecimal(): ExactDecimal {
+  return exactDecimalFromNumber(0);
+}
+
+function addDecimal(total: ExactDecimal, value: number, field: string): ExactDecimal {
+  if (!Number.isFinite(value) || value < 0) throw new ReportComputationError("labor_decimal_invalid", `${field} was not a finite non-negative decimal.`);
+  try { return addExactDecimals([total, exactDecimalFromNumber(value)]); }
+  catch { throw new ReportComputationError("labor_decimal_invalid", `${field} could not be represented as a decimal.`); }
+}
+
+function decimalToNumber(total: ExactDecimal, field: string): number {
+  const value = Number(exactDecimalToString(total));
+  if (!Number.isFinite(value)) throw new ReportComputationError("labor_decimal_total_overflow", `${field} exceeded the supported result range.`);
+  return value;
 }
 
 function assertBusinessDate(value: number): void {

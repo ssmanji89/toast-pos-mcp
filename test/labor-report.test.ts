@@ -34,21 +34,31 @@ test("parses documented TimeEntry references and string business dates without r
   assert.ok(!JSON.stringify(entry).includes("synthetic-external-id-must-not-survive"));
 });
 
-test("rejects invalid documented reference and source business-date values", () => {
+test("preserves optional job and break references while rejecting invalid required references and duplicate TimeEntry GUIDs", () => {
   const invalidDate = timeEntry();
   invalidDate.businessDate = "20260230";
   assert.equal(laborTimeEntryArraySchema.safeParse([invalidDate]).success, false);
 
   const invalidReference = timeEntry();
-  invalidReference.employeeReference = { guid: EMPLOYEE_GUID };
+  invalidReference.employeeReference = { entityType: "RestaurantUser" };
   assert.equal(laborTimeEntryArraySchema.safeParse([invalidReference]).success, false);
   assert.throws(() => parseLaborTimeEntriesForBusinessDate([timeEntry()], 20260817));
+
+  const optionalReferences = timeEntry({ jobReference: undefined, breaks: [{ guid: G(411), paid: false, inDate: null, outDate: null, missed: false, waived: false, auditResponse: null }] });
+  const parsed = parseLaborTimeEntriesForBusinessDate([optionalReferences], 20260816)[0];
+  assert.equal(parsed?.jobGuid, undefined);
+  assert.equal(parsed?.breaks[0]?.breakTypeGuid, undefined);
+  assert.throws(() => parseLaborTimeEntriesForBusinessDate([timeEntry(), timeEntry()], 20260816));
 });
 
-test("validates documented Job, BreakType, and TipWithholding source shapes", () => {
+test("accepts optional Job and BreakType fields while retaining required source identities", () => {
   assert.equal(laborJobsSchema.safeParse([job()]).success, true);
   assert.equal(laborBreakTypesSchema.safeParse([breakType()]).success, true);
   assert.equal(laborTipWithholdingSchema.safeParse(tipWithholding()).success, true);
+  assert.equal(laborJobsSchema.safeParse([{ guid: JOB_GUID }]).success, true);
+  assert.equal(laborBreakTypesSchema.safeParse([{ guid: BREAK_GUID }]).success, true);
+  assert.equal(laborJobsSchema.safeParse([{ excludeFromReporting: false }]).success, false);
+  assert.equal(laborBreakTypesSchema.safeParse([{ active: true }]).success, false);
 });
 
 test("uses reportable jobs and payment facts, then applies tip withholding with defined fractional-hour rounding", async () => {
@@ -154,6 +164,61 @@ test("loads distinct referenced jobs in batches of at most one hundred", async (
   assert.equal(new Set(jobRequests.flatMap((request) => request.query.jobIds.split(","))).size, 101);
 });
 
+test("marks unresolved optional references incomplete and denies unresolved formula fields", async () => {
+  const unresolved = laborRuntime({ entries: [
+    timeEntry({ jobReference: undefined, breaks: [] }),
+    timeEntry({ guid: G(412), breaks: [{ guid: G(411), paid: false, inDate: null, outDate: null, missed: true, waived: false, auditResponse: null }] }),
+  ] });
+  const incomplete = await buildLaborSummaryReport(unresolved.runtime, { businessDate: 20260816, restaurantGuid: unresolved.restaurantGuid });
+  assert.equal(incomplete.status, "incomplete");
+  assert.equal(incomplete.unresolvedJobTimeEntryCount, 1);
+  assert.equal(incomplete.unresolvedBreakTypeCount, 1);
+  assert.equal(unresolved.requests.filter((request) => request.path === "/labor/v1/jobs").length, 1);
+
+  const jobWithoutFlag = job();
+  delete jobWithoutFlag.excludeFromReporting;
+  const missingFormulaField = laborRuntime({ jobResponse: [jobWithoutFlag] });
+  const denied = await buildLaborSummaryReport(missingFormulaField.runtime, { businessDate: 20260816, restaurantGuid: missingFormulaField.restaurantGuid });
+  assert.equal(denied.status, "denied");
+  assert.equal(denied.denial.code, "labor_job_reporting_flag_unresolved");
+});
+
+test("denies duplicate and non-exact TimeEntry, Job, and BreakType source identities", async () => {
+  const duplicateEntries = laborRuntime({ entries: [timeEntry(), timeEntry()] });
+  assert.equal((await buildLaborSummaryReport(duplicateEntries.runtime, { businessDate: 20260816, restaurantGuid: duplicateEntries.restaurantGuid })).status, "denied");
+
+  const duplicateJob = laborRuntime({ jobResponse: [job(), job()] });
+  assert.equal((await buildLaborSummaryReport(duplicateJob.runtime, { businessDate: 20260816, restaurantGuid: duplicateJob.restaurantGuid })).status, "denied");
+
+  const extraJob = laborRuntime({ jobResponse: [job(), job({ guid: EXCLUDED_JOB_GUID })] });
+  assert.equal((await buildLaborSummaryReport(extraJob.runtime, { businessDate: 20260816, restaurantGuid: extraJob.restaurantGuid })).status, "denied");
+
+  const repeatedBreakType = laborRuntime({ breakTypePages: [[breakType()], [breakType()]] });
+  const repeatedBreakTypeResult = await buildLaborSummaryReport(repeatedBreakType.runtime, { businessDate: 20260816, restaurantGuid: repeatedBreakType.restaurantGuid });
+  assert.equal(repeatedBreakTypeResult.status, "denied");
+  assert.equal(repeatedBreakTypeResult.denial.code, "labor_break_type_duplicate");
+});
+
+test("uses checked decimal totals for fractional accumulation and overflow denial", async () => {
+  const fractional = laborRuntime({ entries: [
+    timeEntry({ guid: G(500), regularHours: 0.1, overtimeHours: 0.2 }),
+    timeEntry({ guid: G(501), regularHours: 0.2, overtimeHours: 0.1 }),
+  ] });
+  const fractionalResult = await buildLaborSummaryReport(fractional.runtime, { businessDate: 20260816, restaurantGuid: fractional.restaurantGuid });
+  assert.notEqual(fractionalResult.status, "denied");
+  if (fractionalResult.status === "denied") throw new Error("Expected fractional labor result.");
+  assert.equal(fractionalResult.regularHours, 0.3);
+  assert.equal(fractionalResult.overtimeHours, 0.3);
+
+  const overflow = laborRuntime({ entries: [
+    timeEntry({ guid: G(502), regularHours: Number.MAX_VALUE }),
+    timeEntry({ guid: G(503), regularHours: Number.MAX_VALUE }),
+  ] });
+  const overflowResult = await buildLaborSummaryReport(overflow.runtime, { businessDate: 20260816, restaurantGuid: overflow.restaurantGuid });
+  assert.equal(overflowResult.status, "denied");
+  assert.equal(overflowResult.denial.code, "labor_decimal_total_overflow");
+});
+
 function reference(guid: string, entityType: string): Record<string, unknown> {
   return { guid, entityType, externalId: "synthetic-external-id-must-not-survive" };
 }
@@ -194,6 +259,8 @@ function laborRuntime(options: {
   readonly businessDate?: number;
   readonly omitRequestedJob?: boolean;
   readonly includeRequestedJobs?: boolean;
+  readonly jobResponse?: readonly Record<string, unknown>[];
+  readonly breakTypePages?: readonly (readonly Record<string, unknown>[])[];
   readonly ordersPages?: readonly (readonly Record<string, unknown>[])[];
 } = {}) {
   const restaurantGuid = G(450);
@@ -217,7 +284,7 @@ function laborRuntime(options: {
         if (options.sourceFailure) throw new ToastHttpError("response_invalid_json", "synthetic source failure", { apiFamily: "standard", retryable: false });
         const scopeGuid = options.locationMismatch ? G(499) : restaurantGuid;
         if (request.path === "/labor/v1/timeEntries") return result(options.entries ?? [timeEntry({ businessDate: String(options.businessDate ?? 20260816) })], scopeGuid, "time-entries");
-        if (request.path === "/labor/v1/jobs") return result(jobsForRequest(request, options), scopeGuid, "jobs");
+        if (request.path === "/labor/v1/jobs") return result(options.jobResponse ?? jobsForRequest(request, options), scopeGuid, "jobs");
         if (request.path === "/config/v2/tipWithholding") return result(tipWithholding(), scopeGuid, "withholding");
         throw new Error(`Unexpected synthetic source path ${request.path}`);
       },
@@ -226,7 +293,7 @@ function laborRuntime(options: {
         signals.push(requestOptions.signal);
         calledStages.push("breakTypes");
         if (options.cancelAt === "breakTypes") throw new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false });
-        return [result([breakType()], restaurantGuid, "break-types")];
+        return (options.breakTypePages ?? [[breakType()]]).map((page, index) => result(page, restaurantGuid, `break-types-${index}`));
       },
       foldOrdersBulkPagesCancellable: async <T>(request: Record<string, any>, state: T, consume: (state: T, page: ToastDetailedJsonResult, pageNumber: number) => T, requestOptions: { readonly signal?: AbortSignal }) => {
         orderRequests += 1;
@@ -257,7 +324,7 @@ function jobsForRequest(request: Record<string, any>, options: { readonly omitRe
   const requested = String(request.query?.jobIds ?? "").split(",").filter(Boolean);
   if (options.omitRequestedJob) return [];
   if (options.includeRequestedJobs) return requested.map((guid) => job({ guid }));
-  return [job(), job({ guid: EXCLUDED_JOB_GUID, excludeFromReporting: true })];
+  return requested.map((guid) => job({ guid, excludeFromReporting: guid === EXCLUDED_JOB_GUID }));
 }
 
 function stagesThrough(stage: "timeEntries" | "jobs" | "breakTypes" | "tipWithholding" | "orders"): readonly string[] {
