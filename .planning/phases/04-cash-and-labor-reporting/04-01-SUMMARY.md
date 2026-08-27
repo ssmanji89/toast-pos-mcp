@@ -19,12 +19,20 @@ key-files:
     - src/cash-report-source.ts
     - src/cash-report.ts
     - src/cash-report-fold.ts
+    - src/cash-report-limits.ts
     - test/cash-report.test.ts
+    - test/cash-report-fold.test.ts
+    - test/cash-report-r3.test.ts
+    - test/support/cash-report-fixtures.ts
   modified:
     - src/cash-report-source.ts
     - src/cash-report.ts
     - src/cash-report-fold.ts
+    - src/cash-report-limits.ts
     - test/cash-report.test.ts
+    - test/cash-report-fold.test.ts
+    - test/cash-report-r3.test.ts
+    - test/support/cash-report-fixtures.ts
 key-decisions:
   - "Cash entries and deposits remain source-distinct Cash Management facts, not guest cash payments or expected deposits."
   - "Cross-date reversal references remain observed entries and create a warning instead of guessed netting."
@@ -48,7 +56,7 @@ status: complete
 - **Started:** 2026-08-27T16:35:53Z
 - **Completed:** 2026-08-27T16:43:41Z
 - **Tasks:** 2/2
-- **Files modified:** 4
+- **Files modified:** 8
 
 ## Accomplishments
 
@@ -57,6 +65,7 @@ status: complete
 - Added `buildCashSummaryReport` with selected-location authority, `cashmgmt:read` and `config:read` preflight, cancellable source reads, detailed provenance, and structured denials.
 - Corrected Deposit reversal treatment, removed unsupported drawer-to-Deposit attribution, and recorded absent drawers as an explicit completeness fact.
 - Canonicalized Cash Management GUID identity in the fold and rejected duplicate canonical Entry and Deposit records.
+- Bounded source records, open type values, aggregate type keys, and aggregate reference keys with fail-closed denials.
 
 ## Task Commits
 
@@ -72,14 +81,17 @@ status: complete
    - `9a83660` `refactor(04-01): split cash report builder`
 4. **Second independent review corrections**
    - `a0e67a4` `fix(04-01): harden cash source identity`
+5. **Third independent review corrections**
+   - `ec359e1` `fix(04-01): bound cash source processing`
 
 ## Verification
 
-`npm run build:test && node --test dist-test/test/cash-report.test.js`
+`npm run build:test && node --test dist-test/test/cash-report.test.js dist-test/test/cash-report-fold.test.js dist-test/test/cash-report-r3.test.js`
 
 - PASS: TypeScript compiled the cash source, fold, builder, and synthetic doubles.
-- PASS: 15 focused tests passed.
-- PASS: Tests cover canonical GUID identity, duplicate source rejection, every recognized Entry counter type, same-day and cross-date Entry and Deposit reversals, malformed entry/deposit/configuration sources, real cancellation, controlled HTTP 503 denial, paths, queries, headers, provenance, and denied-output privacy.
+- PASS: 16 focused tests passed.
+- PASS: Tests cover canonical GUID identity, duplicate and self-referential reversals, record/type/reference boundaries, each later-source restaurant mismatch, two-page configuration success and failures, real cancellation, controlled HTTP 503 denial, paths, queries, headers, provenance, and denied-output privacy.
+- PASS: `npm run check` compiled, ran 31 test files, and completed the package dry-run.
 - PASS: `git diff --check 523fdd3a7aba64be3ab68a86fd89874bb2b616ba..HEAD` reported no whitespace errors.
 
 ## Negative Checks
@@ -127,7 +139,7 @@ None. The report has a production-shaped runtime path and does not return placeh
 
 ## DOX
 
-DOX: no durable change. This plan intentionally does not modify shared report registration or durable documentation.
+DOX: no durable public contract changed. This plan still does not register the cash report. The internal resource-bound contract is recorded in this summary.
 
 ## Independent Review Round R1
 
@@ -140,6 +152,19 @@ DOX: no durable change. This plan intentionally does not modify shared report re
 - **Complexity:** `buildCashSummaryReport` is now a coordinator. Context resolution, source loading, completion, denial, and warnings are separate helpers.
 - **Mutation checks:** Focused tests caught an incorrect Deposit reversal sign, acceptance of zero Deposit amounts, rejection of null drawers, an incorrect Deposit route, and loss of the cancellation signal. The lost-signal mutation left the cancellation test pending until the test process was stopped.
 - **Result:** `npm run build:test && node --test dist-test/test/cash-report.test.js` passed 12/12 tests after every mutation was restored.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
+## Independent Review Round R3
+
+- **Review input:** PR #46 independent-review comment `issuecomment-5442819964` on head `bfd1677`.
+- **Limits:** Each Cash Management array accepts at most 1,000 records. Entry type text accepts 128 characters. The fold accepts at most 100 distinct type buckets and 100 distinct keys for each reference output. Boundary-plus-one tests prove each guard.
+- **Stable failure:** Oversize source arrays deny with `cash_source_invalid`. Fold output-limit violations raise the stable `cash_source_limit_exceeded` computation error. Neither path returns totals.
+- **Reversal identity:** Canonical self-references deny. Distinct canonical entry and Deposit reversals remain valid.
+- **Isolation and pages:** Direct tests cover Deposit, Cash Drawer, No Sale Reason, and Payout Reason location mismatches. Two-page configuration success adds the second request ID to provenance. Malformed or mismatched second pages deny and stop before later sources.
+- **Ordering:** The builder parses each entry, Deposit, and configuration source before it starts the next source request. This closes a fail-closed ordering defect found by the second-page test.
+- **Test split:** The original cash builder test is 231 lines. Fold and R3 coverage are separate 120-line and 83-line files. Shared synthetic fixtures are 144 lines.
+- **Mutation checks:** Focused tests caught removal of the entry record cap, canonical self-reference rejection, and restaurant GUID comparison.
+- **Result:** The focused suite passed 16/16. `npm run check` passed all 31 discovered test files and package dry-run.
 - **Review status:** This correction set is not self-approved. It requires a fresh independent review.
 
 ## Independent Review Round R2
@@ -166,5 +191,5 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 
 ## Self-Check: PASSED
 
-- Confirmed all four implementation artifacts and this summary exist.
-- Confirmed all eight TDD, implementation, correction, and refactor commits exist in the repository history.
+- Confirmed all eight implementation and focused test artifacts and this summary exist.
+- Confirmed all nine TDD, implementation, correction, and refactor commits exist in the repository history.
