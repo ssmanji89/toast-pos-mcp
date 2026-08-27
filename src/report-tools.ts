@@ -1,7 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
+import { buildCashSummaryReport } from "./cash-report.js";
 import { buildItemSalesSummaryReport } from "./item-sales-report.js";
+import { buildLaborSummaryReport } from "./labor-report.js";
 import { buildPaymentSummaryReport } from "./payment-report.js";
 import { STANDARD_REPORT_SCHEMA_VERSION } from "./report-contract.js";
 import type { ApplicationRuntime } from "./runtime.js";
@@ -55,6 +57,8 @@ const baseCompleteOutputSchema = z
       "sales_summary",
       "payment_summary",
       "item_sales_summary",
+      "cash_summary",
+      "labor_summary",
     ]),
     source: z.literal("standard_api"),
     restaurantGuid: z.string().uuid(),
@@ -74,6 +78,44 @@ export function registerStandardReportTools(
   server: McpServer,
   runtime: ApplicationRuntime,
 ): void {
+  server.registerTool(
+    "toast_cash_summary",
+    {
+      title: "Toast Cash Summary",
+      description:
+        "Calculate a deterministic read-only Standard API cash-entry and deposit summary for one Toast business date. Cash Management source facts remain distinct from guest cash payments.",
+      inputSchema: reportInputSchema,
+      outputSchema: baseCompleteOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => toolResult(await buildCashSummaryReport(
+      runtime,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
+      { signal: ctx.mcpReq.signal },
+    )),
+  );
+
+  server.registerTool(
+    "toast_labor_summary",
+    {
+      title: "Toast Labor Summary",
+      description:
+        "Calculate a deterministic read-only Standard API labor summary for one Toast business date. Active or unresolved labor facts return an explicit incomplete result.",
+      inputSchema: reportInputSchema,
+      outputSchema: laborOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => toolResult(await buildLaborSummaryReport(
+      runtime,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
+      { signal: ctx.mcpReq.signal },
+    )),
+  );
+
   server.registerTool(
     "toast_sales_summary",
     {
@@ -136,6 +178,16 @@ export function registerStandardReportTools(
   );
 }
 
+const laborOutputSchema = z.union([
+  baseCompleteOutputSchema.extend({
+    report: z.literal("labor_summary"),
+  }),
+  baseCompleteOutputSchema.extend({
+    status: z.literal("incomplete"),
+    report: z.literal("labor_summary"),
+  }),
+]);
+
 function readOnlyAnnotations() {
   return {
     readOnlyHint: true,
@@ -146,7 +198,7 @@ function readOnlyAnnotations() {
 }
 
 function toolResult(
-  result: { readonly status: "complete" | "denied" } & object,
+  result: { readonly status: "complete" | "incomplete" | "denied" } & object,
 ) {
   const structuredContent = result as Record<string, unknown>;
   return {
@@ -154,6 +206,8 @@ function toolResult(
       type: "text" as const,
       text: result.status === "complete"
         ? `Toast ${String(structuredContent.report)} completed for business date ${String(structuredContent.businessDate)}.`
+        : result.status === "incomplete"
+          ? `Toast ${String(structuredContent.report)} is incomplete for business date ${String(structuredContent.businessDate)}; inspect warnings before use.`
         : `Toast ${String(structuredContent.report)} was denied for business date ${String(structuredContent.businessDate)}.`,
     }],
     structuredContent,

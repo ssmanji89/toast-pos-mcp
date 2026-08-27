@@ -14,6 +14,7 @@ const REPORT_SERVER_PATH = path.resolve(
   "stdio-report-server.js",
 );
 const BUSINESS_DATE = 20260816;
+const RESTAURANT_GUID = "00000000-0000-4000-8000-000000000002";
 const INACCESSIBLE_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000009999";
 const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
@@ -29,6 +30,15 @@ type FixtureScenario =
   | "broken-pagination"
   | "cancel-active-report"
   | "rate-limit-wait"
+  | "missing-cash-scope"
+  | "missing-labor-order-scope"
+  | "malformed-cash-source"
+  | "malformed-labor-source"
+  | "cancel-cash-report"
+  | "cancel-labor-report"
+  | "rate-limit-cash"
+  | "labor-revised-archived"
+  | "labor-active-entry"
   | "missing-menu-item"
   | "menu-refresh-fails-after-cache"
   | "menu-unavailable-no-cache"
@@ -54,6 +64,51 @@ test(
       assert.ok(names.includes("toast_sales_summary"));
       assert.ok(names.includes("toast_payment_summary"));
       assert.ok(names.includes("toast_item_sales_summary"));
+      assert.ok(names.includes("toast_cash_summary"));
+      assert.ok(names.includes("toast_labor_summary"));
+      for (const name of ["toast_cash_summary", "toast_labor_summary"]) {
+        assert.deepEqual(listed.tools.find((tool) => tool.name === name)?.annotations, {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        });
+      }
+
+      const cash = await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(cash.isError, true);
+      const cashOutput = structured(cash.structuredContent);
+      assert.equal(cashOutput.status, "complete");
+      assert.equal(cashOutput.report, "cash_summary");
+      assert.equal(cashOutput.cashEntryAmountMinor, 1234);
+      assert.equal(cashOutput.depositAmountMinor, 1000);
+      assert.equal(cashOutput.restaurantGuid, RESTAURANT_GUID);
+      assert.ok(structured(cashOutput.provenance).upstreamRequestIds.includes("fixture-cash-entries"));
+
+      const labor = await connection.client.callTool({
+        name: "toast_labor_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(labor.isError, true);
+      const laborOutput = structured(labor.structuredContent);
+      assert.equal(laborOutput.status, "complete");
+      assert.equal(laborOutput.report, "labor_summary");
+      assert.equal(laborOutput.regularHours, 7.5);
+      assert.equal(laborOutput.ordersSalesMinor, 800);
+      assert.equal(laborOutput.ordersTipsMinor, 50);
+      assert.equal(laborOutput.restaurantGuid, RESTAURANT_GUID);
+      assert.ok(structured(laborOutput.provenance).upstreamRequestIds.includes("fixture-labor-time-entries"));
+      const serializedReports = JSON.stringify({ cashOutput, laborOutput });
+      for (const marker of [
+        "synthetic-cash-employee-must-not-survive",
+        "synthetic-cash-card-must-not-survive",
+        "synthetic-cash-raw-source-must-not-survive",
+        "synthetic-employee-name-must-not-survive",
+        "synthetic-employee-external-id-must-not-survive",
+      ]) assert.equal(serializedReports.includes(marker), false, marker);
 
       const sales = await connection.client.callTool({
         name: "toast_sales_summary",
@@ -233,6 +288,68 @@ test(
       assert.equal(output.unresolvedContributionCount, 1);
     } finally {
       await connection.client.close();
+    }
+  },
+);
+
+test(
+  "labor uses the current source snapshot and keeps archived entries out of current totals",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "labor-revised-archived");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_labor_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(output.status, "complete");
+      assert.equal(output.timeEntryCount, 1);
+      assert.equal(output.deletedTimeEntryCount, 1);
+      assert.equal(output.regularHours, 7.5);
+      assert.equal(output.regularWagesMinor, 0);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "validated active labor entries return truthful incomplete output without an error flag",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "labor-active-entry");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_labor_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(output.status, "incomplete");
+      assert.equal(output.activeTimeEntryCount, 1);
+      assert.ok(textContent(result).includes("incomplete"));
+      assert.ok(textContent(result).length < 256);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "cash and labor scope and malformed-source failures deny without fabricated totals",
+  { timeout: 30_000 },
+  async () => {
+    for (const [scenario, name, expectedCode, absentTotal] of [
+      ["missing-cash-scope", "toast_cash_summary", "capability_missing_scope", "cashEntryAmountMinor"],
+      ["missing-labor-order-scope", "toast_labor_summary", "capability_missing_scope", "regularHours"],
+      ["malformed-cash-source", "toast_cash_summary", "cash_source_invalid", "cashEntryAmountMinor"],
+      ["malformed-labor-source", "toast_labor_summary", "labor_time_entries_source_invalid", "regularHours"],
+    ] as const) {
+      await assertReportDenied(scenario, name, expectedCode, absentTotal);
     }
   },
 );
@@ -647,6 +764,53 @@ test(
   },
 );
 
+test(
+  "cash report cancellation reaches the selected source read through the nonzero-ID stdio path",
+  { timeout: 20_000 },
+  async () => {
+    await assertCancelledReport("cancel-cash-report", "toast_cash_summary", "cash-entries-fetch");
+  },
+);
+
+test(
+  "labor report cancellation reaches the selected source read through the nonzero-ID stdio path",
+  { timeout: 20_000 },
+  async () => {
+    await assertCancelledReport("cancel-labor-report", "toast_labor_summary", "labor-time-entries-fetch");
+  },
+);
+
+test(
+  "a stored upstream rate limit delays a later cash report and preserves cash provenance",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "rate-limit-cash");
+    try {
+      await connectWithTimeout(connection);
+      const startedAt = Date.now();
+      const first = await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      const elapsedMs = Date.now() - startedAt;
+      assert.ok(elapsedMs >= 900, `expected rate-limit delay, observed ${elapsedMs}ms`);
+      assert.notEqual(first.isError, true);
+
+      const second = await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(second.isError, true);
+      assert.ok(
+        structured(structured(second.structuredContent).provenance)
+          .upstreamRequestIds.includes("fixture-rate-limited-cash-2"),
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
 interface Connection {
   readonly client: Client;
   readonly transport: StdioClientTransport;
@@ -705,6 +869,81 @@ async function assertSalesDenied(
   }
 }
 
+async function assertReportDenied(
+  scenario: FixtureScenario,
+  name: "toast_cash_summary" | "toast_labor_summary",
+  expectedCode: string,
+  absentTotal: string,
+): Promise<void> {
+  const connection = createConnection("modern", scenario);
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name,
+      arguments: { businessDate: BUSINESS_DATE },
+    });
+    assert.equal(result.isError, true, scenario);
+    const output = structured(result.structuredContent);
+    assert.equal(output.status, "denied", scenario);
+    assert.equal(structured(output.denial).code, expectedCode, scenario);
+    assert.equal(absentTotal in output, false, scenario);
+  } finally {
+    await connection.client.close();
+  }
+}
+
+async function assertCancelledReport(
+  scenario: FixtureScenario,
+  name: "toast_cash_summary" | "toast_labor_summary",
+  marker: string,
+): Promise<void> {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [REPORT_SERVER_PATH, scenario],
+    cwd: process.cwd(),
+    stderr: "pipe",
+  });
+  const stderr = observeFixtureStderr(transport);
+  const client = new Client(
+    { name: `toast-report-cancellation-${name}`, version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await client.connect(transport);
+    await client.discover({ timeout: 5_000 });
+    const controller = new AbortController();
+    const cancelled = client.callTool(
+      {
+        name,
+        arguments: { businessDate: BUSINESS_DATE },
+      },
+      {
+        signal: controller.signal,
+        timeout: 5_000,
+        toolDefinition: {
+          name,
+          inputSchema: {
+            type: "object",
+            properties: { businessDate: { type: "number" } },
+            required: ["businessDate"],
+            additionalProperties: false,
+          },
+        },
+      },
+    );
+    await stderr.waitFor(`${marker}-started`);
+    controller.abort("synthetic active cancellation");
+    await assert.rejects(cancelled);
+    await stderr.waitFor(`${marker}-aborted`);
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      stderr.stop();
+    }
+  }
+}
+
 function groupByGuid(
   output: Record<string, any>,
   guid: string,
@@ -732,6 +971,12 @@ async function connectWithTimeout(connection: Connection): Promise<void> {
 function structured(value: unknown): Record<string, any> {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
   return value as Record<string, any>;
+}
+
+function textContent(result: { readonly content: readonly { readonly type: string; readonly text?: string }[] }): string {
+  const content = result.content.find((entry) => entry.type === "text");
+  assert.ok(content?.text !== undefined, "expected bounded text content");
+  return content.text;
 }
 
 function observeFixtureStderr(transport: StdioClientTransport): {
