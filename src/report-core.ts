@@ -13,6 +13,11 @@ export interface ReportProvenance {
   readonly upstreamRequestIdsTruncated: boolean;
 }
 
+export interface ReportSourceProvenance {
+  readonly retrievedAtEpochMs: number;
+  readonly upstreamRequestId: string | undefined;
+}
+
 export interface ReportDenial {
   readonly code: string;
   readonly retryable: boolean;
@@ -38,6 +43,10 @@ export class ReportProvenanceCollector {
   #retrievedThroughEpochMs: number | undefined;
 
   add(result: ToastDetailedJsonResult): void {
+    this.addSourceProvenance(result);
+  }
+
+  addSourceProvenance(result: ReportSourceProvenance): void {
     if (
       !Number.isSafeInteger(result.retrievedAtEpochMs)
       || result.retrievedAtEpochMs < 0

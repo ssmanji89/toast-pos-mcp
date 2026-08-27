@@ -14,6 +14,8 @@ import {
   ToastHttpClient,
   ToastHttpError,
   ToastRateLimitPreflightError,
+  type ToastConfigurationPageConsumer,
+  type ToastConfigurationPagesFoldOptions,
   type ToastConfigurationPagesRequest,
   type ToastDetailedJsonResult,
   type ToastGetJsonRequest,
@@ -184,6 +186,26 @@ export class RateLimitAwareToastHttpClient extends ToastHttpClient {
     return this.#runCancellable(
       options.signal,
       () => super.getConfigurationPagesDetailed(request),
+    );
+  }
+
+  async foldConfigurationPagesCancellable<TState>(
+    request: ToastConfigurationPagesRequest,
+    createInitialState: () => TState,
+    consumePage: ToastConfigurationPageConsumer<TState>,
+    options: CancellableRequestOptions = {},
+  ): Promise<TState> {
+    const baseOptions: ToastConfigurationPagesFoldOptions =
+      options.signal === undefined ? {} : { signal: options.signal };
+
+    return this.#runCancellable(
+      options.signal,
+      () => super.foldConfigurationPages(
+        request,
+        createInitialState,
+        consumePage,
+        baseOptions,
+      ),
     );
   }
 

@@ -148,6 +148,25 @@ export interface ToastConfigurationPagesRequest {
   readonly maxRestarts?: number;
 }
 
+export interface ToastConfigurationPagesFoldOptions {
+  readonly signal?: AbortSignal;
+}
+
+export type ToastConfigurationPageConsumer<TState> = (
+  state: TState,
+  page: ToastDetailedJsonResult,
+  pageNumber: number,
+) => TState | Promise<TState>;
+
+interface ConfigurationFoldLimits {
+  readonly maxPages: number;
+  readonly maxRestarts: number;
+}
+
+type ConfigurationFoldAttempt<TState> =
+  | { readonly kind: "complete"; readonly state: TState }
+  | { readonly kind: "restart"; readonly error: ToastHttpError };
+
 export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
@@ -423,125 +442,87 @@ export class ToastHttpClient {
   async getConfigurationPagesDetailed(
     request: ToastConfigurationPagesRequest,
   ): Promise<readonly ToastDetailedJsonResult[]> {
-    const maxPages = request.maxPages ?? this.#maxConfigurationPages;
-    const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
-    if (maxPages < 1) {
-      throw new RangeError("Toast configuration maxPages must be at least 1.");
-    }
-    if (maxRestarts < 0) {
-      throw new RangeError(
-        "Toast configuration maxRestarts must be at least 0.",
-      );
-    }
-    if (maxRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
-      throw new RangeError(
-        `Toast configuration maxRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
-      );
-    }
+    const pages = await this.foldConfigurationPages(
+      request,
+      () => [] as ToastDetailedJsonResult[],
+      (state, page) => {
+        state.push(page);
+        return state;
+      },
+    );
+    return Object.freeze([...pages]);
+  }
 
+  /**
+   * Traverse configuration pages one at a time. The consumer validates and
+   * retains only its explicit state before the next page-token request starts.
+   * A scoped 409 creates fresh consumer state with stale data discarded.
+   */
+  async foldConfigurationPages<TState>(
+    request: ToastConfigurationPagesRequest,
+    createInitialState: () => TState,
+    consumePage: ToastConfigurationPageConsumer<TState>,
+    options: ToastConfigurationPagesFoldOptions = {},
+  ): Promise<TState> {
+    const limits = configurationFoldLimits(
+      request,
+      this.#maxConfigurationPages,
+      this.#maxConfigurationRestarts,
+    );
     let restartCount = 0;
-
     for (;;) {
-      // This array is scoped to one traversal attempt. A scoped 409 breaks
-      // out to a fresh attempt, so both stale bodies and their success
-      // metadata are discarded together rather than leaking into the result.
-      const pages: ToastDetailedJsonResult[] = [];
-      const seenTokens = new Set<string>();
-      let pageToken: string | undefined;
-
-      for (;;) {
-        if (pages.length >= maxPages) {
-          throw new ToastHttpError(
-            "configuration_page_bound_exceeded",
-            "Toast configuration page-token traversal exceeded the configured page bound.",
-            { apiFamily: "standard", retryable: false },
-          );
-        }
-
-        try {
-          const pageRequest: ToastGetJsonRequest = {
-            path: request.path,
-            restaurantGuid: request.restaurantGuid,
-            query: { ...request.query, pageToken },
-            rateLimitKey: request.rateLimitKey,
-            apiFamily: "standard",
-          };
-          const response = await this.#requestJson(pageRequest);
-
-          pages.push(detailedResult(response, pageRequest));
-
-          const nextToken = response.headers.get("toast-next-page-token");
-          if (nextToken === null || nextToken === "") {
-            return Object.freeze([...pages]);
-          }
-          // Toast page tokens are treated as case-sensitive opaque values,
-          // compared and stored by exact string equality — deliberately,
-          // not by accident. Toast's pagination documentation does not
-          // state that `Toast-Next-Page-Token` is safe to compare
-          // case-insensitively, and common opaque-token encodings (base64,
-          // base64url, and similar) are legitimately case-sensitive: two
-          // tokens differing only by case can be genuinely distinct values
-          // encoding different pagination cursors, not the same cursor
-          // twice. Normalizing case before comparing/storing would risk
-          // treating two truly distinct tokens as identical and silently
-          // discarding real pages — a worse failure mode than the one this
-          // guards against.
-          //
-          // The accepted trade-off: two next-tokens differing only by case
-          // (e.g. "TOKEN-X" then "token-x") are treated as progress rather
-          // than caught as an immediate repeat. This traversal is still
-          // fail-closed either way — a genuine loop that happens to differ
-          // only by case degrades from a fast rejection after ~2 requests
-          // to a slower one bounded by `maxPages`
-          // (`configuration_page_bound_exceeded`), never an unbounded loop.
-          // See T1-005-R1-F1.
-          // `nextToken === pageToken` was previously checked here alongside
-          // `seenTokens.has(nextToken)`, but it is dead: `pageToken` is only
-          // ever assigned a value immediately after that same value was
-          // added to `seenTokens` on the prior iteration (see the
-          // `seenTokens.add(nextToken); pageToken = nextToken;` pair below),
-          // so `pageToken` is always already a member of `seenTokens` by the
-          // time this check runs. `seenTokens.has(nextToken)` alone
-          // therefore already catches every case the redundant clause
-          // caught. Confirmed by removing it: zero regressions across all
-          // traversal tests. See T1-005-R1-F2.
-          if (seenTokens.has(nextToken)) {
-            throw new ToastHttpError(
-              "configuration_page_token_repeated",
-              "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
-              { apiFamily: "standard", retryable: false },
-            );
-          }
-
-          seenTokens.add(nextToken);
-          pageToken = nextToken;
-        } catch (error) {
-          if (
-            error instanceof ToastHttpError &&
-            error.upstreamStatus === 409
-          ) {
-            if (restartCount >= maxRestarts) {
-              throw new ToastHttpError(
-                "configuration_page_restart_exceeded",
-                "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
-                {
-                  apiFamily: "standard",
-                  retryable: false,
-                  upstreamStatus: 409,
-                  ...(error.upstreamRequestId !== undefined
-                    ? { upstreamRequestId: error.upstreamRequestId }
-                    : {}),
-                },
-              );
-            }
-
-            restartCount += 1;
-            break;
-          }
-
-          throw error;
-        }
+      const attempt = await this.#foldConfigurationPagesAttempt(
+        request,
+        createInitialState,
+        consumePage,
+        limits.maxPages,
+        options,
+      );
+      if (attempt.kind === "complete") return attempt.state;
+      if (restartCount >= limits.maxRestarts) {
+        throw configurationRestartExceeded(attempt.error);
       }
+      restartCount += 1;
+    }
+  }
+
+  async #foldConfigurationPagesAttempt<TState>(
+    request: ToastConfigurationPagesRequest,
+    createInitialState: () => TState,
+    consumePage: ToastConfigurationPageConsumer<TState>,
+    maxPages: number,
+    options: ToastConfigurationPagesFoldOptions,
+  ): Promise<ConfigurationFoldAttempt<TState>> {
+    let state = createInitialState();
+    let pagesProcessed = 0;
+    const seenTokens = new Set<string>();
+    let pageToken: string | undefined;
+    for (;;) {
+      throwIfOrdersBulkCancelled(options.signal);
+      if (pagesProcessed >= maxPages) throw configurationPageBoundExceeded();
+      const pageRequest = configurationPageRequest(request, pageToken, options.signal);
+      let response: JsonResponseResult;
+      try {
+        response = await this.#requestJson(pageRequest);
+      } catch (error) {
+        if (error instanceof ToastHttpError && error.upstreamStatus === 409) {
+          return { kind: "restart", error };
+        }
+        throw error;
+      }
+      state = await consumePage(
+        state,
+        detailedResult(response, pageRequest),
+        pagesProcessed + 1,
+      );
+      pagesProcessed += 1;
+      throwIfOrdersBulkCancelled(options.signal);
+      const nextToken = response.headers.get("toast-next-page-token");
+      if (nextToken === null || nextToken === "") {
+        return { kind: "complete", state };
+      }
+      assertConfigurationNextToken(seenTokens, nextToken);
+      pageToken = nextToken;
     }
   }
 
@@ -965,6 +946,81 @@ export function createToastHttpClient(
   options: ToastHttpClientOptions = {},
 ): ToastHttpClient {
   return new ToastHttpClient(config, tokenManager, options);
+}
+
+function configurationFoldLimits(
+  request: ToastConfigurationPagesRequest,
+  defaultMaxPages: number,
+  defaultMaxRestarts: number,
+): ConfigurationFoldLimits {
+  const maxPages = request.maxPages ?? defaultMaxPages;
+  const maxRestarts = request.maxRestarts ?? defaultMaxRestarts;
+  if (maxPages < 1) {
+    throw new RangeError("Toast configuration maxPages must be at least 1.");
+  }
+  if (maxRestarts < 0) {
+    throw new RangeError("Toast configuration maxRestarts must be at least 0.");
+  }
+  if (maxRestarts > MAX_ALLOWED_CONFIGURATION_RESTARTS) {
+    throw new RangeError(
+      `Toast configuration maxRestarts must not exceed ${MAX_ALLOWED_CONFIGURATION_RESTARTS}.`,
+    );
+  }
+  return Object.freeze({ maxPages, maxRestarts });
+}
+
+function configurationPageRequest(
+  request: ToastConfigurationPagesRequest,
+  pageToken: string | undefined,
+  signal: AbortSignal | undefined,
+): ToastGetJsonRequest {
+  return {
+    path: request.path,
+    restaurantGuid: request.restaurantGuid,
+    query: { ...request.query, pageToken },
+    rateLimitKey: request.rateLimitKey,
+    apiFamily: "standard",
+    ...(signal === undefined ? {} : { signal }),
+  };
+}
+
+function configurationPageBoundExceeded(): ToastHttpError {
+  return new ToastHttpError(
+    "configuration_page_bound_exceeded",
+    "Toast configuration page-token traversal exceeded the configured page bound.",
+    { apiFamily: "standard", retryable: false },
+  );
+}
+
+function configurationRestartExceeded(error: ToastHttpError): ToastHttpError {
+  return new ToastHttpError(
+    "configuration_page_restart_exceeded",
+    "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
+    {
+      apiFamily: "standard",
+      retryable: false,
+      upstreamStatus: 409,
+      ...(error.upstreamRequestId === undefined
+        ? {}
+        : { upstreamRequestId: error.upstreamRequestId }),
+    },
+  );
+}
+
+function assertConfigurationNextToken(
+  seenTokens: Set<string>,
+  nextToken: string,
+): void {
+  // Toast tokens are opaque and case-sensitive. Exact comparison preserves
+  // distinct base64-like tokens that differ only by case.
+  if (seenTokens.has(nextToken)) {
+    throw new ToastHttpError(
+      "configuration_page_token_repeated",
+      "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
+      { apiFamily: "standard", retryable: false },
+    );
+  }
+  seenTokens.add(nextToken);
 }
 
 function detailedResult(
