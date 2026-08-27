@@ -73,31 +73,85 @@ test("uses reportable jobs and payment facts, then applies tip withholding with 
   assert.equal(result.excludedJobTimeEntryCount, 1);
   assert.equal(result.deletedTimeEntryCount, 1);
   assert.equal(result.ordersSalesMinor, 901);
-  assert.equal(result.ordersTipsMinor, 100);
+  assert.equal(result.ordersTipsMinor, 300);
+  assert.equal(result.tipWithholdingBasisMinor, 100);
   assert.equal(result.tipWithholdingMinor, 10);
-  assert.equal(result.netOrdersTipsMinor, 90);
+  assert.equal(result.netOrdersTipsMinor, 290);
   assert.equal(result.tipWithholdingEnabled, true);
   assert.equal(result.ordersWithServerAttributionCount, 1);
   assert.equal(harness.requests[0]?.query?.includeArchived, true);
   assert.equal(harness.requests[0]?.query?.includeMissedBreaks, true);
   assert.equal(harness.requests.every((request) => request.restaurantGuid === harness.restaurantGuid), true);
+  assert.equal(harness.configurationRequests.every((request) => request.restaurantGuid === harness.restaurantGuid), true);
   assert.ok(!JSON.stringify(result).includes(EMPLOYEE_GUID));
   assert.ok(!JSON.stringify(result).includes("synthetic-name-must-not-survive"));
 });
 
-test("denies before reads for missing scope, source failure, cancellation, and location mismatch", async () => {
-  const missingScope = laborRuntime({ scopes: ["labor:read", "orders:read"] });
-  const missing = await buildLaborSummaryReport(missingScope.runtime, { businessDate: 20260816, restaurantGuid: missingScope.restaurantGuid });
-  assert.equal(missing.status, "denied");
-  assert.deepEqual(missing.missingScopes, ["config:read"]);
-  assert.equal(missingScope.requests.length, 0);
+test("denies before every business read when any required scope is missing", async () => {
+  for (const scopes of [
+    ["config:read", "orders:read"],
+    ["labor:read", "orders:read"],
+    ["labor:read", "config:read"],
+  ]) {
+    const harness = laborRuntime({ scopes });
+    const result = await buildLaborSummaryReport(harness.runtime, { businessDate: 20260816, restaurantGuid: harness.restaurantGuid });
+    assert.equal(result.status, "denied");
+    assert.equal(harness.requests.length, 0);
+    assert.equal(harness.configurationRequests.length, 0);
+    assert.equal(harness.orderRequests, 0);
+  }
+});
 
-  for (const mode of ["sourceFailure", "cancelled", "locationMismatch"] as const) {
+test("denies source failures, restaurant mismatch, and staged cancellation without later requests", async () => {
+  for (const mode of ["sourceFailure", "locationMismatch"] as const) {
     const harness = laborRuntime({ [mode]: true });
     const result = await buildLaborSummaryReport(harness.runtime, { businessDate: 20260816, restaurantGuid: harness.restaurantGuid });
     assert.equal(result.status, "denied");
     assert.equal("regularHours" in result, false);
   }
+
+  for (const stage of ["timeEntries", "jobs", "breakTypes", "tipWithholding", "orders"] as const) {
+    const controller = new AbortController();
+    const harness = laborRuntime({ cancelAt: stage, expectedSignal: controller.signal });
+    const result = await buildLaborSummaryReport(harness.runtime, { businessDate: 20260816, restaurantGuid: harness.restaurantGuid }, { signal: controller.signal });
+    assert.equal(result.status, "denied");
+    assert.equal(harness.signals.every((signal) => signal === controller.signal), true);
+    assert.deepEqual(harness.calledStages, stagesThrough(stage));
+  }
+});
+
+test("uses closeout-hour bounds across DST and rejects unresolved jobs and repeated Orders identities", async () => {
+  const dst = laborRuntime({ businessDate: 20261031 });
+  const dstResult = await buildLaborSummaryReport(dst.runtime, { businessDate: 20261031, restaurantGuid: dst.restaurantGuid });
+  assert.notEqual(dstResult.status, "denied");
+  assert.deepEqual(dst.requests[0]?.query, {
+    startDate: "2026-10-31T09:00:00.000Z",
+    endDate: "2026-11-01T10:00:00.000Z",
+    includeArchived: true,
+    includeMissedBreaks: true,
+  });
+
+  const unresolved = laborRuntime({ omitRequestedJob: true });
+  assert.equal((await buildLaborSummaryReport(unresolved.runtime, { businessDate: 20260816, restaurantGuid: unresolved.restaurantGuid })).status, "denied");
+
+  const repeated = laborRuntime({ ordersPages: [[order()], [order()]] });
+  const repeatedResult = await buildLaborSummaryReport(repeated.runtime, { businessDate: 20260816, restaurantGuid: repeated.restaurantGuid });
+  assert.equal(repeatedResult.status, "denied");
+  assert.equal(repeatedResult.denial.code, "sales_duplicate_entity_across_pages");
+});
+
+test("loads distinct referenced jobs in batches of at most one hundred", async () => {
+  const entries = Array.from({ length: 101 }, (_, index) => timeEntry({
+    guid: G(600 + index),
+    jobReference: reference(G(800 + index), "RestaurantJob"),
+  }));
+  const harness = laborRuntime({ entries, includeRequestedJobs: true });
+  const result = await buildLaborSummaryReport(harness.runtime, { businessDate: 20260816, restaurantGuid: harness.restaurantGuid });
+
+  assert.notEqual(result.status, "denied");
+  const jobRequests = harness.requests.filter((request) => request.path === "/labor/v1/jobs");
+  assert.deepEqual(jobRequests.map((request) => request.query.jobIds.split(",").length), [100, 1]);
+  assert.equal(new Set(jobRequests.flatMap((request) => request.query.jobIds.split(","))).size, 101);
 });
 
 function reference(guid: string, entityType: string): Record<string, unknown> {
@@ -134,12 +188,19 @@ function laborRuntime(options: {
   readonly entries?: readonly Record<string, unknown>[];
   readonly scopes?: readonly string[];
   readonly sourceFailure?: boolean;
-  readonly cancelled?: boolean;
   readonly locationMismatch?: boolean;
+  readonly cancelAt?: "timeEntries" | "jobs" | "breakTypes" | "tipWithholding" | "orders";
+  readonly expectedSignal?: AbortSignal;
+  readonly businessDate?: number;
+  readonly omitRequestedJob?: boolean;
+  readonly includeRequestedJobs?: boolean;
+  readonly ordersPages?: readonly (readonly Record<string, unknown>[])[];
 } = {}) {
   const restaurantGuid = G(450);
   const requests: Array<Record<string, any>> = [];
   const configurationRequests: Array<Record<string, any>> = [];
+  const signals: Array<AbortSignal | undefined> = [];
+  const calledStages: string[] = [];
   let orderRequests = 0;
   const location = { restaurantGuid, name: "Synthetic Labor Cafe", timezone: "America/Chicago", closeoutHour: 4, currencyCode: "USD", managementGroupGuid: undefined, connectionScopes: Object.freeze(options.scopes ?? ["labor:read", "config:read", "orders:read"]) };
   const runtime = {
@@ -149,25 +210,36 @@ function laborRuntime(options: {
     toastHttpClient: {
       getJsonDetailedCancellable: async (request: Record<string, any>, requestOptions: { readonly signal?: AbortSignal }) => {
         requests.push(request);
-        if (options.cancelled) throw new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false });
+        signals.push(requestOptions.signal);
+        const stage = request.path === "/labor/v1/timeEntries" ? "timeEntries" : request.path === "/labor/v1/jobs" ? "jobs" : "tipWithholding";
+        calledStages.push(stage);
+        if (options.cancelAt === stage) throw new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false });
         if (options.sourceFailure) throw new ToastHttpError("response_invalid_json", "synthetic source failure", { apiFamily: "standard", retryable: false });
         const scopeGuid = options.locationMismatch ? G(499) : restaurantGuid;
-        if (request.path === "/labor/v1/timeEntries") return result(options.entries ?? [timeEntry()], scopeGuid, "time-entries");
-        if (request.path === "/labor/v1/jobs") return result([job(), job({ guid: EXCLUDED_JOB_GUID, excludeFromReporting: true })], scopeGuid, "jobs");
+        if (request.path === "/labor/v1/timeEntries") return result(options.entries ?? [timeEntry({ businessDate: String(options.businessDate ?? 20260816) })], scopeGuid, "time-entries");
+        if (request.path === "/labor/v1/jobs") return result(jobsForRequest(request, options), scopeGuid, "jobs");
         if (request.path === "/config/v2/tipWithholding") return result(tipWithholding(), scopeGuid, "withholding");
         throw new Error(`Unexpected synthetic source path ${request.path}`);
       },
-      getConfigurationPagesDetailedCancellable: async (request: Record<string, any>) => {
+      getConfigurationPagesDetailedCancellable: async (request: Record<string, any>, requestOptions: { readonly signal?: AbortSignal }) => {
         configurationRequests.push(request);
+        signals.push(requestOptions.signal);
+        calledStages.push("breakTypes");
+        if (options.cancelAt === "breakTypes") throw new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false });
         return [result([breakType()], restaurantGuid, "break-types")];
       },
-      foldOrdersBulkPagesCancellable: async <T>(_request: Record<string, any>, state: T, consume: (state: T, page: ToastDetailedJsonResult, pageNumber: number) => T) => {
+      foldOrdersBulkPagesCancellable: async <T>(request: Record<string, any>, state: T, consume: (state: T, page: ToastDetailedJsonResult, pageNumber: number) => T, requestOptions: { readonly signal?: AbortSignal }) => {
         orderRequests += 1;
-        return consume(state, result([order()], restaurantGuid, "orders"), 1);
+        requests.push(request);
+        signals.push(requestOptions.signal);
+        calledStages.push("orders");
+        if (options.cancelAt === "orders") throw new ToastHttpError("request_cancelled", "synthetic cancellation", { apiFamily: "standard", retryable: false });
+        const pages = options.ordersPages ?? [[{ ...order(), businessDate: options.businessDate ?? 20260816 }]];
+        return pages.reduce((foldState, page, index) => consume(foldState, result(page, restaurantGuid, `orders-${index}`), index + 1), state);
       },
     },
   };
-  return { runtime: runtime as any, restaurantGuid, requests, configurationRequests, get orderRequests() { return orderRequests; } };
+  return { runtime: runtime as any, restaurantGuid, requests, configurationRequests, signals, calledStages, get orderRequests() { return orderRequests; } };
 }
 
 function order(): Record<string, unknown> {
@@ -176,8 +248,21 @@ function order(): Record<string, unknown> {
     checks: [{ guid: G(461), amount: 999, taxAmount: 0, totalAmount: 999, taxExempt: false, deleted: false, voided: false, paymentStatus: "PAID", selections: [], appliedServiceCharges: [], appliedDiscounts: [], payments: [
       { guid: G(462), type: "CREDIT", amount: 10.01, tipAmount: 1.25, paymentStatus: "PAID", refund: { refundAmount: 1, tipRefundAmount: 0.25 } },
       { guid: G(463), type: "CREDIT", amount: 7, tipAmount: 3, paymentStatus: "VOIDED" },
+      { guid: G(464), type: "CASH", amount: 0, tipAmount: 2, paymentStatus: "PAID" },
     ] }],
   };
+}
+
+function jobsForRequest(request: Record<string, any>, options: { readonly omitRequestedJob?: boolean; readonly includeRequestedJobs?: boolean }): readonly Record<string, unknown>[] {
+  const requested = String(request.query?.jobIds ?? "").split(",").filter(Boolean);
+  if (options.omitRequestedJob) return [];
+  if (options.includeRequestedJobs) return requested.map((guid) => job({ guid }));
+  return [job(), job({ guid: EXCLUDED_JOB_GUID, excludeFromReporting: true })];
+}
+
+function stagesThrough(stage: "timeEntries" | "jobs" | "breakTypes" | "tipWithholding" | "orders"): readonly string[] {
+  const stages = ["timeEntries", "jobs", "breakTypes", "tipWithholding", "orders"];
+  return stages.slice(0, stages.indexOf(stage) + 1);
 }
 
 function result(body: unknown, restaurantGuid: string, requestId: string): ToastDetailedJsonResult {
