@@ -1,7 +1,7 @@
 # Item and Dimension Sales Context Contract
 
-**Status:** T3-003 production-source contract  
-**Tool:** `toast_item_sales_summary`  
+**Status:** T3-003 production-source contract
+**Tool:** `toast_item_sales_summary`
 **Base report schema:** `1`
 
 ## Authority split
