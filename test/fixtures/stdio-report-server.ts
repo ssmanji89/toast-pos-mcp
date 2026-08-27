@@ -47,7 +47,9 @@ const runtime = createApplicationRuntime({
   dataFetch: syntheticToastFetch,
 });
 
-startStdioServer(() => createServer({ runtime }));
+startStdioServer(({ era }) => createServer(
+  era === "modern" ? { runtime } : { advertiseToolListChanged: true },
+));
 
 async function syntheticToastFetch(
   input: string | URL | Request,

@@ -16,6 +16,8 @@ export interface CreateServerOptions {
    * construction tests; the executable path always supplies one.
    */
   readonly runtime?: ApplicationRuntime;
+  /** Retained 2025 clients receive tool-list capability metadata without tools. */
+  readonly advertiseToolListChanged?: boolean;
 }
 
 /**
@@ -27,7 +29,12 @@ export interface CreateServerOptions {
  * stdio era-negotiation factory creates.
  */
 export function createServer(options: CreateServerOptions = {}): McpServer {
-  const server = new McpServer(SERVER_IDENTITY);
+  const server = new McpServer(
+    SERVER_IDENTITY,
+    options.advertiseToolListChanged === true
+      ? { capabilities: { tools: { listChanged: true } } }
+      : undefined,
+  );
   if (options.runtime !== undefined) {
     registerStandardReportTools(server, options.runtime);
   }

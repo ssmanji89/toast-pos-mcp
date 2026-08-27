@@ -25,18 +25,40 @@ test("constructs a server without starting process IO", async () => {
 });
 
 test(
-  "serves retained legacy 2025 requests with the production report tools",
-  { timeout: STDIO_CONNECT_TIMEOUT_MS * 5 + 5_000 },
+  "serves retained legacy 2025 requests without report tools",
+  { timeout: STDIO_CONNECT_TIMEOUT_MS },
   async () => {
-    const connection = createStdioClient("legacy");
-
+    const connection = createLegacyConnection();
     try {
-      await connectWithTimeout(connection);
-      const pid = requireRetainedPid(connection);
-      await assertReportServerIdentity(connection.client);
-      await proveRetainedProcessRequests(connection, "legacy", pid);
+      const initialize = await connection.request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "raw-legacy-test", version: "0.0.0" },
+        },
+      });
+      assert.equal(initialize.result.serverInfo.name, SERVER_IDENTITY.name);
+      assert.deepEqual(initialize.result.capabilities.tools, { listChanged: true });
+      connection.notify({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+      const listed = await connection.request({
+        jsonrpc: "2.0", id: 2, method: "tools/list", params: {},
+      });
+      assert.ok(
+        "error" in listed || (Array.isArray(listed.result?.tools) && listed.result.tools.length === 0),
+        "legacy tools/list must not expose report tools",
+      );
+
+      const call = await connection.request({
+        jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: { name: "toast_sales_summary", arguments: { businessDate: 20260816 } },
+      });
+      assert.ok("error" in call, "legacy report call must be denied");
     } finally {
-      await closeWithTimeout(connection);
+      connection.close();
     }
   },
 );
@@ -129,7 +151,52 @@ interface TestConnection {
   readonly transport: StdioClientTransport;
 }
 
-function createStdioClient(era: "legacy" | "modern"): TestConnection {
+function createLegacyConnection(): {
+  readonly request: (message: Record<string, unknown>) => Promise<any>;
+  readonly notify: (message: Record<string, unknown>) => void;
+  readonly close: () => void;
+} {
+  const child = spawn(process.execPath, [DIST_INDEX_PATH], {
+    cwd: process.cwd(),
+    env: { PATH: process.env.PATH ?? "", ...SYNTHETIC_VALID_RUNTIME_ENV },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const pending = new Map<number, (message: any) => void>();
+  let buffer = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString("utf8");
+    for (;;) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      const message = JSON.parse(line) as { readonly id?: number };
+      if (typeof message.id === "number") pending.get(message.id)?.(message);
+    }
+  });
+  const send = (message: Record<string, unknown>): void => {
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  return {
+    request: async (message) => new Promise((resolve, reject) => {
+      const id = message.id as number;
+      assert.equal(typeof id, "number", "legacy request must have numeric ID");
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error("Timed out waiting for raw legacy response"));
+      }, STDIO_CONNECT_TIMEOUT_MS);
+      pending.set(id, (response) => {
+        clearTimeout(timer);
+        resolve(response);
+      });
+      send(message);
+    }),
+    notify: send,
+    close: () => child.kill(),
+  };
+}
+
+function createStdioClient(era: "modern"): TestConnection {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [DIST_INDEX_PATH],
@@ -142,16 +209,12 @@ function createStdioClient(era: "legacy" | "modern"): TestConnection {
       name: `toast-pos-mcp-${era}-test-client`,
       version: "0.0.0",
     },
-    era === "modern"
-      ? {
-          versionNegotiation: {
-            mode: { pin: MODERN_PROTOCOL_VERSION },
-            probe: { timeoutMs: STDIO_CONNECT_TIMEOUT_MS },
-          },
-        }
-      : {
-          versionNegotiation: { mode: "legacy" },
-        },
+    {
+      versionNegotiation: {
+        mode: { pin: MODERN_PROTOCOL_VERSION },
+        probe: { timeoutMs: STDIO_CONNECT_TIMEOUT_MS },
+      },
+    },
   );
 
   return { client, transport };
@@ -181,7 +244,7 @@ function requireRetainedPid(connection: TestConnection): number {
 
 async function proveRetainedProcessRequests(
   connection: TestConnection,
-  era: "legacy" | "modern",
+  era: "modern",
   pid: number,
 ): Promise<void> {
   await requestForEraWithTimeout(connection, era);
@@ -199,10 +262,9 @@ async function proveRetainedProcessRequests(
 
 async function requestForEraWithTimeout(
   connection: TestConnection,
-  era: "legacy" | "modern",
+  era: "modern",
 ): Promise<void> {
-  const request =
-    era === "legacy" ? connection.client.ping() : connection.client.discover();
+  const request = connection.client.discover();
   await withTimeout(
     request,
     STDIO_CONNECT_TIMEOUT_MS,

@@ -26,10 +26,10 @@ type FixtureScenario =
   | "rate-limit-wait";
 
 test(
-  "production-wired legacy stdio lists and calls both Standard report tools",
+  "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
   { timeout: 30_000 },
   async () => {
-    const connection = createConnection("legacy");
+    const connection = createConnection("modern");
     try {
       await connectWithTimeout(connection);
       const listed = await connection.client.listTools();
@@ -118,7 +118,7 @@ test(
   "MCP input schema rejects impossible business dates before report orchestration",
   { timeout: 20_000 },
   async () => {
-    const connection = createConnection("legacy");
+    const connection = createConnection("modern");
     try {
       await connectWithTimeout(connection);
       const result = await connection.client.callTool({
@@ -233,7 +233,7 @@ test(
   "a stored upstream rate limit delays a later stdio report without bypassing report provenance",
   { timeout: 20_000 },
   async () => {
-    const connection = createConnection("legacy", "rate-limit-wait");
+    const connection = createConnection("modern", "rate-limit-wait");
     try {
       await connectWithTimeout(connection);
       const first = await connection.client.callTool({
@@ -300,7 +300,7 @@ async function assertSalesDenied(
   extraArguments: Readonly<Record<string, unknown>>,
   expectedCode: string,
 ): Promise<void> {
-  const connection = createConnection("legacy", scenario);
+  const connection = createConnection("modern", scenario);
   try {
     await connectWithTimeout(connection);
     const result = await connection.client.callTool({

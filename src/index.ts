@@ -13,7 +13,9 @@ async function main(): Promise<void> {
   // The MCP SDK may construct more than one server instance while negotiating
   // protocol era, but every instance captures this same process-owned Toast
   // runtime. This is the production wiring path for the reporting tools.
-  startStdioServer(() => createServer({ runtime }));
+  startStdioServer(({ era }) => createServer(
+    era === "modern" ? { runtime } : { advertiseToolListChanged: true },
+  ));
 }
 
 void main().catch(() => {

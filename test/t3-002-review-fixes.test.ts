@@ -36,7 +36,12 @@ const IDS = {
   serviceB: "00000000-0000-4000-8000-000000001012",
 } as const;
 
-test("first-use registry publication cannot expose location before matching provenance", async () => {
+test("first-use registry publication cannot expose location before matching provenance", { timeout: 1_000 }, async () => {
+  let now = 1_800_000_000_000;
+  const sharedNow = (): number => {
+    now += 1_000;
+    return now;
+  };
   const config = loadRuntimeConfig(SYNTHETIC_VALID_RUNTIME_ENV);
   const tokenManager = createOAuthTokenManager(config, {
     fetch: async () => jsonResponse({
@@ -46,6 +51,7 @@ test("first-use registry publication cannot expose location before matching prov
         accessToken: "synthetic-location-publication-token",
       },
     }),
+    now: sharedNow,
   });
   const toastHttpClient = createRateLimitAwareToastHttpClient(
     config,
@@ -83,6 +89,7 @@ test("first-use registry publication cannot expose location before matching prov
       },
       random: () => 0,
       sleep: async () => undefined,
+      now: sharedNow,
     },
   );
 
@@ -114,7 +121,8 @@ test("first-use registry publication cannot expose location before matching prov
     tokenManager,
     toastHttpClient,
     registry,
-    () => 1_800_000_000_000,
+    sharedNow,
+    1,
   );
 
   const first = await runtime.getLocationContext(RESTAURANT_GUID);

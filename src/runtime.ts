@@ -155,19 +155,21 @@ export class ApplicationRuntime {
     // publishing provenance. discoverStandardLocations() replaces the registry
     // just before its promise resolves, so consulting the registry first would
     // expose a registry-without-provenance race window.
+    let waitedForDiscovery = false;
     if (this.#locationDiscoveryInFlight !== undefined) {
       await waitForSharedDiscovery(
         this.#locationDiscoveryInFlight,
         options.signal,
       );
       throwIfRuntimeRequestCancelled(options.signal);
+      waitedForDiscovery = true;
     }
 
     // Toast recommends polling Partners connections a few times per day and
     // Restaurants configuration at least daily. A stale generation is not
     // allowed to back a `complete` report: refresh first, and propagate a
     // refresh failure rather than silently serving the older context.
-    if (this.#locationContextIsStale()) {
+    if (!waitedForDiscovery && this.#locationContextIsStale()) {
       await waitForSharedDiscovery(this.#ensureLocationDiscovery(), options.signal);
       throwIfRuntimeRequestCancelled(options.signal);
     }
