@@ -25,6 +25,7 @@ const DISCOUNT_GUID = G(310);
 const ITEM_GUID = G(312);
 const ITEM_GROUP_GUID = G(313);
 const SALES_CATEGORY_GUID = G(314);
+const SERVER_GUID = G(319);
 const SENSITIVE_MARKER = "synthetic-guest-card-marker-must-not-survive";
 
 const LOCATION: ToastLocation = Object.freeze({
@@ -181,6 +182,27 @@ test("strips guest, delivery, card, free-text, and transaction markers by constr
 
   assert.ok(!JSON.stringify(batch).includes(SENSITIVE_MARKER));
   assert.ok(!deepValues(batch).some((value) => value === SENSITIVE_MARKER));
+});
+
+test("retains only an immutable server identifier for internal labor attribution", () => {
+  const raw = validOrder();
+  raw.server = {
+    guid: SERVER_GUID,
+    name: SENSITIVE_MARKER,
+    externalEmployeeId: SENSITIVE_MARKER,
+    phone: SENSITIVE_MARKER,
+  };
+
+  const batch = normalizeOrdersPages({
+    location: LOCATION,
+    query: { mode: "business_date", businessDate: 20260816 },
+    pages: [page([raw])],
+  });
+  const order = batch.orders[0];
+
+  assert.equal(order?.serverGuid, SERVER_GUID);
+  assert.ok(Object.isFrozen(order));
+  assert.ok(!JSON.stringify(batch).includes(SENSITIVE_MARKER));
 });
 
 test("refuses unsupported money precision instead of silently rounding", () => {
