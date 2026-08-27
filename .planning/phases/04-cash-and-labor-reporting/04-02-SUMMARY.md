@@ -174,7 +174,37 @@ Targeted mutation checks passed. Requiring an optional job reference, accepting 
 
 DOX: updated this plan summary because unresolved-reference finality, source identity, and numeric-overflow behavior are durable report-contract facts.
 
+## Review Round 4 Fixes
+
+The independent review at `04cfab2` found five blockers. Commit `719bdc7` resolves them.
+
+1. An absent `hourlyWage` now remains undefined and marks the result incomplete.
+   Only an explicit source `null` marks salaried context.
+2. TimeEntryBreak GUIDs are unique across the complete TimeEntry source snapshot.
+   A duplicate within one entry or across entries denies the report.
+3. The BreakType source now returns its GUID set for labor validation.
+   Missing or unmatched TimeEntry break-type references remain explicit unresolved facts and mark the result incomplete.
+4. Wage and tip-withholding products use exact decimal coefficients with BigInt multiplication.
+   The result rounds exact half minor units up and no longer quantizes factors at `1e-9`.
+5. The report permits at most 1,000 distinct Job GUIDs, or ten 100-GUID Jobs batches.
+   A larger source snapshot denies before its first Jobs request.
+
+Review-round-four verification passed:
+
+```text
+Node 20.20.2: npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+Node 22.22.2: npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+25 tests passed on each runtime.
+
+Node 22.22.2: npm run check
+Passed with full tests and npm pack --dry-run --json.
+```
+
+Targeted mutation checks passed. Collapsing an absent wage to null, accepting duplicate breaks, ignoring unmatched BreakTypes, restoring `1e-9` factor quantization, or removing the full-report Jobs limit each caused its focused test to fail. The implementation was restored before final verification.
+
+DOX: updated this plan summary because wage-state finality, break-reference validation, exact rounding, and source-request bounds are durable report-contract facts.
+
 ## Self-Check: PASSED
 
 - Source, report, and focused test files exist.
-- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, and review-fix commit `bef762a` exist.
+- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, `bef762a`, and review-fix commit `719bdc7` exist.
