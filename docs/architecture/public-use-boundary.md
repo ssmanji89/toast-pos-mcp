@@ -67,6 +67,15 @@ Runtime configuration includes:
 - optional default restaurant GUID
 - explicit Merchant-AI-consent acknowledgment for configured AI processing
 
+Optional Analytics configuration is an all-or-nothing separate authority:
+
+- `TOAST_ANALYTICS_API_HOSTNAME`
+- `TOAST_ANALYTICS_ACCESS_TYPE`
+- `TOAST_ANALYTICS_CLIENT_ID`
+- `TOAST_ANALYTICS_CLIENT_SECRET`
+
+The Analytics values are operator-supplied, non-persistent, and private to the Analytics authority. When every value is absent, Standard startup remains unchanged. When one value is absent or invalid, Analytics authority is unavailable. Standard credentials, token state, connection scopes, locations, and rate-limit state are never Analytics fallback inputs.
+
 The implementation must not accept credentials as tool arguments, return them as resources, save them to ordinary configuration files, log authentication bodies, store consent evidence, or assume a fixed token lifetime.
 
 The capability view derives from configured access type, token scope claims, and observed API authorization. It is advisory, not a replacement for Toast authorization. Tools fail closed when:
@@ -83,6 +92,8 @@ The capability view derives from configured access type, token scope claims, and
 Every request, cache entry, report calculation, Analytics report job, and result envelope includes an explicit restaurant GUID or declared management-group restaurant set.
 
 Cache keys include credential identity, restaurant or management-group identity, API family, resource identity, and freshness or version information. Multi-location reports return member locations and per-location failures; they never conceal a partial location set.
+
+T5-001 exposes only an internal Analytics management-group discovery boundary. It requires `enterprise-metrics:read` before the literal `GET /era/v1/restaurants-information` request. The request carries Analytics authorization only. It sends no Standard restaurant header. The closed operation type cannot construct arbitrary or guest-payment paths. The adapter retains only validated, minimized restaurant facts. It publishes the immutable registry atomically. A later job caller must use a non-empty canonical UUID subset that is bound to the private Analytics credential identity. This management-group set is not Standard location authority.
 
 ## Report result contract
 
@@ -147,6 +158,8 @@ The configuration 409 restart rule does not apply to `/ordersBulk`.
 
 ### Analytics report jobs
 
+T5-001 does not create Analytics report jobs, poll, store a request GUID, or register an MCP tool. T5-002 owns the lifecycle and endpoint/time-range policy below. T5-003 owns Analytics report presentation and stdio wiring.
+
 Analytics datasets other than restaurant information use a two-step lifecycle:
 
 1. POST to create a report request.
@@ -170,7 +183,7 @@ Standard API reports derive from operational objects. Analytics reports consume 
 
 ## MCP transport and public release
 
-The initial stable MCP TypeScript SDK v1 and `stdio` transport reduce credential and tenant risk. They do not authorize AI processing or onward disclosure.
+The initial stable MCP TypeScript SDK v2 and `stdio` transport reduce credential and tenant risk. They do not authorize AI processing or onward disclosure.
 
 Remote transport requires a superseding decision covering Toast approval, Merchant consent, model-provider and MCP-host flows, authentication, tenant isolation, secret storage, logging, retention, deletion, incident response, regions, and subprocessors.
 
