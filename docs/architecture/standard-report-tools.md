@@ -203,7 +203,8 @@ connects through the actual MCP client over stdio. The fixture uses the same
 `createApplicationRuntime`, `createServer`, and `startStdioServer` production
 path. Synthetic upstream response scenarios prove:
 
-- legacy and pinned 2026-07-28 clients discover/invoke real tools;
+- raw 2025 stdio clients receive no report tools;
+- pinned 2026-07-28 clients discover and invoke the real report tools;
 - sales and payment happy-path formula/output/privacy behavior;
 - invalid MCP input is rejected before orchestration;
 - missing required scope is denied before Orders data access;

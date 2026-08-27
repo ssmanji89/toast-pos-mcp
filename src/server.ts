@@ -13,7 +13,8 @@ export interface CreateServerOptions {
    * Process-owned Toast runtime. When present, the server registers the
    * production report tools against this exact runtime identity. Omitting it
    * is intentionally supported only for side-effect-free protocol/factory
-   * construction tests; the executable path always supplies one.
+   * construction tests and the raw 2025 compatibility surface. The pinned
+   * 2026-07-28 executable path supplies this exact runtime.
    */
   readonly runtime?: ApplicationRuntime;
   /** Retained 2025 clients receive tool-list capability metadata without tools. */
