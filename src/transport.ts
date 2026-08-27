@@ -148,6 +148,16 @@ export interface ToastConfigurationPagesRequest {
   readonly maxRestarts?: number;
 }
 
+export interface ToastConfigurationPagesFoldOptions {
+  readonly signal?: AbortSignal;
+}
+
+export type ToastConfigurationPageConsumer<TState> = (
+  state: TState,
+  page: ToastDetailedJsonResult,
+  pageNumber: number,
+) => TState | Promise<TState>;
+
 export interface ToastOrdersBulkPagesRequest {
   readonly restaurantGuid: string;
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
@@ -423,6 +433,28 @@ export class ToastHttpClient {
   async getConfigurationPagesDetailed(
     request: ToastConfigurationPagesRequest,
   ): Promise<readonly ToastDetailedJsonResult[]> {
+    const pages = await this.foldConfigurationPages(
+      request,
+      () => [] as ToastDetailedJsonResult[],
+      (state, page) => {
+        state.push(page);
+        return state;
+      },
+    );
+    return Object.freeze([...pages]);
+  }
+
+  /**
+   * Traverse configuration pages one at a time. The consumer validates and
+   * retains only its explicit state before the next page-token request starts.
+   * A scoped 409 creates fresh consumer state with stale data discarded.
+   */
+  async foldConfigurationPages<TState>(
+    request: ToastConfigurationPagesRequest,
+    createInitialState: () => TState,
+    consumePage: ToastConfigurationPageConsumer<TState>,
+    options: ToastConfigurationPagesFoldOptions = {},
+  ): Promise<TState> {
     const maxPages = request.maxPages ?? this.#maxConfigurationPages;
     const maxRestarts = request.maxRestarts ?? this.#maxConfigurationRestarts;
     if (maxPages < 1) {
@@ -442,15 +474,16 @@ export class ToastHttpClient {
     let restartCount = 0;
 
     for (;;) {
-      // This array is scoped to one traversal attempt. A scoped 409 breaks
-      // out to a fresh attempt, so both stale bodies and their success
-      // metadata are discarded together rather than leaking into the result.
-      const pages: ToastDetailedJsonResult[] = [];
+      // State is scoped to one traversal attempt. A scoped 409 creates a
+      // fresh state, so stale records and metadata never enter the result.
+      let state = createInitialState();
+      let pagesProcessed = 0;
       const seenTokens = new Set<string>();
       let pageToken: string | undefined;
 
       for (;;) {
-        if (pages.length >= maxPages) {
+        throwIfOrdersBulkCancelled(options.signal);
+        if (pagesProcessed >= maxPages) {
           throw new ToastHttpError(
             "configuration_page_bound_exceeded",
             "Toast configuration page-token traversal exceeded the configured page bound.",
@@ -458,22 +491,56 @@ export class ToastHttpClient {
           );
         }
 
+        const pageRequest: ToastGetJsonRequest = {
+          path: request.path,
+          restaurantGuid: request.restaurantGuid,
+          query: { ...request.query, pageToken },
+          rateLimitKey: request.rateLimitKey,
+          apiFamily: "standard",
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+        };
+        let response: JsonResponseResult;
         try {
-          const pageRequest: ToastGetJsonRequest = {
-            path: request.path,
-            restaurantGuid: request.restaurantGuid,
-            query: { ...request.query, pageToken },
-            rateLimitKey: request.rateLimitKey,
-            apiFamily: "standard",
-          };
-          const response = await this.#requestJson(pageRequest);
+          response = await this.#requestJson(pageRequest);
+        } catch (error) {
+          if (
+            error instanceof ToastHttpError
+            && error.upstreamStatus === 409
+          ) {
+            if (restartCount >= maxRestarts) {
+              throw new ToastHttpError(
+                "configuration_page_restart_exceeded",
+                "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
+                {
+                  apiFamily: "standard",
+                  retryable: false,
+                  upstreamStatus: 409,
+                  ...(error.upstreamRequestId !== undefined
+                    ? { upstreamRequestId: error.upstreamRequestId }
+                    : {}),
+                },
+              );
+            }
 
-          pages.push(detailedResult(response, pageRequest));
-
-          const nextToken = response.headers.get("toast-next-page-token");
-          if (nextToken === null || nextToken === "") {
-            return Object.freeze([...pages]);
+            restartCount += 1;
+            break;
           }
+
+          throw error;
+        }
+
+        state = await consumePage(
+          state,
+          detailedResult(response, pageRequest),
+          pagesProcessed + 1,
+        );
+        pagesProcessed += 1;
+        throwIfOrdersBulkCancelled(options.signal);
+
+        const nextToken = response.headers.get("toast-next-page-token");
+        if (nextToken === null || nextToken === "") {
+          return state;
+        }
           // Toast page tokens are treated as case-sensitive opaque values,
           // compared and stored by exact string equality — deliberately,
           // not by accident. Toast's pagination documentation does not
@@ -505,42 +572,16 @@ export class ToastHttpClient {
           // therefore already catches every case the redundant clause
           // caught. Confirmed by removing it: zero regressions across all
           // traversal tests. See T1-005-R1-F2.
-          if (seenTokens.has(nextToken)) {
-            throw new ToastHttpError(
-              "configuration_page_token_repeated",
-              "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
-              { apiFamily: "standard", retryable: false },
-            );
-          }
-
-          seenTokens.add(nextToken);
-          pageToken = nextToken;
-        } catch (error) {
-          if (
-            error instanceof ToastHttpError &&
-            error.upstreamStatus === 409
-          ) {
-            if (restartCount >= maxRestarts) {
-              throw new ToastHttpError(
-                "configuration_page_restart_exceeded",
-                "Toast configuration page-token traversal exceeded the configured 409 restart budget.",
-                {
-                  apiFamily: "standard",
-                  retryable: false,
-                  upstreamStatus: 409,
-                  ...(error.upstreamRequestId !== undefined
-                    ? { upstreamRequestId: error.upstreamRequestId }
-                    : {}),
-                },
-              );
-            }
-
-            restartCount += 1;
-            break;
-          }
-
-          throw error;
+        if (seenTokens.has(nextToken)) {
+          throw new ToastHttpError(
+            "configuration_page_token_repeated",
+            "Toast configuration page-token traversal returned a repeated or non-progressing page token.",
+            { apiFamily: "standard", retryable: false },
+          );
         }
+
+        seenTokens.add(nextToken);
+        pageToken = nextToken;
       }
     }
   }

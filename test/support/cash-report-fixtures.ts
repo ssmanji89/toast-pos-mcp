@@ -103,13 +103,24 @@ export function syntheticCashRuntime(options: {
         assertCashRequest(request, input.signal, options.signal, key);
         options.calls.push(key);
         if (options.incomplete) return [];
-        const first = detail(configurationPage(key, 0), `synthetic-${key.replace("config-", "")}`, options.mismatchAt === key);
-        if (options.twoPageAt !== key) return [first];
-        return [first, detail(
-          options.malformedSecondPage ? [{}] : configurationPage(key, 1),
-          `synthetic-${key.replace("config-", "")}-page-2`,
-          options.mismatchedSecondPage,
-        )];
+        return configurationPages(key);
+      },
+      foldConfigurationPagesCancellable: async <T>(
+        request: any,
+        createInitialState: () => T,
+        consumePage: (state: T, page: any, pageNumber: number) => T | Promise<T>,
+        input: { readonly signal?: AbortSignal },
+      ): Promise<T> => {
+        const key = request.rateLimitKey as CashSourceKey;
+        assertCashRequest(request, input.signal, options.signal, key);
+        options.calls.push(key);
+        let state = createInitialState();
+        if (options.incomplete) return state;
+        const pages = configurationPages(key);
+        for (const [index, page] of pages.entries()) {
+          state = await consumePage(state, page, index + 1);
+        }
+        return state;
       },
     },
   };
@@ -124,6 +135,20 @@ export function syntheticCashRuntime(options: {
       { length: size },
       (_value, index) => ({ guid: configurationGuid(key, pageIndex, index) }),
     );
+  }
+
+  function configurationPages(key: CashSourceKey): readonly ReturnType<typeof detail>[] {
+    const first = detail(
+      configurationPage(key, 0),
+      `synthetic-${key.replace("config-", "")}`,
+      options.mismatchAt === key,
+    );
+    if (options.twoPageAt !== key) return [first];
+    return [first, detail(
+      options.malformedSecondPage ? [{}] : configurationPage(key, 1),
+      `synthetic-${key.replace("config-", "")}-page-2`,
+      options.mismatchedSecondPage,
+    )];
   }
 }
 

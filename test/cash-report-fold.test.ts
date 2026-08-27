@@ -50,6 +50,16 @@ test("cash fold keeps source facts, references, and type buckets distinct", () =
   assert.deepEqual(result.cashEntryTotalsByType.map(({ type }) => type), ["CASH_IN", "NO_SALE", "OPEN_TOAST_TYPE"]);
 });
 
+test("cash fold orders open entry types by Unicode code units", () => {
+  const result = foldCashSummary(foldInput({
+    entries: cashEntryArraySchema.parse([
+      entry({ guid: IDS.entryA, type: "Å" }),
+      entry({ guid: IDS.entryB, type: "Z" }),
+    ]),
+  }));
+  assert.deepEqual(result.cashEntryTotalsByType.map(({ type }) => type), ["Z", "Å"]);
+});
+
 test("cash fold keeps distinct-record reversals and rejects canonical self references", () => {
   const accepted = foldCashSummary(foldInput({
     entries: cashEntryArraySchema.parse([entry({ guid: IDS.entryA }), entry({ guid: IDS.entryB, undoes: IDS.entryA })]),

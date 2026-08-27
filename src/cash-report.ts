@@ -43,6 +43,7 @@ import {
   ReportProvenanceCollector,
   type ReportDenial,
   type ReportProvenance,
+  type ReportSourceProvenance,
 } from "./report-core.js";
 import type { ApplicationRuntime } from "./runtime.js";
 import type { ToastDetailedJsonResult } from "./transport.js";
@@ -121,6 +122,11 @@ interface ResolvedCashReportContext {
 interface LoadedCashSummary {
   readonly fold: CashSummaryFold;
   readonly provenance: ReportProvenance;
+}
+
+interface ConfigurationSourceState<T> {
+  readonly records: T[];
+  readonly provenance: ReportSourceProvenance[];
 }
 
 export async function buildCashSummaryReport(
@@ -202,18 +208,21 @@ async function loadCashSummaryFold(
     runtime, "/cashmgmt/v1/deposits", restaurantGuid, businessDate,
     "cash-deposits", provenance, signal,
   )).body);
-  const cashDrawers = parseConfigurationPages(await readConfigurationPages(
+  const cashDrawers = await readConfigurationRecords(
     runtime, "/config/v2/cashDrawers", restaurantGuid,
     "config-cash-drawers", provenance, signal,
-  ), parseCashDrawers);
-  const noSaleReasons = parseConfigurationPages(await readConfigurationPages(
+    parseCashDrawers,
+  );
+  const noSaleReasons = await readConfigurationRecords(
     runtime, "/config/v2/noSaleReasons", restaurantGuid,
     "config-no-sale-reasons", provenance, signal,
-  ), parseNoSaleReasons);
-  const payoutReasons = parseConfigurationPages(await readConfigurationPages(
+    parseNoSaleReasons,
+  );
+  const payoutReasons = await readConfigurationRecords(
     runtime, "/config/v2/payoutReasons", restaurantGuid,
     "config-payout-reasons", provenance, signal,
-  ), parsePayoutReasons);
+    parsePayoutReasons,
+  );
   return Object.freeze({
     fold: foldCashSummary({
       businessDate,
@@ -308,24 +317,36 @@ async function readCashResult(
   return result;
 }
 
-async function readConfigurationPages(
+async function readConfigurationRecords<T>(
   runtime: ApplicationRuntime,
   path: `/${string}`,
   restaurantGuid: string,
   rateLimitKey: string,
   provenance: ReportProvenanceCollector,
   signal: AbortSignal | undefined,
-): Promise<readonly ToastDetailedJsonResult[]> {
-  const pages = await runtime.toastHttpClient.getConfigurationPagesDetailedCancellable(
+  parse: (body: unknown) => readonly T[],
+): Promise<readonly T[]> {
+  const state = await runtime.toastHttpClient.foldConfigurationPagesCancellable(
     { path, restaurantGuid, rateLimitKey },
+    (): ConfigurationSourceState<T> => ({ records: [], provenance: [] }),
+    (current, page) => {
+      assertRestaurantSource(page, restaurantGuid);
+      const pageRecords = parse(page.body);
+      if (current.records.length + pageRecords.length > MAX_CASH_SOURCE_RECORDS) {
+        throw cashSourceInvalid();
+      }
+      current.records.push(...pageRecords);
+      current.provenance.push(Object.freeze({
+        retrievedAtEpochMs: page.retrievedAtEpochMs,
+        upstreamRequestId: page.upstreamRequestId,
+      }));
+      return current;
+    },
     { signal },
   );
-  if (pages.length === 0) throw cashSourceInvalid();
-  for (const page of pages) {
-    assertRestaurantSource(page, restaurantGuid);
-    provenance.add(page);
-  }
-  return pages;
+  if (state.records.length === 0) throw cashSourceInvalid();
+  for (const source of state.provenance) provenance.addSourceProvenance(source);
+  return Object.freeze([...state.records]);
 }
 
 function parseEntries(body: unknown): readonly CashEntrySource[] {
@@ -356,21 +377,6 @@ function parsePayoutReasons(body: unknown): readonly PayoutReasonSource[] {
   const parsed = payoutReasonArraySchema.safeParse(body);
   if (!parsed.success) throw cashSourceInvalid();
   return Object.freeze([...parsed.data]);
-}
-
-function parseConfigurationPages<T>(
-  pages: readonly ToastDetailedJsonResult[],
-  parse: (body: unknown) => readonly T[],
-): readonly T[] {
-  const records: T[] = [];
-  for (const page of pages) {
-    const pageRecords = parse(page.body);
-    if (records.length + pageRecords.length > MAX_CASH_SOURCE_RECORDS) {
-      throw cashSourceInvalid();
-    }
-    records.push(...pageRecords);
-  }
-  return Object.freeze(records);
 }
 
 function assertRestaurantSource(

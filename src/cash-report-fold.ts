@@ -229,8 +229,14 @@ function incrementEntryKind(type: string, state: FoldState): void {
 }
 
 function freezeTypeTotals(totals: Map<string, MutableTypeTotal>): readonly CashEntryTypeTotal[] {
-  return Object.freeze([...totals.entries()].sort(([left], [right]) => left.localeCompare(right))
+  return Object.freeze([...totals.entries()].sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([type, value]) => Object.freeze({ type, ...value })));
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function freezeDrawerReferences(
