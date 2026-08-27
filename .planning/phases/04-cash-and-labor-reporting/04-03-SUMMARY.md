@@ -59,7 +59,7 @@ Cash and labor reports now use the production stdio MCP boundary with determinis
 
 ## Verification Evidence
 
-The immutable verification candidate was `16e1321d28dca1e86c55237d965098be6635a8cd`.
+The initial immutable verification candidate was `16e1321d28dca1e86c55237d965098be6635a8cd`.
 
 | Runtime | Head before | Result | Head after |
 | --- | --- | --- | --- |
@@ -108,7 +108,7 @@ Candidate `c1743dd80fbb5cc358a8e9f80a1bf67acd3b62fa` resolves PR #48 findings T4
 - `report-tools-t4-e2e.test.ts` proves every cash source stage and every labor source stage through an official MCP stdio client.
 - The suite checks complete, incomplete, and denied outcomes; every cash and labor provenance request ID; an accessible explicit alternate restaurant GUID; alternate-location headers; and request stopping after cancellation at each source stage.
 - The fixture now has route-level synthetic request markers. It records only independently invented fixture facts.
-- The fixture and E2E tests are split into focused files. Each changed fixture or test file is below 600 lines.
+- The R1 fixture and E2E test split used focused files below 600 lines at that candidate. R7 later extracted payment routes to keep the current fixture server below that limit.
 - Mutation checks passed: changing the cash-drawer request ID caused the complete-source assertion to fail, and forcing the default restaurant header caused the alternate-location assertion to fail.
 
 | Runtime | Head before | Result | Head after |
@@ -137,6 +137,25 @@ Candidate `c673e0c71e7dda74d78ac3214ccc946aa9a55fb1` resolves PR #48 findings T4
 | --- | --- | --- | --- |
 | Node `v20.20.2`, npm `10.8.2` | `c673e0c` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. | `c673e0c` |
 | Node `v22.22.2`, npm `10.9.7` | `c673e0c` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. | `c673e0c` |
+
+## R4-R7 Final Review Remediation
+
+The final implementation candidate is `c96dd512557697b41f1edc5c3ce283c52f22e45d`.
+
+- R4 extracts cash and labor tool registrations. `registerStandardReportTools` is a 68-line coordinator.
+- R5 rejects `SYNTHETIC_CLIENT_SECRET_MARKER` from the full serialized cash and labor MCP result.
+- R6 makes `syntheticToastFetch` a 26-line dispatcher and splits the former core E2E callback into three discovered tests: cash/labor, sales/payment, and item/dimension.
+- R7 moves the cohesive payment route group into `stdio-report-payment-routes.ts`. The dispatcher and all route behavior remain unchanged.
+
+Both exact runtime gates passed on the final implementation candidate. Each ran `npm ci --no-audit --no-fund`, `npm run check`, the three compiled report E2E files, and `npm pack --dry-run --json`. The full check discovered 36 files and 364 tests. The three report E2E files passed 43 tests. The package dry-run listed 139 files.
+
+| File | Lines | Status |
+| --- | ---: | --- |
+| `test/fixtures/stdio-report-server.ts` | 589 | Below 600-line limit. |
+| `test/fixtures/stdio-report-payment-routes.ts` | 58 | New focused payment fixture route module. |
+| `test/report-tools-core-e2e.test.ts` | 239 | Three discovered callbacks are each below 100 lines. |
+| `test/report-tools-t4-e2e.test.ts` | 310 | Below 600-line limit. |
+| `test/report-tools-e2e.test.ts` | 570 | Below 600-line limit. |
 
 ## Known Stubs
 
