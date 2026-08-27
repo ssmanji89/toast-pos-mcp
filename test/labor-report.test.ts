@@ -219,19 +219,77 @@ test("uses checked decimal totals for fractional accumulation and overflow denia
   assert.equal(overflowResult.denial.code, "labor_decimal_total_overflow");
 });
 
+test("preserves absent hourly wages as unresolved and only explicit null as salaried", async () => {
+  const absentWage = laborRuntime({ entries: [timeEntry({ hourlyWage: undefined })] });
+  const absentResult = await buildLaborSummaryReport(absentWage.runtime, { businessDate: 20260816, restaurantGuid: absentWage.restaurantGuid });
+  assert.equal(absentResult.status, "incomplete");
+  assert.equal(absentResult.unresolvedHourlyWageTimeEntryCount, 1);
+  assert.equal(absentResult.salariedTimeEntryCount, 0);
+
+  const nullWage = laborRuntime({ entries: [timeEntry({ hourlyWage: null })] });
+  const nullResult = await buildLaborSummaryReport(nullWage.runtime, { businessDate: 20260816, restaurantGuid: nullWage.restaurantGuid });
+  assert.equal(nullResult.status, "complete");
+  assert.equal(nullResult.salariedTimeEntryCount, 1);
+  assert.equal(nullResult.unresolvedHourlyWageTimeEntryCount, 0);
+});
+
+test("rejects duplicate TimeEntryBreak identities and marks unmatched BreakType references incomplete", async () => {
+  const duplicateWithinEntry = timeEntry({ breaks: [
+    { guid: G(411), breakType: reference(BREAK_GUID, "BreakType"), paid: false, inDate: null, outDate: null, missed: false, waived: false, auditResponse: null },
+    { guid: G(411), breakType: reference(BREAK_GUID, "BreakType"), paid: false, inDate: null, outDate: null, missed: false, waived: false, auditResponse: null },
+  ] });
+  assert.throws(() => parseLaborTimeEntriesForBusinessDate([duplicateWithinEntry], 20260816));
+  assert.throws(() => parseLaborTimeEntriesForBusinessDate([timeEntry(), timeEntry({ guid: G(412), breaks: [{ guid: BREAK_GUID, breakType: reference(BREAK_GUID, "BreakType"), paid: false, inDate: null, outDate: null, missed: false, waived: false, auditResponse: null }] })], 20260816));
+
+  const unmatchedBreakType = laborRuntime({ entries: [timeEntry({ breaks: [{ guid: G(413), breakType: reference(G(414), "BreakType"), paid: false, inDate: null, outDate: null, missed: true, waived: false, auditResponse: null }] })] });
+  const unmatchedResult = await buildLaborSummaryReport(unmatchedBreakType.runtime, { businessDate: 20260816, restaurantGuid: unmatchedBreakType.restaurantGuid });
+  assert.equal(unmatchedResult.status, "incomplete");
+  assert.equal(unmatchedResult.unresolvedBreakTypeCount, 1);
+});
+
+test("uses exact sub-nanounit half-up multiplication for wages and tip withholding", async () => {
+  const precise = laborRuntime({
+    entries: [timeEntry({ hourlyWage: 100_000_000, regularHours: 0.00000000005 })],
+    tipWithholdingPercentage: 0.00000000005,
+    ordersPages: [[preciseTipOrder()]],
+  });
+  const result = await buildLaborSummaryReport(precise.runtime, { businessDate: 20260816, restaurantGuid: precise.restaurantGuid });
+  assert.notEqual(result.status, "denied");
+  if (result.status === "denied") throw new Error("Expected precise labor result.");
+  assert.equal(result.regularWagesMinor, 1);
+  assert.equal(result.tipWithholdingMinor, 1);
+});
+
+test("enforces the full-report distinct Job bound before Jobs requests", async () => {
+  const atBoundEntries = Array.from({ length: 1_000 }, (_, index) => timeEntry({ guid: G(1_000 + index), jobReference: reference(G(2_000 + index), "RestaurantJob") }));
+  const atBound = laborRuntime({ entries: atBoundEntries, includeRequestedJobs: true });
+  const atBoundResult = await buildLaborSummaryReport(atBound.runtime, { businessDate: 20260816, restaurantGuid: atBound.restaurantGuid });
+  assert.notEqual(atBoundResult.status, "denied");
+  assert.equal(atBound.requests.filter((request) => request.path === "/labor/v1/jobs").length, 10);
+
+  const aboveBoundEntries = Array.from({ length: 1_001 }, (_, index) => timeEntry({ guid: G(4_000 + index), jobReference: reference(G(6_000 + index), "RestaurantJob") }));
+  const aboveBound = laborRuntime({ entries: aboveBoundEntries, includeRequestedJobs: true });
+  const aboveBoundResult = await buildLaborSummaryReport(aboveBound.runtime, { businessDate: 20260816, restaurantGuid: aboveBound.restaurantGuid });
+  assert.equal(aboveBoundResult.status, "denied");
+  assert.equal(aboveBoundResult.denial.code, "labor_jobs_request_bound_exceeded");
+  assert.equal(aboveBound.requests.filter((request) => request.path === "/labor/v1/jobs").length, 0);
+});
+
 function reference(guid: string, entityType: string): Record<string, unknown> {
   return { guid, entityType, externalId: "synthetic-external-id-must-not-survive" };
 }
 
 function timeEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const entryGuid = typeof overrides.guid === "string" ? overrides.guid : G(400);
+  const breakGuid = G(Number.parseInt(entryGuid.slice(-12), 16) + 5);
   return {
-    guid: G(400), entityType: "TimeEntry", deleted: false,
+    guid: entryGuid, entityType: "TimeEntry", deleted: false,
     employeeReference: reference(EMPLOYEE_GUID, "RestaurantUser"),
     jobReference: reference(JOB_GUID, "RestaurantJob"),
     inDate: "2026-08-16T08:00:00.000-05:00", outDate: "2026-08-16T16:00:00.000-05:00",
     businessDate: "20260816", regularHours: 7.5, overtimeHours: 0.5, hourlyWage: null,
     modifiedDate: "2026-08-16T16:05:00.000-05:00",
-    breaks: [{ guid: G(410), breakType: reference(BREAK_GUID, "BreakType"), paid: false, inDate: null, outDate: null, missed: true, waived: false, auditResponse: null }],
+    breaks: [{ guid: breakGuid, breakType: reference(BREAK_GUID, "BreakType"), paid: false, inDate: null, outDate: null, missed: true, waived: false, auditResponse: null }],
     employeeName: "synthetic-name-must-not-survive",
     ...overrides,
   };
@@ -245,8 +303,8 @@ function breakType(): Record<string, unknown> {
   return { guid: BREAK_GUID, entityType: "BreakType", active: true, paid: false, duration: 30, enforceMinimumTime: true, trackMissedBreaks: true, breakIntervalHrs: 4, breakIntervalMins: 0, trackBreakAcknowledgement: true, name: "synthetic-name-must-not-survive" };
 }
 
-function tipWithholding(): Record<string, unknown> {
-  return { guid: WITHHOLDING_GUID, entityType: "TipWithholding", enabled: true, percentage: 0.1 };
+function tipWithholding(percentage = 0.1): Record<string, unknown> {
+  return { guid: WITHHOLDING_GUID, entityType: "TipWithholding", enabled: true, percentage };
 }
 
 function laborRuntime(options: {
@@ -261,6 +319,7 @@ function laborRuntime(options: {
   readonly includeRequestedJobs?: boolean;
   readonly jobResponse?: readonly Record<string, unknown>[];
   readonly breakTypePages?: readonly (readonly Record<string, unknown>[])[];
+  readonly tipWithholdingPercentage?: number;
   readonly ordersPages?: readonly (readonly Record<string, unknown>[])[];
 } = {}) {
   const restaurantGuid = G(450);
@@ -285,7 +344,7 @@ function laborRuntime(options: {
         const scopeGuid = options.locationMismatch ? G(499) : restaurantGuid;
         if (request.path === "/labor/v1/timeEntries") return result(options.entries ?? [timeEntry({ businessDate: String(options.businessDate ?? 20260816) })], scopeGuid, "time-entries");
         if (request.path === "/labor/v1/jobs") return result(options.jobResponse ?? jobsForRequest(request, options), scopeGuid, "jobs");
-        if (request.path === "/config/v2/tipWithholding") return result(tipWithholding(), scopeGuid, "withholding");
+        if (request.path === "/config/v2/tipWithholding") return result(tipWithholding(options.tipWithholdingPercentage), scopeGuid, "withholding");
         throw new Error(`Unexpected synthetic source path ${request.path}`);
       },
       getConfigurationPagesDetailedCancellable: async (request: Record<string, any>, requestOptions: { readonly signal?: AbortSignal }) => {
@@ -316,6 +375,15 @@ function order(): Record<string, unknown> {
       { guid: G(462), type: "CREDIT", amount: 10.01, tipAmount: 1.25, paymentStatus: "PAID", refund: { refundAmount: 1, tipRefundAmount: 0.25 } },
       { guid: G(463), type: "CREDIT", amount: 7, tipAmount: 3, paymentStatus: "VOIDED" },
       { guid: G(464), type: "CASH", amount: 0, tipAmount: 2, paymentStatus: "PAID" },
+    ] }],
+  };
+}
+
+function preciseTipOrder(): Record<string, unknown> {
+  return {
+    guid: G(470), businessDate: 20260816, server: { guid: EMPLOYEE_GUID }, excessFood: false, deleted: false, voided: false,
+    checks: [{ guid: G(471), amount: 100_000_000, taxAmount: 0, totalAmount: 100_000_000, taxExempt: false, deleted: false, voided: false, paymentStatus: "PAID", selections: [], appliedServiceCharges: [], appliedDiscounts: [], payments: [
+      { guid: G(472), type: "CREDIT", amount: 100_000_000, tipAmount: 100_000_000, paymentStatus: "PAID" },
     ] }],
   };
 }

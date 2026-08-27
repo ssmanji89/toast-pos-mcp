@@ -34,6 +34,8 @@ import type { ToastDetailedJsonResult } from "./transport.js";
 
 const REQUIRED_SCOPES = Object.freeze(["labor:read", "config:read", "orders:read"]);
 const JOB_BATCH_SIZE = 100;
+const MAX_LABOR_JOB_BATCHES = 10;
+const MAX_LABOR_DISTINCT_JOB_GUIDS = JOB_BATCH_SIZE * MAX_LABOR_JOB_BATCHES;
 const CREDIT_CARD_PAYMENT_TYPES = new Set(["CREDIT", "CREDIT_CARD"]);
 const FORMULA_NOTES = Object.freeze([
   "Labor time-entry, job, break-type, and tip-withholding sources are Standard API facts scoped to the selected restaurant.",
@@ -48,6 +50,7 @@ export interface LaborSummaryAggregate {
   readonly deletedTimeEntryCount: number;
   readonly excludedJobTimeEntryCount: number;
   readonly unresolvedJobTimeEntryCount: number;
+  readonly unresolvedHourlyWageTimeEntryCount: number;
   readonly salariedTimeEntryCount: number;
   readonly regularHours: number;
   readonly overtimeHours: number;
@@ -117,7 +120,7 @@ interface EligibleContext {
 interface LaborSources {
   readonly entries: readonly LaborTimeEntryFact[];
   readonly jobs: readonly LaborJob[];
-  readonly breakTypeSourceCount: number;
+  readonly breakTypeGuids: ReadonlySet<string>;
   readonly tipWithholding: TipWithholding;
 }
 
@@ -182,7 +185,7 @@ async function buildEligibleLaborSummary(
   const provenance = new ReportProvenanceCollector();
   const sources = await loadLaborSources(runtime, context.location, businessDate, provenance, signal);
   const excludedJobs = excludedJobGuids(sources.jobs);
-  const aggregate = foldLaborFacts(sources.entries, excludedJobs);
+  const aggregate = foldLaborFacts(sources.entries, excludedJobs, sources.breakTypeGuids);
   const orders = await foldOrdersAttribution(runtime, context.location, businessDate, sources.entries, excludedJobs, provenance, signal);
   return completeResult(context, businessDate, generatedAtEpochMs, sources, provenance, aggregate, orders);
 }
@@ -196,9 +199,9 @@ async function loadLaborSources(
 ): Promise<LaborSources> {
   const entries = await loadTimeEntries(runtime, location, businessDate, provenance, signal);
   const jobs = await loadJobsForEntries(runtime, location.restaurantGuid, entries, provenance, signal);
-  const breakTypeSourceCount = await loadBreakTypeCount(runtime, location.restaurantGuid, provenance, signal);
+  const breakTypeGuids = await loadBreakTypeGuids(runtime, location.restaurantGuid, provenance, signal);
   const tipWithholding = await loadTipWithholding(runtime, location.restaurantGuid, provenance, signal);
-  return Object.freeze({ entries, jobs, breakTypeSourceCount, tipWithholding });
+  return Object.freeze({ entries, jobs, breakTypeGuids, tipWithholding });
 }
 
 async function loadTimeEntries(
@@ -226,6 +229,9 @@ async function loadJobsForEntries(
   signal: AbortSignal | undefined,
 ): Promise<readonly LaborJob[]> {
   const requestedGuids = distinctJobGuids(entries);
+  if (requestedGuids.length > MAX_LABOR_DISTINCT_JOB_GUIDS) {
+    throw new ReportComputationError("labor_jobs_request_bound_exceeded", "The labor report exceeded its bounded distinct Job lookup limit.");
+  }
   const jobs: LaborJob[] = [];
   for (const batch of chunks(requestedGuids, JOB_BATCH_SIZE)) {
     const result = await runtime.toastHttpClient.getJsonDetailedCancellable({
@@ -243,12 +249,12 @@ async function loadJobsForEntries(
   return Object.freeze(jobs);
 }
 
-async function loadBreakTypeCount(
+async function loadBreakTypeGuids(
   runtime: ApplicationRuntime,
   restaurantGuid: string,
   provenance: ReportProvenanceCollector,
   signal: AbortSignal | undefined,
-): Promise<number> {
+): Promise<ReadonlySet<string>> {
   const pages = await runtime.toastHttpClient.getConfigurationPagesDetailedCancellable({
     path: "/config/v2/breakTypes", restaurantGuid, rateLimitKey: "config-break-types",
   }, { signal });
@@ -264,7 +270,7 @@ async function loadBreakTypeCount(
       seenBreakTypeGuids.add(guid);
     }
   }
-  return seenBreakTypeGuids.size;
+  return seenBreakTypeGuids;
 }
 
 async function loadTipWithholding(
@@ -281,23 +287,24 @@ async function loadTipWithholding(
   return Object.freeze({ enabled: parsed.enabled, percentage: parsed.percentage });
 }
 
-function foldLaborFacts(entries: readonly LaborTimeEntryFact[], excludedJobs: ReadonlySet<string>): Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingBasisMinor" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount"> {
-  const state = { active: 0, deleted: 0, excluded: 0, unresolvedJobs: 0, salaried: 0, regularHours: emptyDecimal(), overtimeHours: emptyDecimal(), regularWagesMinor: 0, breaks: 0, missedBreaks: 0, unresolvedBreakTypes: 0, included: 0 };
+function foldLaborFacts(entries: readonly LaborTimeEntryFact[], excludedJobs: ReadonlySet<string>, breakTypeGuids: ReadonlySet<string>): Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingBasisMinor" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount"> {
+  const state = { active: 0, deleted: 0, excluded: 0, unresolvedJobs: 0, unresolvedWages: 0, salaried: 0, regularHours: emptyDecimal(), overtimeHours: emptyDecimal(), regularWagesMinor: 0, breaks: 0, missedBreaks: 0, unresolvedBreakTypes: 0, included: 0 };
   for (const entry of entries) {
     if (entry.deleted) { state.deleted += 1; continue; }
+    state.unresolvedBreakTypes += countUnresolvedBreakTypes(entry, breakTypeGuids);
     if (entry.jobGuid === undefined) { state.unresolvedJobs += 1; continue; }
     if (excludedJobs.has(entry.jobGuid)) { state.excluded += 1; continue; }
     state.included += 1;
     if (entry.active) state.active += 1;
+    if (entry.hourlyWage === undefined) state.unresolvedWages += 1;
     if (entry.hourlyWage === null) state.salaried += 1;
     state.regularHours = addDecimal(state.regularHours, entry.regularHours, "labor regular hours");
     state.overtimeHours = addDecimal(state.overtimeHours, entry.overtimeHours, "labor overtime hours");
-    if (entry.hourlyWage !== null) state.regularWagesMinor = addMinorUnits(state.regularWagesMinor, multiplyRegularWage(entry.hourlyWage, entry.regularHours));
+    if (typeof entry.hourlyWage === "number") state.regularWagesMinor = addMinorUnits(state.regularWagesMinor, multiplyRegularWage(entry.hourlyWage, entry.regularHours));
     state.breaks += entry.breaks.length;
     state.missedBreaks += entry.breaks.filter((laborBreak) => laborBreak.missed && !laborBreak.waived).length;
-    state.unresolvedBreakTypes += entry.breaks.filter((laborBreak) => laborBreak.breakTypeGuid === undefined).length;
   }
-  return Object.freeze({ timeEntryCount: state.included, activeTimeEntryCount: state.active, deletedTimeEntryCount: state.deleted, excludedJobTimeEntryCount: state.excluded, unresolvedJobTimeEntryCount: state.unresolvedJobs, salariedTimeEntryCount: state.salaried, regularHours: decimalToNumber(state.regularHours, "labor regular hours"), overtimeHours: decimalToNumber(state.overtimeHours, "labor overtime hours"), regularWagesMinor: state.regularWagesMinor, breakCount: state.breaks, missedBreakCount: state.missedBreaks, unresolvedBreakTypeCount: state.unresolvedBreakTypes });
+  return Object.freeze({ timeEntryCount: state.included, activeTimeEntryCount: state.active, deletedTimeEntryCount: state.deleted, excludedJobTimeEntryCount: state.excluded, unresolvedJobTimeEntryCount: state.unresolvedJobs, unresolvedHourlyWageTimeEntryCount: state.unresolvedWages, salariedTimeEntryCount: state.salaried, regularHours: decimalToNumber(state.regularHours, "labor regular hours"), overtimeHours: decimalToNumber(state.overtimeHours, "labor overtime hours"), regularWagesMinor: state.regularWagesMinor, breakCount: state.breaks, missedBreakCount: state.missedBreaks, unresolvedBreakTypeCount: state.unresolvedBreakTypes });
 }
 
 async function foldOrdersAttribution(
@@ -341,9 +348,13 @@ function addPaymentAttribution(state: MutableOrdersFold, payment: { readonly voi
 
 function completeResult(context: EligibleContext, businessDate: number, generatedAtEpochMs: number, sources: LaborSources, provenance: ReportProvenanceCollector, aggregate: Omit<LaborSummaryAggregate, "ordersSalesMinor" | "ordersTipsMinor" | "tipWithholdingEnabled" | "tipWithholdingBasisMinor" | "tipWithholdingMinor" | "netOrdersTipsMinor" | "ordersWithServerAttributionCount">, orders: OrdersAttribution): LaborSummaryComplete | LaborSummaryIncomplete {
   const tipWithholdingMinor = sources.tipWithholding.enabled ? multiplyAndRoundMinor(orders.creditCardTipsMinor, sources.tipWithholding.percentage) : 0;
-  const incomplete = aggregate.activeTimeEntryCount > 0 || aggregate.unresolvedJobTimeEntryCount > 0 || aggregate.unresolvedBreakTypeCount > 0;
+  const incomplete = aggregate.activeTimeEntryCount > 0 || aggregate.unresolvedJobTimeEntryCount > 0 || aggregate.unresolvedHourlyWageTimeEntryCount > 0 || aggregate.unresolvedBreakTypeCount > 0;
   const status = incomplete ? "incomplete" as const : "complete" as const;
-  return Object.freeze({ schemaVersion: STANDARD_REPORT_SCHEMA_VERSION, status, report: "labor_summary", source: "standard_api", restaurantGuid: context.location.restaurantGuid, restaurantName: context.location.name, businessDate, requestedBusinessDate: businessDate, effectiveBusinessDate: businessDate, currencyCode: context.location.currencyCode, timezone: context.location.timezone, closeoutHour: context.location.closeoutHour, generatedAtEpochMs, contextFreshness: context.freshness, contextProvenance: context.provenance, jobsSourceCount: sources.jobs.length, breakTypeSourceCount: sources.breakTypeSourceCount, provenance: provenance.snapshot(), ...aggregate, ordersSalesMinor: orders.ordersSalesMinor, ordersTipsMinor: orders.ordersTipsMinor, ordersWithServerAttributionCount: orders.ordersWithServerAttributionCount, tipWithholdingEnabled: sources.tipWithholding.enabled, tipWithholdingBasisMinor: orders.creditCardTipsMinor, tipWithholdingMinor, netOrdersTipsMinor: addMinorUnits(orders.ordersTipsMinor, -tipWithholdingMinor), formulaNotes: FORMULA_NOTES, warnings: Object.freeze(status === "complete" ? [] : ["Active or unresolved labor facts make this labor result incomplete; source failures remain denied."]) });
+  return Object.freeze({ schemaVersion: STANDARD_REPORT_SCHEMA_VERSION, status, report: "labor_summary", source: "standard_api", restaurantGuid: context.location.restaurantGuid, restaurantName: context.location.name, businessDate, requestedBusinessDate: businessDate, effectiveBusinessDate: businessDate, currencyCode: context.location.currencyCode, timezone: context.location.timezone, closeoutHour: context.location.closeoutHour, generatedAtEpochMs, contextFreshness: context.freshness, contextProvenance: context.provenance, jobsSourceCount: sources.jobs.length, breakTypeSourceCount: sources.breakTypeGuids.size, provenance: provenance.snapshot(), ...aggregate, ordersSalesMinor: orders.ordersSalesMinor, ordersTipsMinor: orders.ordersTipsMinor, ordersWithServerAttributionCount: orders.ordersWithServerAttributionCount, tipWithholdingEnabled: sources.tipWithholding.enabled, tipWithholdingBasisMinor: orders.creditCardTipsMinor, tipWithholdingMinor, netOrdersTipsMinor: addMinorUnits(orders.ordersTipsMinor, -tipWithholdingMinor), formulaNotes: FORMULA_NOTES, warnings: Object.freeze(status === "complete" ? [] : ["Active or unresolved labor facts make this labor result incomplete; source failures remain denied."]) });
+}
+
+function countUnresolvedBreakTypes(entry: LaborTimeEntryFact, breakTypeGuids: ReadonlySet<string>): number {
+  return entry.breaks.filter((laborBreak) => laborBreak.breakTypeGuid === undefined || !breakTypeGuids.has(laborBreak.breakTypeGuid)).length;
 }
 
 function capabilityDenied(businessDate: number, generatedAtEpochMs: number, context: { readonly denial: CapabilityDenial; readonly location: ToastLocation; readonly freshness: ReportContextFreshness; readonly provenance: ToastLocationDiscoveryProvenance }): LaborSummaryDenied {
@@ -440,10 +451,16 @@ function multiplyRegularWage(hourlyWage: number, regularHours: number): number {
 
 function multiplyAndRoundMinor(minorUnits: number, factor: number): number {
   if (!Number.isSafeInteger(minorUnits) || !Number.isFinite(factor) || factor < 0) throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor value could not be represented safely.");
-  const scale = 1_000_000_000;
-  const scaledFactor = Math.round(factor * scale);
-  if (!Number.isSafeInteger(scaledFactor)) throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor hours exceeded supported precision.");
-  const rounded = (BigInt(minorUnits) * BigInt(scaledFactor) + BigInt(scale / 2)) / BigInt(scale);
-  if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor total exceeded safe integer precision.");
-  return Number(rounded);
+  try {
+    const decimalFactor = exactDecimalFromNumber(factor);
+    const divisor = 10n ** BigInt(decimalFactor.scale);
+    const product = BigInt(minorUnits) * BigInt(decimalFactor.coefficient);
+    const magnitude = product < 0n ? -product : product;
+    const roundedMagnitude = (magnitude + divisor / 2n) / divisor;
+    const rounded = product < 0n ? -roundedMagnitude : roundedMagnitude;
+    if (rounded < BigInt(Number.MIN_SAFE_INTEGER) || rounded > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError("total overflow");
+    return Number(rounded);
+  } catch {
+    throw new ReportComputationError("labor_regular_wage_precision_invalid", "Labor value could not be represented safely.");
+  }
 }

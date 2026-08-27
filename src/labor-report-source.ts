@@ -78,6 +78,7 @@ export const laborTipWithholdingSchema = z.object({
 }).strip();
 
 export interface LaborBreakFact {
+  readonly guid: string;
   readonly breakTypeGuid: string | undefined;
   readonly paid: boolean;
   readonly missed: boolean;
@@ -96,7 +97,7 @@ export interface LaborTimeEntryFact {
   readonly active: boolean;
   readonly regularHours: number;
   readonly overtimeHours: number;
-  readonly hourlyWage: number | null;
+  readonly hourlyWage: number | null | undefined;
   readonly breaks: readonly LaborBreakFact[];
 }
 
@@ -113,6 +114,7 @@ export function parseLaborTimeEntriesForBusinessDate(
   }
   const requestedBusinessDate = String(businessDate);
   const seenTimeEntryGuids = new Set<string>();
+  const seenBreakGuids = new Set<string>();
   return Object.freeze(parsed.data.map((entry) => {
     if (entry.businessDate !== requestedBusinessDate) {
       throw new TypeError("Labor time-entry source business date does not match the requested date.");
@@ -133,8 +135,9 @@ export function parseLaborTimeEntriesForBusinessDate(
       active: entry.outDate === null,
       regularHours: entry.regularHours,
       overtimeHours: entry.overtimeHours,
-      hourlyWage: entry.hourlyWage ?? null,
+      hourlyWage: entry.hourlyWage,
       breaks: Object.freeze(entry.breaks.map((laborBreak) => Object.freeze({
+        guid: assertUniqueBreakGuid(laborBreak.guid, seenBreakGuids),
         breakTypeGuid: laborBreak.breakType?.guid.toLowerCase(),
         paid: laborBreak.paid,
         missed: laborBreak.missed,
@@ -142,4 +145,13 @@ export function parseLaborTimeEntriesForBusinessDate(
       }))),
     });
   }));
+}
+
+function assertUniqueBreakGuid(guid: string, seenBreakGuids: Set<string>): string {
+  const normalizedGuid = guid.toLowerCase();
+  if (seenBreakGuids.has(normalizedGuid)) {
+    throw new TypeError("Labor time-entry source contains a duplicate break GUID.");
+  }
+  seenBreakGuids.add(normalizedGuid);
+  return normalizedGuid;
 }
