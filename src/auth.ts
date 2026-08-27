@@ -1,8 +1,11 @@
 import { z } from "zod";
 
 import {
+  getAnalyticsRuntimeConfigCredentials,
   getRuntimeConfigCredentials,
+  type AnalyticsRuntimeConfig,
   type RuntimeConfig,
+  type RuntimeConfigCredentials,
 } from "./config.js";
 
 const AUTHENTICATION_LOGIN_PATH = "/authentication/v1/authentication/login";
@@ -73,16 +76,19 @@ export class OAuthTokenManager {
         readonly refreshAfterEpochMs: number;
       }
     | undefined;
-  #config: RuntimeConfig;
+  #config: RuntimeConfig | AnalyticsRuntimeConfig;
+  #credentials: () => RuntimeConfigCredentials;
   #fetch: OAuthFetch;
   #inFlightTokenRequest: Promise<string> | undefined;
   #now: () => number;
 
   constructor(
-    config: RuntimeConfig,
+    config: RuntimeConfig | AnalyticsRuntimeConfig,
+    credentials: () => RuntimeConfigCredentials,
     options: OAuthTokenManagerOptions = {},
   ) {
     this.#config = config;
+    this.#credentials = credentials;
     this.#fetch = options.fetch ?? fetch;
     this.#now = options.now ?? Date.now;
   }
@@ -126,7 +132,7 @@ export class OAuthTokenManager {
   }
 
   async #requestAccessToken(): Promise<string> {
-    const credentials = getRuntimeConfigCredentials(this.#config);
+    const credentials = this.#credentials();
     let response: Response;
 
     try {
@@ -181,7 +187,19 @@ export function createOAuthTokenManager(
   config: RuntimeConfig,
   options: OAuthTokenManagerOptions = {},
 ): OAuthTokenManager {
-  return new OAuthTokenManager(config, options);
+  return new OAuthTokenManager(config, () => getRuntimeConfigCredentials(config), options);
+}
+
+/** Separate owner for optional Analytics credentials and token state. */
+export function createAnalyticsOAuthTokenManager(
+  config: AnalyticsRuntimeConfig,
+  options: OAuthTokenManagerOptions = {},
+): OAuthTokenManager {
+  return new OAuthTokenManager(
+    config,
+    () => getAnalyticsRuntimeConfigCredentials(config),
+    options,
+  );
 }
 
 function decodeProvisionedScopes(accessToken: string): readonly string[] {

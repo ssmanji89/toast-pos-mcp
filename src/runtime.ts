@@ -1,13 +1,19 @@
 import {
+  createAnalyticsOAuthTokenManager,
   createOAuthTokenManager,
   type OAuthFetch,
   type OAuthTokenManager,
 } from "./auth.js";
 import {
+  getAnalyticsRuntimeConfig,
   loadRuntimeConfig,
   type RuntimeConfig,
   type RuntimeConfigSource,
 } from "./config.js";
+import {
+  createAnalyticsAccessAdapter,
+  type AnalyticsAccessAdapter,
+} from "./analytics-access.js";
 import { StandardDimensionContextProvider } from "./dimension-context.js";
 import {
   createLocationRegistry,
@@ -87,6 +93,7 @@ export class ApplicationRuntimeError extends Error {
  * environment variables or construct "equivalent" config objects.
  */
 export class ApplicationRuntime {
+  readonly analyticsAccess: AnalyticsAccessAdapter | undefined;
   readonly config: RuntimeConfig;
   readonly dimensionContextProvider: StandardDimensionContextProvider;
   readonly locationContextMaxAgeMs: number;
@@ -115,6 +122,7 @@ export class ApplicationRuntime {
       toastHttpClient,
       now,
     ),
+    analyticsAccess: AnalyticsAccessAdapter | undefined = undefined,
   ) {
     if (
       !Number.isSafeInteger(locationContextMaxAgeMs)
@@ -132,6 +140,7 @@ export class ApplicationRuntime {
     this.now = now;
     this.locationContextMaxAgeMs = locationContextMaxAgeMs;
     this.dimensionContextProvider = dimensionContextProvider;
+    this.analyticsAccess = analyticsAccess;
   }
 
   async getLocation(
@@ -295,6 +304,20 @@ export function createApplicationRuntime(
     tokenManager,
     transportOptions,
   );
+  const analyticsConfig = getAnalyticsRuntimeConfig(config);
+  const analyticsAccess = analyticsConfig === undefined
+    ? undefined
+    : createAnalyticsAccessAdapter({
+      identity: analyticsConfig,
+      tokenManager: createAnalyticsOAuthTokenManager(analyticsConfig, {
+        ...(options.authFetch !== undefined ? { fetch: options.authFetch } : {}),
+        now,
+      }),
+      hostname: analyticsConfig.apiHostname,
+      ...(options.dataFetch !== undefined ? { fetch: options.dataFetch } : {}),
+      now,
+      ...(options.sleep !== undefined ? { sleep: options.sleep } : {}),
+    });
 
   return new ApplicationRuntime(
     config,
@@ -303,6 +326,8 @@ export function createApplicationRuntime(
     createLocationRegistry(),
     now,
     options.locationContextMaxAgeMs ?? DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
+    undefined,
+    analyticsAccess,
   );
 }
 

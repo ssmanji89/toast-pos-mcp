@@ -32,6 +32,64 @@ export interface ProvisionedScopeProvider {
   getProvisionedScopes(): Promise<readonly string[]>;
 }
 
+export const ANALYTICS_REQUIRED_SCOPE = "enterprise-metrics:read" as const;
+
+export interface AnalyticsProvisionedScopeProvider {
+  getProvisionedScopes(): Promise<unknown>;
+}
+
+export interface AnalyticsCapabilityContext {
+  readonly scopes: readonly string[];
+}
+
+export interface AnalyticsCapabilityAllowed {
+  readonly status: "allowed";
+  readonly scopes: readonly string[];
+  readonly code: undefined;
+}
+
+export interface AnalyticsCapabilityDenied {
+  readonly status: "denied";
+  readonly scopes: readonly string[];
+  readonly code: "analytics_scope_unavailable";
+}
+
+export type AnalyticsCapabilityDecision =
+  | AnalyticsCapabilityAllowed
+  | AnalyticsCapabilityDenied;
+
+/** Build an Analytics-only scope context. Standard location scopes never enter it. */
+export function createAnalyticsCapabilityContext(
+  scopes: readonly string[],
+): AnalyticsCapabilityContext {
+  return Object.freeze({ scopes: normalizeTrustedScopes(scopes, "analyticsScopes") });
+}
+
+/** Fail closed before an Analytics business-data request can start. */
+export async function decideAnalyticsCapability(
+  provider: AnalyticsProvisionedScopeProvider,
+): Promise<AnalyticsCapabilityDecision> {
+  try {
+    const rawScopes = await provider.getProvisionedScopes();
+    if (!Array.isArray(rawScopes) || !rawScopes.every((scope) => typeof scope === "string")) {
+      return analyticsDenial();
+    }
+    const context = createAnalyticsCapabilityContext(rawScopes);
+    if (!context.scopes.includes(ANALYTICS_REQUIRED_SCOPE)) return analyticsDenial();
+    return Object.freeze({ status: "allowed" as const, scopes: context.scopes, code: undefined });
+  } catch {
+    return analyticsDenial();
+  }
+}
+
+function analyticsDenial(): AnalyticsCapabilityDenied {
+  return Object.freeze({
+    status: "denied" as const,
+    scopes: Object.freeze([]),
+    code: "analytics_scope_unavailable" as const,
+  });
+}
+
 /**
  * Per-request preflight context for one already-validated active location.
  *

@@ -6,6 +6,8 @@ import {
   createAnalyticsAccessAdapter,
   validateAnalyticsRestaurantSelection,
 } from "../src/analytics-access.js";
+import { createApplicationRuntime } from "../src/runtime.js";
+import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
 const FIRST_GUID = "11111111-1111-4111-8111-111111111111";
 const SECOND_GUID = "22222222-2222-4222-8222-222222222222";
@@ -31,6 +33,7 @@ function createAdapter(options: {
   readonly scopes?: unknown;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly identity?: object;
 } = {}) {
   return createAnalyticsAccessAdapter({
@@ -46,7 +49,7 @@ function createAdapter(options: {
     hostname: "analytics.synthetic-toast-fixture.test",
     fetch: options.fetch ?? (async () => validResponse()),
     now: options.now ?? (() => 0),
-    sleep: async () => undefined,
+    sleep: options.sleep ?? (async () => undefined),
   });
 }
 
@@ -69,7 +72,7 @@ test("Analytics access preflights scope before its literal management-group GET"
 test("Analytics access uses one exact GET with no Standard restaurant header", async () => {
   const requests: Array<{ input: string; init: RequestInit }> = [];
   const adapter = createAdapter({ fetch: async (input, init) => {
-    requests.push({ input: String(input), init });
+    requests.push({ input: String(input), init: init ?? {} });
     return validResponse();
   } });
 
@@ -91,7 +94,7 @@ test("Analytics access uses one exact GET with no Standard restaurant header", a
 test("Analytics access sends cancellation to the source GET", async () => {
   const controller = new AbortController();
   const adapter = createAdapter({ fetch: async (_input, init) => {
-    assert.equal(init.signal, controller.signal);
+    assert.equal(init?.signal, controller.signal);
     throw controller.signal.reason;
   } });
   controller.abort(new Error("invented cancellation"));
@@ -115,6 +118,17 @@ test("Analytics access validates atomically and rejects duplicate identifiers", 
   assert.equal(adapter.currentRegistry(), first);
   assert.ok(Object.isFrozen(first.restaurants));
   assert.ok(Object.isFrozen(first.restaurants[0]));
+});
+
+test("Analytics access rejects malformed source records without publication", async () => {
+  const adapter = createAdapter({ fetch: async () => validResponse([
+    { restaurantGuid: "not-a-guid", restaurantName: "Bad", active: true, testMode: false, archived: false },
+  ]) });
+  await assert.rejects(
+    adapter.refreshManagementGroupRestaurants(),
+    (error: unknown) => error instanceof AnalyticsAccessError && error.code === "analytics_response_invalid",
+  );
+  assert.equal(adapter.currentRegistry(), undefined);
 });
 
 test("Analytics selected sets require a canonical non-empty UUID subset", async () => {
@@ -145,4 +159,34 @@ test("Analytics identities do not share registry or limiter state", async () => 
   assert.equal(secondCalls, 1);
   assert.equal(first.currentRegistry()?.restaurants[0]?.restaurantGuid, FIRST_GUID);
   assert.equal(second.currentRegistry()?.restaurants[0]?.restaurantGuid, SECOND_GUID);
+});
+
+test("Analytics access enforces the documented endpoint limiter", async () => {
+  let now = 0;
+  const sleeps: number[] = [];
+  const adapter = createAdapter({
+    now: () => now,
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); now += milliseconds; },
+  });
+  for (let count = 0; count < 6; count += 1) {
+    await adapter.refreshManagementGroupRestaurants();
+  }
+  assert.deepEqual(sleeps, [1000]);
+});
+
+test("Analytics runtime composition remains internal and leaves Standard location state separate", () => {
+  const standardRuntime = createApplicationRuntime({ env: SYNTHETIC_VALID_RUNTIME_ENV });
+  const analyticsRuntime = createApplicationRuntime({
+    env: {
+      ...SYNTHETIC_VALID_RUNTIME_ENV,
+      TOAST_ANALYTICS_API_HOSTNAME: "analytics.synthetic-toast-fixture.test",
+      TOAST_ANALYTICS_ACCESS_TYPE: "TOAST_MACHINE_CLIENT",
+      TOAST_ANALYTICS_CLIENT_ID: "invented-runtime-client-id-556a",
+      TOAST_ANALYTICS_CLIENT_SECRET: "invented-runtime-secret-556a",
+    },
+  });
+  assert.equal(standardRuntime.analyticsAccess, undefined);
+  assert.ok(analyticsRuntime.analyticsAccess);
+  assert.notEqual(analyticsRuntime.analyticsAccess, analyticsRuntime.locationRegistry);
+  assert.equal("analyticsAccess" in analyticsRuntime.toastHttpClient, false);
 });
