@@ -259,53 +259,30 @@ export class StandardDimensionContextProvider {
       );
     }
 
+    return this.#loadChangedMenu(
+      restaurantGuid, metadata.data.lastUpdated, cached, checkedAtEpochMs,
+      freshnessProvenance, signal,
+    );
+  }
+
+  async #loadChangedMenu(
+    restaurantGuid: string,
+    publishedAt: string,
+    cached: MenuCacheEntry | undefined,
+    checkedAtEpochMs: number,
+    freshnessProvenance: ReportProvenance,
+    signal: AbortSignal | undefined,
+  ): Promise<MenuDimensionContext> {
     try {
-      const menuResult = await this.#client.getJsonDetailedCancellable(
-        {
-          path: "/menus/v2/menus",
-          restaurantGuid,
-          rateLimitKey: "menus-v2-full",
-        },
-        { signal },
-      );
-      const parsed = normalizeMenuPayload(
-        menuResult.body,
-        restaurantGuid,
-        metadata.data.lastUpdated,
-      );
-      const entry: MenuCacheEntry = Object.freeze({
-        publishedAt: parsed.publishedAt,
-        retrievedThroughEpochMs: menuResult.retrievedAtEpochMs,
-        sourceProvenance: provenanceFrom(menuResult),
-        itemsByGuid: parsed.itemsByGuid,
-        itemsByMultiLocationId: parsed.itemsByMultiLocationId,
-        ambiguousItemGuids: parsed.ambiguousItemGuids,
-        ambiguousMultiLocationIds: parsed.ambiguousMultiLocationIds,
-      });
+      const menuResult = await this.#client.getJsonDetailedCancellable({ path: "/menus/v2/menus", restaurantGuid, rateLimitKey: "menus-v2-full" }, { signal });
+      const parsed = normalizeMenuPayload(menuResult.body, restaurantGuid, publishedAt);
+      const entry: MenuCacheEntry = Object.freeze({ publishedAt: parsed.publishedAt, retrievedThroughEpochMs: menuResult.retrievedAtEpochMs, sourceProvenance: provenanceFrom(menuResult), itemsByGuid: parsed.itemsByGuid, itemsByMultiLocationId: parsed.itemsByMultiLocationId, ambiguousItemGuids: parsed.ambiguousItemGuids, ambiguousMultiLocationIds: parsed.ambiguousMultiLocationIds });
       this.#menus.set(restaurantGuid, entry);
-      return menuContextFromCache(
-        entry,
-        "current",
-        checkedAtEpochMs,
-        freshnessProvenance,
-        [],
-      );
+      return menuContextFromCache(entry, "current", checkedAtEpochMs, freshnessProvenance, []);
     } catch (error) {
       rethrowCancellation(error);
-      if (cached !== undefined) {
-        return menuContextFromCache(
-          cached,
-          "stale",
-          checkedAtEpochMs,
-          freshnessProvenance,
-          ["Menus full refresh failed after metadata changed; cached item context is stale."],
-        );
-      }
-      return createUnresolvedMenuContext(
-        checkedAtEpochMs,
-        freshnessProvenance,
-        "Menus full refresh failed; item enrichment is unresolved.",
-      );
+      if (cached !== undefined) return menuContextFromCache(cached, "stale", checkedAtEpochMs, freshnessProvenance, ["Menus full refresh failed after metadata changed; cached item context is stale."]);
+      return createUnresolvedMenuContext(checkedAtEpochMs, freshnessProvenance, "Menus full refresh failed; item enrichment is unresolved.");
     }
   }
 

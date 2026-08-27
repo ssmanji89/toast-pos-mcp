@@ -15,7 +15,7 @@ import {
   type ExactDecimal,
 } from "./exact-decimal.js";
 import { aggregateOrderDimensions } from "./item-sales-aggregation.js";
-import type { ToastLocationDiscoveryProvenance } from "./locations.js";
+import type { ToastLocation, ToastLocationDiscoveryProvenance } from "./locations.js";
 import { normalizeOrdersPages } from "./orders-normalization.js";
 import {
   STANDARD_REPORT_SCHEMA_VERSION,
@@ -211,84 +211,9 @@ async function buildItemSalesSummaryReportInternal(
     contextFreshness = locationContext.freshness;
     contextProvenance = locationContext.provenance;
 
-    const capabilityContext = await createCapabilityContext(
-      runtime.tokenManager,
-      location,
-    );
-    const ordersCapability = decideCapability(capabilityContext, {
-      restaurantGuid: location.restaurantGuid,
-      requiredScopes: ["orders:read"],
-    });
-    if (ordersCapability.status === "denied") {
-      return capabilityDenied(
-        input,
-        generatedAtEpochMs,
-        location.restaurantGuid,
-        location.name,
-        ordersCapability,
-        warnings,
-        contextFreshness,
-        contextProvenance,
-      );
-    }
-
-    const menuCapability = decideCapability(capabilityContext, {
-      restaurantGuid: location.restaurantGuid,
-      requiredScopes: ["menus:read"],
-    });
-    const configCapability = decideCapability(capabilityContext, {
-      restaurantGuid: location.restaurantGuid,
-      requiredScopes: ["config:read"],
-    });
-
-    let menuContext: MenuDimensionContext | undefined;
-    let configContext: ConfigurationDimensionContext | undefined;
-
-    if (dimensionUsesMenu(input.dimension)) {
-      if (menuCapability.status === "eligible") {
-        menuContext = await runtime.dimensionContextProvider.getMenuContext(
-          location,
-          { signal: options.signal },
-        );
-        warnings.push(...menuContext.warnings);
-      } else if (input.dimension === "item_tag") {
-        return capabilityDenied(
-          input,
-          generatedAtEpochMs,
-          location.restaurantGuid,
-          location.name,
-          menuCapability,
-          warnings,
-          contextFreshness,
-          contextProvenance,
-        );
-      } else {
-        menuContext = createUnavailableMenuContext(
-          generatedAtEpochMs,
-          "menus:read is unavailable; item display enrichment is unresolved but historical item references remain reportable.",
-        );
-        warnings.push(
-          "menus:read is unavailable; item display enrichment is unresolved but historical item references remain reportable.",
-        );
-      }
-    }
-
-    if (dimensionUsesConfiguration(input.dimension)) {
-      if (configCapability.status === "eligible") {
-        configContext = await runtime.dimensionContextProvider.getConfigurationContext(
-          location,
-          { signal: options.signal },
-        );
-        warnings.push(...configContext.warnings);
-      } else {
-        configContext = createUnresolvedConfigContext(
-          "config:read is unavailable; current descriptive configuration names are unresolved but historical references remain reportable.",
-        );
-        warnings.push(
-          "config:read is unavailable; current descriptive configuration names are unresolved but historical references remain reportable.",
-        );
-      }
-    }
+    const contexts = await loadDimensionContexts(runtime, input, location, generatedAtEpochMs, warnings, contextFreshness, contextProvenance, options.signal);
+    if ("denied" in contexts) return contexts.denied;
+    const { menuContext, configContext } = contexts;
 
     if (
       input.dimension === "item_tag"
@@ -300,85 +225,10 @@ async function buildItemSalesSummaryReportInternal(
       );
     }
 
-    const state: ItemSalesFoldState = {
-      identityGuard: new SalesCrossPageIdentityGuard(),
-      groups: new Map(),
-      provenance: new ReportProvenanceCollector(),
-      pagesProcessed: 0,
-      sourceOrdersProcessed: 0,
-      modifierSelectionsTraversed: 0,
-      unresolvedContributionCount: 0,
-    };
-
-    await runtime.toastHttpClient.foldOrdersBulkPagesCancellable(
-      {
-        restaurantGuid: location.restaurantGuid,
-        query: { businessDate: input.businessDate },
-        pageSize: 100,
-      },
-      state,
-      (foldState, page, pageNumber) => {
-        const normalized = normalizeOrdersPages({
-          location,
-          query: {
-            mode: "business_date",
-            businessDate: input.businessDate,
-          },
-          pages: [page],
-        });
-        foldState.provenance.add(page);
-        foldState.pagesProcessed = pageNumber;
-        foldState.sourceOrdersProcessed += normalized.recordCount;
-
-        for (const order of normalized.orders) {
-          foldState.identityGuard.observeOrder(order);
-          aggregateOrderDimensions(
-            foldState,
-            order,
-            input.dimension,
-            menuContext,
-            configContext,
-          );
-        }
-        return foldState;
-      },
-      { signal: options.signal },
+    return foldAndCompleteItemSalesReport(
+      runtime, input, location, menuContext, configContext, generatedAtEpochMs,
+      contextFreshness, contextProvenance, warnings, options.signal,
     );
-
-    const groups = Object.freeze(
-      [...state.groups.values()]
-        .map((group) => freezeGroup(group, location.currencyCode))
-        .sort((left, right) => left.key.localeCompare(right.key)),
-    );
-
-    return Object.freeze({
-      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
-      status: "complete" as const,
-      report: "item_sales_summary" as const,
-      source: "standard_api" as const,
-      restaurantGuid: location.restaurantGuid,
-      restaurantName: location.name,
-      businessDate: input.businessDate,
-      requestedBusinessDate: input.businessDate,
-      effectiveBusinessDate: input.businessDate,
-      currencyCode: location.currencyCode,
-      timezone: location.timezone,
-      generatedAtEpochMs,
-      contextFreshness,
-      contextProvenance,
-      dimension: input.dimension,
-      metricBasis: metricBasis(input.dimension),
-      nonAdditiveAcrossGroups: nonAdditive(input.dimension),
-      pagesProcessed: state.pagesProcessed,
-      sourceOrdersProcessed: state.sourceOrdersProcessed,
-      modifierSelectionsTraversed: state.modifierSelectionsTraversed,
-      unresolvedContributionCount: state.unresolvedContributionCount,
-      dimensionContext: contextSummary(menuContext, configContext),
-      provenance: state.provenance.snapshot(),
-      groups,
-      formulaNotes: FORMULA_NOTES,
-      warnings: Object.freeze(warnings),
-    });
   } catch (error) {
     return Object.freeze({
       schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
@@ -403,6 +253,69 @@ async function buildItemSalesSummaryReportInternal(
       warnings: Object.freeze(warnings),
     });
   }
+}
+
+type LoadedDimensionContexts =
+  | { readonly denied: ItemSalesSummaryDenied }
+  | { readonly menuContext: MenuDimensionContext | undefined; readonly configContext: ConfigurationDimensionContext | undefined };
+
+async function foldAndCompleteItemSalesReport(
+  runtime: ApplicationRuntime, input: ItemSalesReportInput, location: ToastLocation,
+  menuContext: MenuDimensionContext | undefined, configContext: ConfigurationDimensionContext | undefined,
+  generatedAtEpochMs: number, contextFreshness: ReportContextFreshness,
+  contextProvenance: ToastLocationDiscoveryProvenance, warnings: string[], signal: AbortSignal | undefined,
+): Promise<ItemSalesSummaryComplete> {
+  const state: ItemSalesFoldState = { identityGuard: new SalesCrossPageIdentityGuard(), groups: new Map(), provenance: new ReportProvenanceCollector(), pagesProcessed: 0, sourceOrdersProcessed: 0, modifierSelectionsTraversed: 0, unresolvedContributionCount: 0 };
+  await runtime.toastHttpClient.foldOrdersBulkPagesCancellable({ restaurantGuid: location.restaurantGuid, query: { businessDate: input.businessDate }, pageSize: 100 }, state, (foldState, page, pageNumber) => {
+    const normalized = normalizeOrdersPages({ location, query: { mode: "business_date", businessDate: input.businessDate }, pages: [page] });
+    foldState.provenance.add(page); foldState.pagesProcessed = pageNumber; foldState.sourceOrdersProcessed += normalized.recordCount;
+    for (const order of normalized.orders) { foldState.identityGuard.observeOrder(order); aggregateOrderDimensions(foldState, order, input.dimension, menuContext, configContext); }
+    return foldState;
+  }, { signal });
+  const groups = Object.freeze([...state.groups.values()].map((group) => freezeGroup(group, location.currencyCode)).sort((left, right) => left.key.localeCompare(right.key)));
+  return Object.freeze({ schemaVersion: STANDARD_REPORT_SCHEMA_VERSION, status: "complete", report: "item_sales_summary", source: "standard_api", restaurantGuid: location.restaurantGuid, restaurantName: location.name, businessDate: input.businessDate, requestedBusinessDate: input.businessDate, effectiveBusinessDate: input.businessDate, currencyCode: location.currencyCode, timezone: location.timezone, generatedAtEpochMs, contextFreshness, contextProvenance, dimension: input.dimension, metricBasis: metricBasis(input.dimension), nonAdditiveAcrossGroups: nonAdditive(input.dimension), pagesProcessed: state.pagesProcessed, sourceOrdersProcessed: state.sourceOrdersProcessed, modifierSelectionsTraversed: state.modifierSelectionsTraversed, unresolvedContributionCount: state.unresolvedContributionCount, dimensionContext: contextSummary(menuContext, configContext), provenance: state.provenance.snapshot(), groups, formulaNotes: FORMULA_NOTES, warnings: Object.freeze(warnings) });
+}
+
+async function loadDimensionContexts(
+  runtime: ApplicationRuntime,
+  input: ItemSalesReportInput,
+  location: ToastLocation,
+  generatedAtEpochMs: number,
+  warnings: string[],
+  contextFreshness: ReportContextFreshness,
+  contextProvenance: ToastLocationDiscoveryProvenance,
+  signal: AbortSignal | undefined,
+): Promise<LoadedDimensionContexts> {
+  const capabilityContext = await createCapabilityContext(runtime.tokenManager, location);
+  const ordersCapability = decideCapability(capabilityContext, { restaurantGuid: location.restaurantGuid, requiredScopes: ["orders:read"] });
+  if (ordersCapability.status === "denied") return { denied: capabilityDenied(input, generatedAtEpochMs, location.restaurantGuid, location.name, ordersCapability, warnings, contextFreshness, contextProvenance) };
+  const menuCapability = decideCapability(capabilityContext, { restaurantGuid: location.restaurantGuid, requiredScopes: ["menus:read"] });
+  const configCapability = decideCapability(capabilityContext, { restaurantGuid: location.restaurantGuid, requiredScopes: ["config:read"] });
+  let menuContext: MenuDimensionContext | undefined;
+  let configContext: ConfigurationDimensionContext | undefined;
+  if (dimensionUsesMenu(input.dimension)) {
+    if (menuCapability.status === "eligible") {
+      menuContext = await runtime.dimensionContextProvider.getMenuContext(location, { signal });
+      warnings.push(...menuContext.warnings);
+    } else if (input.dimension === "item_tag") {
+      return { denied: capabilityDenied(input, generatedAtEpochMs, location.restaurantGuid, location.name, menuCapability, warnings, contextFreshness, contextProvenance) };
+    } else {
+      const warning = "menus:read is unavailable; item display enrichment is unresolved but historical item references remain reportable.";
+      menuContext = createUnavailableMenuContext(generatedAtEpochMs, warning);
+      warnings.push(warning);
+    }
+  }
+  if (dimensionUsesConfiguration(input.dimension)) {
+    if (configCapability.status === "eligible") {
+      configContext = await runtime.dimensionContextProvider.getConfigurationContext(location, { signal });
+      warnings.push(...configContext.warnings);
+    } else {
+      const warning = "config:read is unavailable; current descriptive configuration names are unresolved but historical references remain reportable.";
+      configContext = createUnresolvedConfigContext(warning);
+      warnings.push(warning);
+    }
+  }
+  return { menuContext, configContext };
 }
 
 
