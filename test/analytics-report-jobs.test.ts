@@ -12,6 +12,8 @@ import {
   createAnalyticsAccessAdapter,
   validateAnalyticsRestaurantSelection,
 } from "../src/analytics-access.js";
+import { createApplicationRuntime } from "../src/runtime.js";
+import { SYNTHETIC_VALID_RUNTIME_ENV } from "./support/synthetic-runtime-env.js";
 
 const FIRST_GUID = "11111111-1111-4111-8111-111111111111";
 const SECOND_GUID = "22222222-2222-4222-8222-222222222222";
@@ -385,6 +387,24 @@ test("Analytics lifecycle cancellation stops deferred token, POST, GET, and poll
     await Promise.resolve();
     assert.equal(fetchCalls, settledFetchCalls);
   }
+});
+
+test("Analytics runtime composes one private job adapter without Standard exposure", () => {
+  const standard = createApplicationRuntime({ env: SYNTHETIC_VALID_RUNTIME_ENV });
+  const analytics = createApplicationRuntime({
+    env: {
+      ...SYNTHETIC_VALID_RUNTIME_ENV,
+      TOAST_ANALYTICS_API_HOSTNAME: "analytics.synthetic-toast-fixture.test",
+      TOAST_ANALYTICS_ACCESS_TYPE: "TOAST_MACHINE_CLIENT",
+      TOAST_ANALYTICS_CLIENT_ID: "invented-analytics-client-5505",
+      TOAST_ANALYTICS_CLIENT_SECRET: "invented-analytics-secret-5505",
+    },
+  });
+  assert.equal(standard.analyticsReportJobs, undefined);
+  assert.ok(analytics.analyticsAccess);
+  assert.ok(analytics.analyticsReportJobs);
+  assert.equal("analyticsReportJobs" in analytics.toastHttpClient, false);
+  assert.equal("analyticsReportJobs" in standard.config, false);
 });
 
 function unreadableCompleteResponse(): Response {
