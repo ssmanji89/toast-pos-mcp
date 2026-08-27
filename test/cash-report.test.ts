@@ -30,6 +30,17 @@ const IDS = Object.freeze({
 });
 
 const BUSINESS_DATE = 20260827;
+const CANONICAL_ENTRY_GUID = "00000000-0000-4000-8000-00000000a001";
+const CANONICAL_DEPOSIT_GUID = "00000000-0000-4000-8000-00000000b001";
+
+const RECOGNIZED_ENTRY_COUNTERS = [
+  ["NO_SALE", "noSaleCount"], ["CASH_IN", "cashInCount"],
+  ["CASH_OUT", "cashOutCount"], ["CASH_COLLECTED", "cashCollectedCount"],
+  ["TIP_OUT", "tipOutCount"], ["PAY_OUT", "payoutCount"],
+  ["UNDO_PAY_OUT", "payoutCount"], ["DRIVER_REIMBURSEMENT", "reimbursementCount"],
+  ["CLOSE_OUT_EXACT", "closeoutCount"], ["CLOSE_OUT_OVERAGE", "closeoutCount"],
+  ["CLOSE_OUT_SHORTAGE", "closeoutCount"],
+] as const;
 
 test("cash fold keeps source types, reversals, deposits, and references distinct", () => {
   const result = foldCashSummary({
@@ -120,6 +131,42 @@ test("cash fold allows an absent drawer and records the completeness fact", () =
   });
   assert.equal(result.cashEntriesWithoutDrawerCount, 1);
   assert.deepEqual(result.cashDrawerReferences, []);
+});
+
+test("cash fold canonicalizes UUID identities and rejects duplicate canonical source GUIDs", () => {
+  const canonicalDrawerGuid = "00000000-0000-4000-8000-00000000c001";
+  const result = foldCashSummary(cashFoldInput({
+    entries: cashEntryArraySchema.parse([entry({
+      guid: CANONICAL_ENTRY_GUID.toUpperCase(),
+      cashDrawer: { guid: canonicalDrawerGuid.toUpperCase() },
+      undoes: CANONICAL_ENTRY_GUID,
+    })]),
+    deposits: cashDepositArraySchema.parse([deposit({ guid: CANONICAL_DEPOSIT_GUID.toUpperCase() })]),
+    cashDrawers: cashDrawerArraySchema.parse([{ guid: canonicalDrawerGuid }]),
+  }));
+  assert.equal(result.cashDrawerReferences[0]?.drawerGuid, canonicalDrawerGuid);
+  assert.equal(result.unresolvedCrossDateReversalCount, 0);
+  assertDuplicateSource(cashFoldInput({
+    entries: cashEntryArraySchema.parse([
+      entry({ guid: CANONICAL_ENTRY_GUID }),
+      entry({ guid: CANONICAL_ENTRY_GUID.toUpperCase() }),
+    ]),
+  }));
+  assertDuplicateSource(cashFoldInput({
+    deposits: cashDepositArraySchema.parse([
+      deposit({ guid: CANONICAL_DEPOSIT_GUID }),
+      deposit({ guid: CANONICAL_DEPOSIT_GUID.toUpperCase() }),
+    ]),
+  }));
+});
+
+test("cash fold counts every recognized entry counter type", () => {
+  for (const [type, counter] of RECOGNIZED_ENTRY_COUNTERS) {
+    const result = foldCashSummary(cashFoldInput({
+      entries: cashEntryArraySchema.parse([entry({ type })]),
+    }));
+    assert.equal(result[counter], 1, type);
+  }
 });
 
 test("cash fold keeps a cross-date reversal as an observed fact without netting", () => {
@@ -269,26 +316,52 @@ test("cash builder denies each malformed source and incomplete traversal", async
   }
 });
 
-test("cash builder stops after a real AbortController cancels the first source read", async () => {
+test("cash builder stops after a real AbortController cancels the first source read", { timeout: 1_000 }, async () => {
   const controller = new AbortController();
   const calls: string[] = [];
-  let sourceStarted!: () => void;
-  const sourceStartedPromise = new Promise<void>((resolve) => { sourceStarted = resolve; });
+  const sourceBarrier = createSourceEntryBarrier();
   const report = buildCashSummaryReport(syntheticRuntime({
     calls,
     signal: controller.signal,
     provisionedScopes: ["cashmgmt:read", "config:read"],
     scenario: "abort",
-    onSourceStart: sourceStarted,
+    sourceBarrier,
   }), { businessDate: BUSINESS_DATE }, { signal: controller.signal });
 
-  await sourceStartedPromise;
+  await sourceBarrier.wait();
   controller.abort();
   const result = await report;
 
   assert.equal(result.status, "denied");
   assert.equal(result.denial.code, "request_cancelled");
   assert.deepEqual(calls, ["location", "scopes", "cash-entries"]);
+});
+
+test("cash builder preserves a retryable Toast HTTP denial and stops later requests", async () => {
+  const businessPaths: string[] = [];
+  const runtime = createCashHttpRuntime(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith("/cashmgmt/") || url.pathname.startsWith("/config/")) {
+      businessPaths.push(url.pathname);
+    }
+    if (url.pathname === "/cashmgmt/v1/entries") return new Response("{}", {
+      status: 503,
+      headers: { "toast-request-id": "synthetic-cash-503" },
+    });
+    return cashBootstrapResponse(url.pathname);
+  });
+  const result = await buildCashSummaryReport(runtime, {
+    businessDate: BUSINESS_DATE,
+    restaurantGuid: RESTAURANT_GUID,
+  });
+
+  assert.equal(result.status, "denied");
+  assert.equal(result.denial.code, "request_failed", JSON.stringify(result));
+  assert.equal(result.denial.retryable, true);
+  assert.equal(result.denial.upstreamStatus, 503);
+  assert.equal(result.denial.upstreamRequestId, "synthetic-cash-503");
+  assert.equal(JSON.stringify(result).includes("cashEntryAmountMinor"), false);
+  assert.deepEqual(businessPaths, ["/cashmgmt/v1/entries"]);
 });
 
 test("cash builder sends documented business paths, dates, and restaurant headers", async () => {
@@ -353,12 +426,77 @@ test("cash builder sends documented business paths, dates, and restaurant header
 
 const RESTAURANT_GUID = "00000000-0000-4000-8000-000000004009";
 
+interface SourceEntryBarrier {
+  enter(): void;
+  wait(): Promise<void>;
+}
+
+function cashFoldInput(overrides: Partial<Parameters<typeof foldCashSummary>[0]>): Parameters<typeof foldCashSummary>[0] {
+  return {
+    businessDate: BUSINESS_DATE,
+    entries: cashEntryArraySchema.parse([]),
+    deposits: cashDepositArraySchema.parse([]),
+    cashDrawers: cashDrawerArraySchema.parse([]),
+    noSaleReasons: noSaleReasonArraySchema.parse([]),
+    payoutReasons: payoutReasonArraySchema.parse([]),
+    ...overrides,
+  };
+}
+
+function assertDuplicateSource(input: Parameters<typeof foldCashSummary>[0]): void {
+  assert.throws(() => foldCashSummary(input), (error: unknown) => (
+    error instanceof ReportComputationError && error.code === "cash_source_duplicate"
+  ));
+}
+
+function createSourceEntryBarrier(): SourceEntryBarrier {
+  let entered = false;
+  let release!: () => void;
+  const reached = new Promise<void>((resolve) => { release = resolve; });
+  return Object.freeze({
+    enter: () => { if (!entered) { entered = true; release(); } },
+    wait: async () => reached,
+  });
+}
+
+function createCashHttpRuntime(dataFetch: typeof fetch) {
+  return createApplicationRuntime({
+    env: { ...SYNTHETIC_VALID_RUNTIME_ENV, TOAST_DEFAULT_RESTAURANT_GUID: RESTAURANT_GUID },
+    now: () => 1_800_000_000_000,
+    maxAttempts: 1,
+    random: () => 0,
+    sleep: async () => undefined,
+    authFetch: async () => jsonResponse({
+      token: {
+        tokenType: "Bearer",
+        expiresIn: 3_600,
+        accessToken: "eyJhbGciOiJub25lIn0.eyJzY29wZSI6WyJjYXNobWdtdDpyZWFkIiwiY29uZmlnOnJlYWQiXX0.synthetic",
+      },
+    }),
+    dataFetch,
+  });
+}
+
+function cashBootstrapResponse(path: string): Response {
+  if (path === "/partners/v1/restaurants") return jsonResponse([{
+    restaurantGuid: RESTAURANT_GUID,
+    managementGroupGuid: null,
+    deleted: false,
+    scopes: ["cashmgmt:read", "config:read", "restaurants:read"],
+  }]);
+  if (path === `/restaurants/v1/restaurants/${RESTAURANT_GUID}`) return jsonResponse({
+    guid: RESTAURANT_GUID,
+    general: { archived: false, name: "Synthetic Cash Cafe", timeZone: "America/Chicago", closeoutHour: 4, currencyCode: "USD", managementGroupGuid: null },
+  });
+  return new Response("{}", { status: 404 });
+}
+
 function syntheticRuntime(options: {
   readonly calls: string[];
   readonly provisionedScopes: readonly string[];
   readonly signal?: AbortSignal;
   readonly scenario?: "malformed-entry" | "malformed-deposit" | "malformed-drawers" | "malformed-no-sale-reasons" | "malformed-payout-reasons" | "mismatched" | "incomplete" | "abort";
-  readonly onSourceStart?: () => void;
+  readonly sourceBarrier?: SourceEntryBarrier;
 }): any {
   const detail = (body: unknown, requestId: string, mismatched = false) => ({
     apiFamily: "standard" as const,
@@ -409,7 +547,7 @@ function syntheticRuntime(options: {
         assert.deepEqual(request.query, { businessDate: BUSINESS_DATE });
         assert.equal(request.path, request.rateLimitKey === "cash-entries" ? "/cashmgmt/v1/entries" : "/cashmgmt/v1/deposits");
         if (options.scenario === "abort") {
-          options.onSourceStart?.();
+          options.sourceBarrier?.enter();
           return await new Promise<never>((_resolve, reject) => {
             input.signal?.addEventListener("abort", () => reject(new ToastHttpError(
               "request_cancelled",
