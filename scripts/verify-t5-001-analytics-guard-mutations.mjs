@@ -79,6 +79,10 @@ for (const [name, sourcePath, search, replacement] of guards) {
       console.log(`${name}: caught`);
     } finally {
       await writeFile(sourcePath, original);
+      const restored = await readFile(sourcePath, "utf8");
+      if (restored !== original) {
+        throw new Error(`${name}: source restoration did not reproduce the candidate.`);
+      }
     }
 }
 

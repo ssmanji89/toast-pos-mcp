@@ -204,7 +204,7 @@ function bindAnalyticsRegistry(
 }
 
 function analyticsIdentityStateKey(identity: object): object {
-  return AnalyticsAccessAdapter;
+  return identity;
 }
 
 function normalizeAnalyticsRegistry(payload: unknown): AnalyticsRestaurantRegistry {
