@@ -16,6 +16,7 @@ import {
   type CapabilityDenial,
 } from "./capabilities.js";
 import type { ToastLocationDiscoveryProvenance } from "./locations.js";
+import type { ToastLocation } from "./locations.js";
 import {
   STANDARD_REPORT_SCHEMA_VERSION,
   type ReportContextFreshness,
@@ -151,6 +152,28 @@ interface MutableReasonReference {
   entryCount: number;
 }
 
+interface CashReportState {
+  readonly generatedAtEpochMs: number;
+  readonly businessDate: number;
+  resolvedRestaurantGuid: string | undefined;
+  restaurantName: string | undefined;
+  contextFreshness: ReportContextFreshness | undefined;
+  contextProvenance: ToastLocationDiscoveryProvenance | undefined;
+  effectiveBusinessDate: number | undefined;
+}
+
+interface ResolvedCashReportContext {
+  readonly location: ToastLocation;
+  readonly capability: ReturnType<typeof decideCapability>;
+  readonly contextFreshness: ReportContextFreshness;
+  readonly contextProvenance: ToastLocationDiscoveryProvenance;
+}
+
+interface LoadedCashSummary {
+  readonly fold: CashSummaryFold;
+  readonly provenance: ReportProvenance;
+}
+
 /**
  * This pure fold reports observed cash-management facts. It deliberately does
  * not use Orders, infer guest cash payments, or calculate expected deposits.
@@ -278,145 +301,163 @@ export async function buildCashSummaryReport(
   },
   options: { readonly signal?: AbortSignal } = {},
 ): Promise<CashSummaryResult> {
-  const generatedAtEpochMs = runtime.now();
-  let resolvedRestaurantGuid = input.restaurantGuid?.toLowerCase();
-  let restaurantName: string | undefined;
-  let contextFreshness: ReportContextFreshness | undefined;
-  let contextProvenance: ToastLocationDiscoveryProvenance | undefined;
-  let effectiveBusinessDate: number | undefined;
-
+  const state: CashReportState = {
+    generatedAtEpochMs: runtime.now(),
+    businessDate: input.businessDate,
+    resolvedRestaurantGuid: input.restaurantGuid?.toLowerCase(),
+    restaurantName: undefined,
+    contextFreshness: undefined,
+    contextProvenance: undefined,
+    effectiveBusinessDate: undefined,
+  };
   try {
-    assertValidBusinessDate(input.businessDate);
-    effectiveBusinessDate = input.businessDate;
-    const locationContext = await runtime.getLocationContext(
-      input.restaurantGuid,
-      { signal: options.signal },
-    );
-    const { location } = locationContext;
-    resolvedRestaurantGuid = location.restaurantGuid;
-    restaurantName = location.name;
-    contextFreshness = locationContext.freshness;
-    contextProvenance = locationContext.provenance;
-    const capability = decideCapability(
-      await createCapabilityContext(runtime.tokenManager, location),
-      {
-        restaurantGuid: location.restaurantGuid,
-        requiredScopes: ["cashmgmt:read", "config:read"],
-      },
-    );
-    if (capability.status === "denied") {
+    const context = await resolveCashReportContext(runtime, input, options.signal, state);
+    if (context.capability.status === "denied") {
       return capabilityDenied(
         input.businessDate,
-        generatedAtEpochMs,
-        location.restaurantGuid,
-        location.name,
-        capability,
-        contextFreshness,
-        contextProvenance,
+        state.generatedAtEpochMs,
+        context.location.restaurantGuid,
+        context.location.name,
+        context.capability,
+        context.contextFreshness,
+        context.contextProvenance,
       );
     }
-
-    const provenance = new ReportProvenanceCollector();
-    const entriesResult = await readCashResult(
-      runtime,
-      "/cashmgmt/v1/entries",
-      location.restaurantGuid,
-      input.businessDate,
-      "cash-entries",
-      provenance,
-      options.signal,
+    return completeCashSummary(
+      state,
+      context,
+      await loadCashSummaryFold(runtime, context.location.restaurantGuid, input.businessDate, options.signal),
     );
-    const depositsResult = await readCashResult(
-      runtime,
-      "/cashmgmt/v1/deposits",
-      location.restaurantGuid,
-      input.businessDate,
-      "cash-deposits",
-      provenance,
-      options.signal,
-    );
-    const drawersPages = await readConfigurationPages(
-      runtime,
-      "/config/v2/cashDrawers",
-      location.restaurantGuid,
-      "config-cash-drawers",
-      provenance,
-      options.signal,
-    );
-    const noSalePages = await readConfigurationPages(
-      runtime,
-      "/config/v2/noSaleReasons",
-      location.restaurantGuid,
-      "config-no-sale-reasons",
-      provenance,
-      options.signal,
-    );
-    const payoutPages = await readConfigurationPages(
-      runtime,
-      "/config/v2/payoutReasons",
-      location.restaurantGuid,
-      "config-payout-reasons",
-      provenance,
-      options.signal,
-    );
-    const fold = foldCashSummary({
-      businessDate: input.businessDate,
-      entries: parseEntries(entriesResult.body),
-      deposits: parseDeposits(depositsResult.body),
-      cashDrawers: parseConfigurationPages(drawersPages, parseCashDrawers),
-      noSaleReasons: parseConfigurationPages(noSalePages, parseNoSaleReasons),
-      payoutReasons: parseConfigurationPages(payoutPages, parsePayoutReasons),
-    });
-    const warnings = fold.unresolvedCrossDateReversalCount === 0
-      ? CASH_WARNINGS
-      : Object.freeze([
-        ...CASH_WARNINGS,
-        `${fold.unresolvedCrossDateReversalCount} observed reversal reference(s) point outside this business-date invocation and were not netted.`,
-      ]);
-
-    return Object.freeze({
-      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
-      status: "complete" as const,
-      report: "cash_summary" as const,
-      source: "standard_api" as const,
-      restaurantGuid: location.restaurantGuid,
-      restaurantName: location.name,
-      requestedBusinessDate: input.businessDate,
-      effectiveBusinessDate: input.businessDate,
-      timezone: location.timezone,
-      closeoutHour: location.closeoutHour,
-      currencyCode: location.currencyCode,
-      generatedAtEpochMs,
-      contextFreshness,
-      contextProvenance,
-      provenance: provenance.snapshot(),
-      formulaNotes: CASH_FORMULA_NOTES,
-      warnings,
-      ...fold,
-    });
   } catch (error) {
-    return Object.freeze({
-      schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
-      status: "denied" as const,
-      report: "cash_summary" as const,
-      source: "standard_api" as const,
-      restaurantGuid: resolvedRestaurantGuid,
-      restaurantName,
-      businessDate: input.businessDate,
-      requestedBusinessDate: input.businessDate,
-      effectiveBusinessDate,
-      generatedAtEpochMs,
-      ...(contextFreshness === undefined ? {} : { contextFreshness }),
-      ...(contextProvenance === undefined ? {} : { contextProvenance }),
-      denial: denialFromError(error),
-      missingScopes: Object.freeze([]),
-      missingProvisionedScopes: Object.freeze([]),
-      missingConnectionScopes: Object.freeze([]),
-      excludedScopes: Object.freeze([]),
-      formulaNotes: CASH_FORMULA_NOTES,
-      warnings: CASH_WARNINGS,
-    });
+    return deniedCashSummary(state, error);
   }
+}
+
+async function resolveCashReportContext(
+  runtime: ApplicationRuntime,
+  input: { readonly businessDate: number; readonly restaurantGuid?: string },
+  signal: AbortSignal | undefined,
+  state: CashReportState,
+): Promise<ResolvedCashReportContext> {
+  assertValidBusinessDate(input.businessDate);
+  state.effectiveBusinessDate = input.businessDate;
+  const locationContext = await runtime.getLocationContext(input.restaurantGuid, { signal });
+  const { location, freshness: contextFreshness, provenance: contextProvenance } = locationContext;
+  state.resolvedRestaurantGuid = location.restaurantGuid;
+  state.restaurantName = location.name;
+  state.contextFreshness = contextFreshness;
+  state.contextProvenance = contextProvenance;
+  const capability = decideCapability(
+    await createCapabilityContext(runtime.tokenManager, location),
+    {
+      restaurantGuid: location.restaurantGuid,
+      requiredScopes: ["cashmgmt:read", "config:read"],
+    },
+  );
+  return Object.freeze({ location, capability, contextFreshness, contextProvenance });
+}
+
+async function loadCashSummaryFold(
+  runtime: ApplicationRuntime,
+  restaurantGuid: string,
+  businessDate: number,
+  signal: AbortSignal | undefined,
+): Promise<LoadedCashSummary> {
+  const provenance = new ReportProvenanceCollector();
+  const entries = await readCashResult(
+    runtime, "/cashmgmt/v1/entries", restaurantGuid, businessDate,
+    "cash-entries", provenance, signal,
+  );
+  const deposits = await readCashResult(
+    runtime, "/cashmgmt/v1/deposits", restaurantGuid, businessDate,
+    "cash-deposits", provenance, signal,
+  );
+  const cashDrawers = await readConfigurationPages(
+    runtime, "/config/v2/cashDrawers", restaurantGuid,
+    "config-cash-drawers", provenance, signal,
+  );
+  const noSaleReasons = await readConfigurationPages(
+    runtime, "/config/v2/noSaleReasons", restaurantGuid,
+    "config-no-sale-reasons", provenance, signal,
+  );
+  const payoutReasons = await readConfigurationPages(
+    runtime, "/config/v2/payoutReasons", restaurantGuid,
+    "config-payout-reasons", provenance, signal,
+  );
+  return Object.freeze({
+    fold: foldCashSummary({
+      businessDate,
+      entries: parseEntries(entries.body),
+      deposits: parseDeposits(deposits.body),
+      cashDrawers: parseConfigurationPages(cashDrawers, parseCashDrawers),
+      noSaleReasons: parseConfigurationPages(noSaleReasons, parseNoSaleReasons),
+      payoutReasons: parseConfigurationPages(payoutReasons, parsePayoutReasons),
+    }),
+    provenance: provenance.snapshot(),
+  });
+}
+
+function completeCashSummary(
+  state: CashReportState,
+  context: ResolvedCashReportContext,
+  loaded: LoadedCashSummary,
+): CashSummaryComplete {
+  const { location } = context;
+  return Object.freeze({
+    schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
+    status: "complete" as const,
+    report: "cash_summary" as const,
+    source: "standard_api" as const,
+    restaurantGuid: location.restaurantGuid,
+    restaurantName: location.name,
+    requestedBusinessDate: state.businessDate,
+    effectiveBusinessDate: state.businessDate,
+    timezone: location.timezone,
+    closeoutHour: location.closeoutHour,
+    currencyCode: location.currencyCode,
+    generatedAtEpochMs: state.generatedAtEpochMs,
+    contextFreshness: context.contextFreshness,
+    contextProvenance: context.contextProvenance,
+    provenance: loaded.provenance,
+    formulaNotes: CASH_FORMULA_NOTES,
+    warnings: cashWarnings(loaded.fold),
+    ...loaded.fold,
+  });
+}
+
+function deniedCashSummary(state: CashReportState, error: unknown): CashSummaryDenied {
+  return Object.freeze({
+    schemaVersion: STANDARD_REPORT_SCHEMA_VERSION,
+    status: "denied" as const,
+    report: "cash_summary" as const,
+    source: "standard_api" as const,
+    restaurantGuid: state.resolvedRestaurantGuid,
+    restaurantName: state.restaurantName,
+    businessDate: state.businessDate,
+    requestedBusinessDate: state.businessDate,
+    effectiveBusinessDate: state.effectiveBusinessDate,
+    generatedAtEpochMs: state.generatedAtEpochMs,
+    ...(state.contextFreshness === undefined ? {} : { contextFreshness: state.contextFreshness }),
+    ...(state.contextProvenance === undefined ? {} : { contextProvenance: state.contextProvenance }),
+    denial: denialFromError(error),
+    missingScopes: Object.freeze([]),
+    missingProvisionedScopes: Object.freeze([]),
+    missingConnectionScopes: Object.freeze([]),
+    excludedScopes: Object.freeze([]),
+    formulaNotes: CASH_FORMULA_NOTES,
+    warnings: CASH_WARNINGS,
+  });
+}
+
+function cashWarnings(fold: CashSummaryFold): readonly string[] {
+  const unresolvedCount =
+    fold.unresolvedCrossDateReversalCount
+    + fold.unresolvedCrossDateDepositReversalCount;
+  if (unresolvedCount === 0) return CASH_WARNINGS;
+  return Object.freeze([
+    ...CASH_WARNINGS,
+    `${unresolvedCount} observed reversal reference(s) point outside this business-date invocation and were not netted.`,
+  ]);
 }
 
 async function readCashResult(
