@@ -5,213 +5,26 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
-const STDIO_CONNECT_TIMEOUT_MS = 10_000;
-const REPORT_SERVER_PATH = path.resolve(
-  process.cwd(),
-  "dist-test",
-  "test",
-  "fixtures",
-  "stdio-report-server.js",
-);
-const BUSINESS_DATE = 20260816;
-const INACCESSIBLE_RESTAURANT_GUID =
-  "00000000-0000-4000-8000-000000009999";
-const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
-const SECOND_ITEM_GUID = "00000000-0000-4000-8000-000000000812";
-const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
-const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
-const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
-
-type FixtureScenario =
-  | "success"
-  | "missing-scope"
-  | "malformed-source"
-  | "broken-pagination"
-  | "cancel-active-report"
-  | "rate-limit-wait"
-  | "missing-menu-item"
-  | "menu-refresh-fails-after-cache"
-  | "menu-unavailable-no-cache"
-  | "missing-config-category"
-  | "malformed-menu-structure"
-  | "missing-menus-scope"
-  | "missing-config-scope"
-  | "multi-group-tags"
-  | "missing-item-group"
-  | "conflicting-item-group"
-  | "conflicting-group-tags"
-  | "missing-item-group-singleton";
-
-test(
-  "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
-  { timeout: 30_000 },
-  async () => {
-    const connection = createConnection("modern");
-    try {
-      await connectWithTimeout(connection);
-      const listed = await connection.client.listTools();
-      const names = listed.tools.map((tool) => tool.name).sort();
-      assert.ok(names.includes("toast_sales_summary"));
-      assert.ok(names.includes("toast_payment_summary"));
-      assert.ok(names.includes("toast_item_sales_summary"));
-
-      const sales = await connection.client.callTool({
-        name: "toast_sales_summary",
-        arguments: { businessDate: BUSINESS_DATE },
-      });
-      assert.notEqual(sales.isError, true);
-      const salesOutput = structured(sales.structuredContent);
-      assert.equal(salesOutput.schemaVersion, 1);
-      assert.equal(salesOutput.status, "complete");
-      assert.equal(salesOutput.report, "sales_summary");
-      assert.equal(salesOutput.restaurantName, "Synthetic Tool Cafe");
-      assert.equal(salesOutput.requestedBusinessDate, BUSINESS_DATE);
-      assert.equal(salesOutput.effectiveBusinessDate, BUSINESS_DATE);
-      assert.equal(structured(salesOutput.contextFreshness).maxAgeMs, 21_600_000);
-      const combined = structured(salesOutput.combined);
-      assert.equal(combined.grossCheckAmountMinor, 1000);
-      assert.equal(combined.netOrderAmountMinor, 900);
-      assert.equal(combined.netSalesMinor, 600);
-      assert.equal(combined.ordersEmbeddedRefundAmountMinor, 200);
-      assert.equal(combined.fundraisingContributionAmountMinor, 100);
-      assert.ok(!JSON.stringify(salesOutput).includes("must-not-leak"));
-
-      const payments = await connection.client.callTool({
-        name: "toast_payment_summary",
-        arguments: { businessDate: BUSINESS_DATE },
-      });
-      assert.notEqual(payments.isError, true);
-      const paymentOutput = structured(payments.structuredContent);
-      assert.equal(paymentOutput.schemaVersion, 1);
-      assert.equal(paymentOutput.status, "complete");
-      assert.equal(paymentOutput.eventListCount, 3);
-      assert.equal(paymentOutput.paymentDetailsProcessed, 1);
-      assert.equal(structured(paymentOutput.paid).amountMinor, 1000);
-      assert.equal(structured(paymentOutput.refunded).refundAmountMinor, 200);
-      assert.equal(structured(paymentOutput.voided).amountMinor, 1000);
-      assert.ok(!JSON.stringify(paymentOutput).includes("must-not-leak"));
-
-      const itemsFirst = await connection.client.callTool({
-        name: "toast_item_sales_summary",
-        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
-      });
-      assert.notEqual(itemsFirst.isError, true);
-      const itemOutput = structured(itemsFirst.structuredContent);
-      assert.equal(itemOutput.status, "complete");
-      assert.equal(itemOutput.report, "item_sales_summary");
-      assert.equal(itemOutput.dimension, "item");
-      assert.equal(itemOutput.metricBasis, "selection");
-      assert.equal(itemOutput.nonAdditiveAcrossGroups, false);
-      assert.equal(itemOutput.modifierSelectionsTraversed, 2);
-      assert.equal(itemOutput.unresolvedContributionCount, 0);
-      assert.equal(structured(itemOutput.dimensionContext).menuState, "current");
-      assert.deepEqual(
-        structured(structured(itemOutput.dimensionContext).menuSourceProvenance)
-          .upstreamRequestIds,
-        ["fixture-menu-full-1"],
-      );
-      assert.deepEqual(
-        structured(structured(itemOutput.dimensionContext).menuFreshnessProvenance)
-          .upstreamRequestIds,
-        ["fixture-menu-metadata-1"],
-      );
-
-      const firstItem = groupByGuid(itemOutput, ITEM_GUID);
-      const secondItem = groupByGuid(itemOutput, SECOND_ITEM_GUID);
-      assert.equal(firstItem.displayName, "Current Burger");
-      assert.equal(secondItem.displayName, "Current Burger");
-      assert.notEqual(firstItem.key, secondItem.key);
-      assert.equal(firstItem.quantity, "0.5");
-      assert.equal(firstItem.grossSelectionAmountMinor, 900);
-      assert.equal(firstItem.netSelectionAmountMinor, 800);
-      assert.equal(secondItem.quantity, "1");
-      assert.equal(secondItem.netSelectionAmountMinor, 200);
-      assert.equal(
-        firstItem.netSelectionAmountMinor + secondItem.netSelectionAmountMinor,
-        1000,
-      );
-
-      const itemsSecond = await connection.client.callTool({
-        name: "toast_item_sales_summary",
-        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
-      });
-      assert.notEqual(itemsSecond.isError, true);
-      const secondOutput = structured(itemsSecond.structuredContent);
-      assert.equal(structured(secondOutput.dimensionContext).menuState, "current");
-      assert.deepEqual(
-        structured(structured(secondOutput.dimensionContext).menuFreshnessProvenance)
-          .upstreamRequestIds,
-        ["fixture-menu-metadata-2"],
-      );
-      assert.deepEqual(
-        structured(structured(secondOutput.dimensionContext).menuSourceProvenance)
-          .upstreamRequestIds,
-        ["fixture-menu-full-1"],
-      );
-
-      const categories = await connection.client.callTool({
-        name: "toast_item_sales_summary",
-        arguments: {
-          businessDate: BUSINESS_DATE,
-          dimension: "sales_category",
-        },
-      });
-      assert.notEqual(categories.isError, true);
-      const categoryOutput = structured(categories.structuredContent);
-      assert.equal(categoryOutput.metricBasis, "check_attribution");
-      assert.equal(categoryOutput.nonAdditiveAcrossGroups, true);
-      assert.equal(
-        structured(categoryOutput.dimensionContext).configurationState,
-        "current",
-      );
-      const category = groupByGuid(categoryOutput, SALES_CATEGORY_GUID);
-      assert.equal(category.displayName, "Current Entrees");
-      assert.equal(category.attributedCheckAmountMinor, 1000);
-      assert.ok(
-        structured(categoryOutput.dimensionContext)
-          .configurationLastModifiedCursor,
-      );
-
-      // Every config endpoint in the fixture throws on another full snapshot.
-      // This second successful call therefore proves same-day cache reuse.
-      const categoriesAgain = await connection.client.callTool({
-        name: "toast_item_sales_summary",
-        arguments: {
-          businessDate: BUSINESS_DATE,
-          dimension: "sales_category",
-        },
-      });
-      assert.notEqual(categoriesAgain.isError, true);
-      assert.equal(
-        groupByGuid(
-          structured(categoriesAgain.structuredContent),
-          SALES_CATEGORY_GUID,
-        ).attributedCheckAmountMinor,
-        1000,
-      );
-
-      const tags = await connection.client.callTool({
-        name: "toast_item_sales_summary",
-        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
-      });
-      assert.notEqual(tags.isError, true);
-      const tagOutput = structured(tags.structuredContent);
-      assert.equal(tagOutput.nonAdditiveAcrossGroups, true);
-      assert.equal(groupByGuid(tagOutput, TAG_LUNCH_GUID).displayName, "Lunch");
-      assert.equal(
-        groupByGuid(tagOutput, TAG_LUNCH_GUID).attributedCheckAmountMinor,
-        1000,
-      );
-      assert.equal(
-        groupByGuid(tagOutput, TAG_UNKNOWN_GUID).displayName,
-        "NEW_ENUM_TAG",
-      );
-    } finally {
-      await connection.client.close();
-    }
-  },
-);
-
+import {
+  BUSINESS_DATE,
+  connectWithTimeout,
+  createConnection,
+  groupByGuid,
+  INACCESSIBLE_RESTAURANT_GUID,
+  ITEM_GUID,
+  RESTAURANT_GUID,
+  REPORT_SERVER_PATH,
+  SALES_CATEGORY_GUID,
+  structured,
+  TAG_LUNCH_GUID,
+  TAG_UNKNOWN_GUID,
+  assertSalesDenied,
+  assertCancelledReport,
+  assertReportDenied,
+  observeFixtureStderr,
+  textContent,
+  type FixtureScenario,
+} from "./support/report-tools-e2e-support.js";
 test(
   "historical item absent from current menu remains a distinct unresolved sales fact",
   { timeout: 20_000 },
@@ -233,6 +46,68 @@ test(
       assert.equal(output.unresolvedContributionCount, 1);
     } finally {
       await connection.client.close();
+    }
+  },
+);
+
+test(
+  "labor uses the current source snapshot and keeps archived entries out of current totals",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "labor-revised-archived");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_labor_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(output.status, "complete");
+      assert.equal(output.timeEntryCount, 1);
+      assert.equal(output.deletedTimeEntryCount, 1);
+      assert.equal(output.regularHours, 7.5);
+      assert.equal(output.regularWagesMinor, 0);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "validated active labor entries return truthful incomplete output without an error flag",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "labor-active-entry");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_labor_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(output.status, "incomplete");
+      assert.equal(output.activeTimeEntryCount, 1);
+      assert.ok(textContent(result).includes("incomplete"));
+      assert.ok(textContent(result).length < 256);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "cash and labor scope and malformed-source failures deny without fabricated totals",
+  { timeout: 30_000 },
+  async () => {
+    for (const [scenario, name, expectedCode, absentTotal] of [
+      ["missing-cash-scope", "toast_cash_summary", "capability_missing_scope", "cashEntryAmountMinor"],
+      ["missing-labor-order-scope", "toast_labor_summary", "capability_missing_scope", "regularHours"],
+      ["malformed-cash-source", "toast_cash_summary", "cash_source_invalid", "cashEntryAmountMinor"],
+      ["malformed-labor-source", "toast_labor_summary", "labor_time_entries_source_invalid", "regularHours"],
+    ] as const) {
+      await assertReportDenied(scenario, name, expectedCode, absentTotal);
     }
   },
 );
@@ -647,127 +522,49 @@ test(
   },
 );
 
-interface Connection {
-  readonly client: Client;
-  readonly transport: StdioClientTransport;
-}
+test(
+  "cash report cancellation reaches the selected source read through the nonzero-ID stdio path",
+  { timeout: 20_000 },
+  async () => {
+    await assertCancelledReport("cancel-cash-report", "toast_cash_summary", "cash-entries-fetch");
+  },
+);
 
-function createConnection(
-  era: "legacy" | "modern",
-  scenario: FixtureScenario = "success",
-): Connection {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [REPORT_SERVER_PATH, scenario],
-    cwd: process.cwd(),
-    stderr: "pipe",
-  });
-  const client = new Client(
-    {
-      name: `toast-report-e2e-${era}-${scenario}`,
-      version: "0.0.0",
-    },
-    era === "modern"
-      ? {
-          versionNegotiation: {
-            mode: { pin: "2026-07-28" },
-            probe: { timeoutMs: STDIO_CONNECT_TIMEOUT_MS },
-          },
-        }
-      : { versionNegotiation: { mode: "legacy" } },
-  );
-  return { client, transport };
-}
+test(
+  "labor report cancellation reaches the selected source read through the nonzero-ID stdio path",
+  { timeout: 20_000 },
+  async () => {
+    await assertCancelledReport("cancel-labor-report", "toast_labor_summary", "labor-time-entries-fetch");
+  },
+);
 
-async function assertSalesDenied(
-  scenario: FixtureScenario,
-  extraArguments: Readonly<Record<string, unknown>>,
-  expectedCode: string,
-): Promise<void> {
-  const connection = createConnection("modern", scenario);
-  try {
-    await connectWithTimeout(connection);
-    const result = await connection.client.callTool({
-      name: "toast_sales_summary",
-      arguments: {
-        businessDate: BUSINESS_DATE,
-        ...extraArguments,
-      },
-    });
-    assert.equal(result.isError, true);
-    const output = structured(result.structuredContent);
-    assert.equal(output.schemaVersion, 1);
-    assert.equal(output.status, "denied");
-    assert.equal(structured(output.denial).code, expectedCode);
-    assert.equal("combined" in output, false);
-  } finally {
-    await connection.client.close();
-  }
-}
+test(
+  "a stored upstream rate limit delays a later cash report and preserves cash provenance",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "rate-limit-cash");
+    try {
+      await connectWithTimeout(connection);
+      const startedAt = Date.now();
+      const first = await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      const elapsedMs = Date.now() - startedAt;
+      assert.ok(elapsedMs >= 900, `expected rate-limit delay, observed ${elapsedMs}ms`);
+      assert.notEqual(first.isError, true);
 
-function groupByGuid(
-  output: Record<string, any>,
-  guid: string,
-): Record<string, any> {
-  assert.ok(Array.isArray(output.groups));
-  const group = (output.groups as unknown[]).find((candidate) =>
-    structured(candidate).guid === guid);
-  assert.ok(group, `expected group for GUID ${guid}`);
-  return structured(group);
-}
-
-async function connectWithTimeout(connection: Connection): Promise<void> {
-  await Promise.race([
-    connection.client.connect(connection.transport),
-    new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("Timed out connecting to synthetic report stdio server")),
-        STDIO_CONNECT_TIMEOUT_MS,
+      const second = await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      });
+      assert.notEqual(second.isError, true);
+      assert.ok(
+        structured(structured(second.structuredContent).provenance)
+          .upstreamRequestIds.includes("fixture-rate-limited-cash-2"),
       );
-      timer.unref();
-    }),
-  ]);
-}
-
-function structured(value: unknown): Record<string, any> {
-  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
-  return value as Record<string, any>;
-}
-
-function observeFixtureStderr(transport: StdioClientTransport): {
-  readonly waitFor: (marker: string) => Promise<void>;
-  readonly stop: () => void;
-} {
-  const stream = transport.stderr;
-  assert.ok(stream !== null, "expected fixture stderr");
-  let output = "";
-  let waiter: Deferred<void> | undefined;
-  const onData = (chunk: Buffer | string): void => {
-    output += chunk.toString();
-    waiter?.resolve();
-    waiter = undefined;
-  };
-  stream.on("data", onData);
-  return {
-    waitFor: async (marker: string): Promise<void> => {
-      while (!output.includes(marker)) {
-        waiter = deferred<void>();
-        await waiter.promise;
-      }
-    },
-    stop: () => stream.off("data", onData),
-  };
-}
-
-interface Deferred<T> {
-  readonly promise: Promise<T>;
-  resolve(value: T): void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  return {
-    promise: new Promise<T>((next) => { resolve = next; }),
-    resolve,
-  };
-}
+    } finally {
+      await connection.client.close();
+    }
+  },
+);

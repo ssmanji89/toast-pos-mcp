@@ -1,8 +1,9 @@
-# Standard Sales and Payment Report Contract
+# Standard Report Tools Contract
 
-**Status:** T3-002 production contract  
+**Status:** T3/T4 production contract
 **Report schema:** `1`  
-**Tools:** `toast_sales_summary`, `toast_payment_summary`
+**Tools:** `toast_sales_summary`, `toast_payment_summary`,
+`toast_item_sales_summary`, `toast_cash_summary`, `toast_labor_summary`
 
 ## Production path
 
@@ -17,7 +18,7 @@ MCP stdio tools/call
   -> one rate-limit-aware/cancellable ToastHttpClient
   -> bounded Standard API source retrieval
   -> privacy-minimized normalization / deterministic minor-unit formula
-  -> bounded provenance + complete|denied envelope
+  -> bounded provenance + complete|incomplete|denied envelope
   -> MCP structured result
 ```
 
@@ -60,6 +61,14 @@ There is no T3-002 partial policy. Any malformed source, pagination-integrity
 failure, stale-context refresh failure, inaccessible restaurant, missing
 required capability, over-bound payment set, cancellation, or upstream failure
 returns `denied` instead of fabricating a partial complete report.
+
+`toast_labor_summary` has one narrow `incomplete` state. It means all required
+source reads and validations succeeded, but validated active or unresolved
+labor facts prevent a final labor aggregate. It returns aggregate facts,
+warnings, provenance, and `isError=false`. It never says completed. `denied`
+is reserved for missing capability, inaccessible location, malformed source,
+failed traversal, cancellation, or upstream failure. A denied result has
+`isError=true` and contains no fabricated aggregate totals.
 
 ## Location/context freshness
 
@@ -180,6 +189,70 @@ The report keeps separate minor-unit totals for:
 No accounting, tax, settlement, or GAAP conclusion is inferred from these
 operational source totals.
 
+## Cash summary
+
+`toast_cash_summary` accepts the standard report input: a valid Toast
+`businessDate` and an optional restaurant GUID. The selected restaurant context
+supplies the restaurant GUID, name, timezone, closeout hour, currency code,
+freshness, and bounded context provenance. Its required capability set is
+`cashmgmt:read` and `config:read`.
+
+The report reads these restaurant-scoped Standard API sources in sequence:
+
+1. `GET /cashmgmt/v1/entries?businessDate=YYYYMMDD`;
+2. `GET /cashmgmt/v1/deposits?businessDate=YYYYMMDD`;
+3. paged `GET /config/v2/cashDrawers`;
+4. paged `GET /config/v2/noSaleReasons`; and
+5. paged `GET /config/v2/payoutReasons`.
+
+Each source contributes its own bounded provenance. Every request carries the
+selected restaurant header. A capability denial happens before any business
+source read.
+
+Cash entries and deposits are separate Cash Management facts. Cash entries are
+not guest cash payments, and this tool does not calculate expected drawer
+balances or expected deposits. It reports exact minor-unit entry and deposit
+amounts, source entry types, drawer/reason reference resolution, no-sales, and
+observed reversal references. Deposit reversals use the documented `undoes`
+relationship. Cross-business-date reversal references remain visible warnings;
+the tool does not invent a netting relationship outside the invocation.
+
+The aggregate output excludes raw entry/deposit bodies, employee/contact data,
+guest data, payment-card markers, credentials, and tokens. A malformed or
+missing required source is denied rather than represented by zero cash totals.
+
+## Labor summary
+
+`toast_labor_summary` uses the same input and location context fields as the
+cash tool. Its required capability set is `labor:read`, `config:read`, and
+`orders:read`. It returns aggregate-only data; no employee identity, contact
+field, display name, external identifier, or raw source body is public output.
+
+The report reads these selected-restaurant Standard API sources:
+
+1. `GET /labor/v1/timeEntries` with restaurant-local closeout bounds and
+   `includeArchived=true` plus `includeMissedBreaks=true`;
+2. bounded `GET /labor/v1/jobs?jobIds=...` batches for referenced jobs;
+3. paged `GET /config/v2/breakTypes`;
+4. `GET /config/v2/tipWithholding`; and
+5. bounded, sequential `GET /orders/v2/ordersBulk?businessDate=YYYYMMDD`
+   page folding for sales and tip attribution.
+
+The TimeEntry response is the current source snapshot for the requested
+business date. Deleted/archived facts remain observable as deletion counts but
+do not enter current hours or wages. Active entries and unresolved optional
+labor references produce `incomplete`, not a completed result. A source
+failure, malformed source, missing required scope, or inaccessible restaurant
+produces `denied` and no totals.
+
+Regular wages use only reported regular hours and explicit hourly wage. A null
+hourly wage is preserved as salaried state. Overtime hours are reported, but no
+overtime wage is calculated because no source multiplier exists. Sales and tips
+come only from matching Orders server attribution and payment facts; TimeEntry
+sales or tip fields are not used. Voided payments are excluded, explicit
+refunds are deducted, and optional tip withholding remains a distinct
+aggregate calculation.
+
 ## Cancellation and rate limits
 
 The MCP v2 handler passes `ctx.mcpReq.signal` into request-owned report work.
@@ -206,6 +279,12 @@ path. Synthetic upstream response scenarios prove:
 - raw 2025 stdio clients receive no report tools;
 - pinned 2026-07-28 clients discover and invoke the real report tools;
 - sales and payment happy-path formula/output/privacy behavior;
+- cash entries/deposits and required drawer/reason configuration sources;
+- labor complete, archived/deleted current-snapshot, and active-entry
+  incomplete behavior;
+- cash/labor scope denial before business reads, malformed-source denial,
+  selected-restaurant headers, bounded provenance, source-read cancellation,
+  rate-limit waits, and aggregate-only serialization;
 - invalid MCP input is rejected before orchestration;
 - missing required scope is denied before Orders data access;
 - inaccessible restaurant is denied instead of returning empty totals;
@@ -226,13 +305,17 @@ Node versions. Required gate:
 
 ```bash
 nvm use 20.20.2
-npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 npm ci --no-audit --no-fund
 npm run check
+npm run build:test
+node --test dist-test/test/report-tools-e2e.test.js
+npm pack --dry-run --json
 
 nvm use 22.22.2
 npm ci --no-audit --no-fund
 npm run check
+npm run build:test
+node --test dist-test/test/report-tools-e2e.test.js
 npm pack --dry-run --json
 ```
 
@@ -240,4 +323,4 @@ Inspect discovered test-file count and total test count, package/lock
 provenance, and mutate every new formula, completeness, freshness, privacy,
 cancellation, and cross-page guard before a fresh exact-head CLEAN review.
 
-DOX: this document is the authoritative T3-002 Standard report contract.
+DOX: updated for the durable T3/T4 Standard report contract.

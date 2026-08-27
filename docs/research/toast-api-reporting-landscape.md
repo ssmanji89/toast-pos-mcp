@@ -173,8 +173,7 @@ Primary sources:
 
 - cash management `/entries` by `businessDate`
 - cash management `/deposits` by `businessDate`
-- configuration lookups for drawers and reasons
-- labor employee lookup for responsible employees
+- configuration `/cashDrawers`, `/noSaleReasons`, and `/payoutReasons`
 
 Potential reports:
 
@@ -186,18 +185,24 @@ Potential reports:
 - reversed cash transactions
 - expected-drawer inputs and large-transaction review
 
+Implemented boundary: `toast_cash_summary` requires `cashmgmt:read` and
+`config:read`, and reads all five sources with the selected restaurant header.
+It returns Cash Management entry/deposit aggregates, source references, and
+bounded provenance. It does not treat cash entries as guest cash payments. It
+does not calculate expected drawer or deposit values. Missing or malformed
+required sources deny the report instead of producing zero totals.
+
 Toast recommends retrieving the previous business day's entries and deposits daily and suggests twelve weeks of historical cash backfill for a newly connected reporting integration.
 
 ### Labor reporting
 
 Primary sources:
 
-- labor `/employees`
 - labor `/jobs`
-- labor `/timeEntries` by modification window
-- labor `/shifts` by scheduled date window
-- orders for employee sales and tips
-- configuration for breaks and tip withholding
+- labor `/timeEntries` with restaurant-local closeout bounds, archived entries,
+  and missed breaks
+- Orders `/ordersBulk` for employee-attributed sales and tips
+- configuration `/breakTypes` and `/tipWithholding`
 
 Potential reports:
 
@@ -213,6 +218,20 @@ Important rules:
 - A null hourly wage can indicate a salaried job.
 - Toast recommends orders, not time-entry sales fields, for sales and tips because orders can occur outside the shift and time-entry values may not be revised after administrative edits.
 - Employee names and identifiers should be minimized. Aggregate mode should be the default MCP output.
+
+Implemented boundary: `toast_labor_summary` requires `labor:read`,
+`config:read`, and `orders:read`. It uses the current TimeEntry source snapshot
+for the requested business date. Deleted/archived entries remain countable as
+source lifecycle facts but do not enter current hours or wages. Valid active or
+unresolved labor facts produce an explicit `incomplete` aggregate result;
+missing, malformed, inaccessible, cancelled, or failed required sources
+produce `denied` without totals.
+
+The labor tool uses an identifier-only in-memory Orders server join. It never
+returns employee identities or raw employee data. It calculates regular wages
+only from explicit hourly wage and regular hours. It reports overtime hours but
+does not calculate overtime wages without a source multiplier. It uses Orders
+payment facts, not TimeEntry sales/tip fields, for sales and tip aggregates.
 
 ### Menus and inventory analysis
 
