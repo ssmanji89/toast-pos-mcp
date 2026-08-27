@@ -143,6 +143,7 @@ test("location context refreshes at the bounded age and never serves stale conte
   let now = 1_800_000_000_000;
   let partnersCalls = 0;
   let restaurantCalls = 0;
+  let authCalls = 0;
   let failRefresh = false;
 
   const runtime = createApplicationRuntime({
@@ -152,13 +153,16 @@ test("location context refreshes at the bounded age and never serves stale conte
     maxAttempts: 1,
     random: () => 0,
     sleep: async () => undefined,
-    authFetch: async () => jsonResponse({
+    authFetch: async () => {
+      authCalls += 1;
+      return jsonResponse({
       token: {
         tokenType: "Bearer",
         expiresIn: 3600,
         accessToken: "synthetic-location-freshness-token",
       },
-    }),
+      });
+    },
     dataFetch: async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/partners/v1/restaurants") {
@@ -205,6 +209,7 @@ test("location context refreshes at the bounded age and never serves stale conte
   assert.equal(first.freshness.maxAgeMs, 1_000);
   assert.equal(partnersCalls, 1);
   assert.equal(restaurantCalls, 1);
+  assert.equal(authCalls, 1);
 
   now += 999;
   const stillFresh = await runtime.getLocationContext(RESTAURANT_GUID);
@@ -220,6 +225,15 @@ test("location context refreshes at the bounded age and never serves stale conte
   assert.equal(partnersCalls, 2);
   assert.equal(restaurantCalls, 2);
 
+  // The injected clock is shared by runtime freshness, transport provenance,
+  // and OAuth token refresh. At this boundary it refreshes all three.
+  now += 3_540_000;
+  const tokenRefreshed = await runtime.getLocationContext(RESTAURANT_GUID);
+  assert.equal(tokenRefreshed.freshness.ageMs, 0);
+  assert.equal(partnersCalls, 3);
+  assert.equal(restaurantCalls, 3);
+  assert.equal(authCalls, 2);
+
   now += 1_000;
   failRefresh = true;
   await assert.rejects(
@@ -231,16 +245,16 @@ test("location context refreshes at the bounded age and never serves stale conte
       return true;
     },
   );
-  assert.equal(partnersCalls, 3);
-  assert.equal(restaurantCalls, 2);
+  assert.equal(partnersCalls, 4);
+  assert.equal(restaurantCalls, 3);
 
   // Old context still exists internally, but the next caller must try to
   // refresh again rather than silently serving it as current.
   failRefresh = false;
   const recovered = await runtime.getLocationContext(RESTAURANT_GUID);
-  assert.equal(recovered.location.name, "Freshness Cafe 3");
-  assert.equal(partnersCalls, 4);
-  assert.equal(restaurantCalls, 3);
+  assert.equal(recovered.location.name, "Freshness Cafe 4");
+  assert.equal(partnersCalls, 5);
+  assert.equal(restaurantCalls, 4);
 });
 
 test("streaming sales guard rejects every T3-001 batch-global entity repeated on a later page", () => {
