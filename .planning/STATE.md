@@ -28,7 +28,7 @@ milestone_name: Public local Toast reporting MCP
 | successful transport provenance | #15 / PR #29 | merged as `afdffee57a43207bc045b08e2be1eae2e6d4bd23` | CLOSED; Node 20/22 gates passed, independent review CLEAN; detailed results retain immutable API family and request scope |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
 | MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
-| stateless/reconnect/cancellation compatibility | #4 | research intake | must be resliced/reconciled before user-facing tool lifecycle is considered production-proven |
+| stateless/reconnect/cancellation compatibility | #4 / PR #45 | merged as `4a069937`; reviewed CLEAN at `a406b479` | local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is merged; first-tool-request cancellation remains the owned T6-003 release gate |
 | ordersBulk bounded-memory/page-fold prerequisite | #31 / PR #35 | merged as `ca02850f6a052ffe0ec68bf3ce7679176b08bd85` | CLOSED; Node 20/22 gates passed, independent review CLEAN, issue #31 closed |
 | Toast rate-limit reset semantics and hierarchy | #32 / #36 / PR #37 | merged as `793784e69bb538624ef5b0281abd9ab25481a25e` | CLOSED; Node 20/22 gates passed, 13/13 mutations caught, independent review CLEAN, issue #32 closed |
 | Standard request cancellation | PR #39 | merged as `5714eac747375d2410adab6ff62bb34a230e4c04` | CLOSED; Node 20/22 gates passed, 11/11 cancellation mutations caught, independent review CLEAN; internal pre-T3 boundary only |

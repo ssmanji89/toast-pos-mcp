@@ -66,7 +66,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - T1-001 through T1-006 — closed in `LOOP.md`
 - #32 / PR #37 — closed with exact-head rate-limit evidence
-- #4 / PR #45 — local stdio compatibility candidate built with a first-request cancellation limitation; final validation and review pending
+- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete, while first-tool-request cancellation remains an explicit T6-003 gate
 
 ### Implemented/wired evidence
 
@@ -81,9 +81,8 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 ### Production proof still required
 
-- PR #45 — run authentic locked Node 20.20.2 and Node 22.22.2 gates on one immutable candidate, then obtain independent exact-head CLEAN review;
 - T6-003 — resolve first-tool-request handler cancellation through an SDK correction or separately reviewed local runtime correction before release claims;
-- Phase 3 — prove cancellation through real production report handlers and Toast page-fold paths;
+- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence; retain the distinct first-tool-request handler gate;
 - #28 and Phase 6 — retain owner-authorized live Standard compatibility, terms, packaging, signing, and publication gates.
 
 ---
