@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `e0effdb`
+**Observed `main`:** `b63b6e2`
 
 ## Canonical campaign position
 
@@ -44,7 +44,9 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- start T4-001 with T3's merged production tool chain as its prerequisite;
+- start T4-001 and T4-002 independently with T3-002's merged production tool
+  chain as their prerequisite; GitHub issue #20 records this dependency
+  correction;
 - retain the external release gates without converting synthetic evidence into live proof.
 
 ### Human/external gates
@@ -55,7 +57,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Start T4-001 after confirming its source and capability boundaries.
+1. Start T4-001 and T4-002 with separate source ownership after confirming
+   their source and capability boundaries.
 2. Keep #4/T6-003, #28, and T6 publication/signing as owned external gates.
 
 ## Refresh rule

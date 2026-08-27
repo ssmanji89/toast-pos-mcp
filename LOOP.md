@@ -59,8 +59,8 @@ The server must support operators using their own authorized Toast credentials, 
 | T3-001 | T3 | Normalize orders, checks, selections, payments, taxes, discounts, and service charges | T2-002 | CLOSED |
 | T3-002 | T3 | Implement business-date sales and payment summary tools | T3-001 | CLOSED |
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | CLOSED |
-| T4-001 | T4 | Implement cash-entry and deposit summaries | T3-003 | OPEN |
-| T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T4-001 | OPEN |
+| T4-001 | T4 | Implement cash-entry and deposit summaries | T3-002 CLOSED | OPEN |
+| T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | OPEN |
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
@@ -412,7 +412,10 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T4-001 — cash-entry and deposit reporting.
+- **Next slices:** T4-001 cash-entry/deposit reporting and T4-002 labor
+  reporting. They are independent after T3-002 merged. This follows GitHub
+  issue #20. Their branches must isolate source work and reconcile the shared
+  tool-registration surface before merge.
 - **Required action:** preserve the closed T3 production chain and retain every
   external release gate as an explicit dependency.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live

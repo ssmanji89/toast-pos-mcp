@@ -300,22 +300,23 @@ server.registerTool("toast_cash_summary", {
 
 All technical claims in this research are verified against current repository code or cited Toast documentation. No assumption requires user confirmation.
 
-## Open Questions
+## Resolved Scope Decisions
 
-1. **What exact cash summary formula belongs in T4-001?**
-   - What we know: The slice requires cash-entry and deposit summaries. Toast documents a separate expected-deposit formula that also needs Orders payments. [VERIFIED: LOOP.md] [CITED: https://doc.toasttab.com/doc/devguide/apiCalculatingExpectedCashDeposits.html]
-   - What is unclear: The phase text does not include the expected-deposit formula.
-   - Recommendation: Keep T4-001 limited to entries, deposits, closeouts, reversals, and declared drawer context. Make expected-deposit calculation a separately scoped future tool with `orders:read`.
+1. **Cash formula scope — resolved.**
+   - T4-001 reports observed cash-entry and deposit facts, closeouts, reversals, and declared drawer/reason context.
+   - It does not calculate expected deposits or guest cash payments. Those formulas require Orders payment facts and a separate, capability-gated tool. [VERIFIED: LOOP.md] [CITED: https://doc.toasttab.com/doc/devguide/apiCalculatingExpectedCashDeposits.html]
 
-2. **How far must labor revision repair look back?**
-   - What we know: Toast supports `modifiedStartDate` and `modifiedEndDate`, includes archived records in that mode, and limits a range to one month. [CITED: https://doc.toasttab.com/openapi/labor/operation/timeEntriesGet/]
-   - What is unclear: The project has no persisted reconciliation store or selected repair lookback policy.
-   - Recommendation: Make the report's direct business-date read authoritative at retrieval time. Add no silent historical repair loop in T4-002. Record a later backfill policy as a separate decision.
+2. **Labor revision policy — resolved.**
+   - Each invocation returns a current-source snapshot for its requested business date.
+   - The builder uses a restaurant-local `startDate`/`endDate` window with `includeArchived=true` and validates source `businessDate` before folding.
+   - A revised or archived record returned in that window replaces earlier source facts for that invocation. Deleted records remain explicit exclusions.
+   - The tool does not persist a reconciliation store or start a silent `modifiedStartDate`/`modifiedEndDate` repair scan.
+   - Tests must prove revised and archived source records change only the current invocation result and preserve the source snapshot/freshness provenance. A separate future slice owns historical backfill policy. [CITED: https://doc.toasttab.com/openapi/labor/operation/timeEntriesGet/]
 
-3. **Should individual employee reports ever be exposed?**
-   - What we know: The product requires data minimization and aggregate default output. [VERIFIED: AGENTS.md]
-   - What is unclear: No approved individual-report contract exists.
-   - Recommendation: Exclude individual employee output from Phase 4. Require a separate privacy and consent review before adding it.
+3. **Employee report scope — resolved.**
+   - T4-002 returns aggregate output only.
+   - Employee identifiers may exist only in a bounded in-memory join. Employee names, GUIDs, external identifiers, contact data, and raw records cannot reach a result.
+   - A separate privacy, consent, and tool-contract review is required before an individual employee report can exist. [VERIFIED: AGENTS.md]
 
 ## Environment Availability
 
