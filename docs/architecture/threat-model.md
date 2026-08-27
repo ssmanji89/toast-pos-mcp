@@ -7,6 +7,14 @@
 
 This document extends the accepted architecture decision with a concrete threat catalog. It does not reopen or restate the decision itself; where the two overlap, `public-use-boundary.md` remains the authority on what the product *will* do, and this document is the authority on what can go wrong and what already mitigates it *today*.
 
+## T5-001 Analytics authority boundary
+
+T5-001 adds one internal Analytics authority boundary. It uses optional all-or-nothing `TOAST_ANALYTICS_*` configuration, a private Analytics credential identity, and an Analytics-only `enterprise-metrics:read` preflight. Standard credentials, connection scopes, location state, and rate-limit state cannot satisfy this preflight or act as fallback authority.
+
+The only T5-001 Analytics data operation is the literal `GET /era/v1/restaurants-information`. It sends no Standard restaurant header. Its closed operation type cannot construct arbitrary paths or an Analytics guest-payment request. The adapter validates and minimizes restaurant facts, rejects malformed or duplicate identities before publication, freezes its registry, and binds a canonical non-empty selected set to the private Analytics credential identity. Cancellation and the endpoint-only limiter remain inside the Analytics adapter.
+
+This local synthetic implementation does not prove live Analytics compatibility. It does not add an MCP tool, report-job lifecycle, report result, or stdio tool path. T5-002 owns job lifecycle and dataset/time-range policy. T5-003 owns Analytics tool registration and presentation. The static T5-001 guard matrix records which focused tests and mutations support each claim. Missing named mutation proofs block exact-head validation and independent review completion.
+
 ## 0. Ground truth at time of writing
 
 Before modeling threats, this section fixes what actually exists, because a threat model for planned features would be fiction.

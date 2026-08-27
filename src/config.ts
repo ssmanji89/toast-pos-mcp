@@ -53,6 +53,14 @@ const RUNTIME_CONFIG_ENV_KEYS = [
 ] as const;
 
 type RuntimeConfigEnvKey = (typeof RUNTIME_CONFIG_ENV_KEYS)[number];
+const ANALYTICS_RUNTIME_CONFIG_ENV_KEYS = [
+  "TOAST_ANALYTICS_API_HOSTNAME",
+  "TOAST_ANALYTICS_ACCESS_TYPE",
+  "TOAST_ANALYTICS_CLIENT_ID",
+  "TOAST_ANALYTICS_CLIENT_SECRET",
+] as const;
+type AnalyticsRuntimeConfigEnvKey =
+  (typeof ANALYTICS_RUNTIME_CONFIG_ENV_KEYS)[number];
 
 /** Environment variable names whose values must never be echoed, logged, or returned. */
 const CREDENTIAL_ENV_KEYS = new Set<RuntimeConfigEnvKey>([
@@ -62,7 +70,7 @@ const CREDENTIAL_ENV_KEYS = new Set<RuntimeConfigEnvKey>([
 
 export interface RuntimeConfigIssue {
   /** The environment variable this issue concerns. */
-  readonly field: RuntimeConfigEnvKey;
+  readonly field: RuntimeConfigEnvKey | AnalyticsRuntimeConfigEnvKey;
   /** An actionable description that never includes the raw configured value. */
   readonly message: string;
 }
@@ -102,12 +110,23 @@ export interface RuntimeConfig {
   readonly merchantAiConsentAcknowledged: true;
 }
 
+/** Optional, separate Analytics authority. Credentials remain private. */
+export interface AnalyticsRuntimeConfig {
+  readonly apiHostname: string;
+  readonly machineClientAccessType: typeof DOCUMENTED_MACHINE_CLIENT_ACCESS_TYPE;
+}
+
 /**
  * The Toast OAuth client-credentials pair. Obtainable only via
  * {@link getRuntimeConfigCredentials}; never an own property of a
  * {@link RuntimeConfig}.
  */
 export interface RuntimeConfigCredentials {
+  readonly clientId: string;
+  readonly clientSecret: string;
+}
+
+export interface AnalyticsRuntimeConfigCredentials {
   readonly clientId: string;
   readonly clientSecret: string;
 }
@@ -121,6 +140,14 @@ export interface RuntimeConfigCredentials {
  * reference.
  */
 const credentialsByConfig = new WeakMap<RuntimeConfig, RuntimeConfigCredentials>();
+const analyticsConfigByRuntimeConfig = new WeakMap<
+  RuntimeConfig,
+  AnalyticsRuntimeConfig
+>();
+const analyticsCredentialsByConfig = new WeakMap<
+  AnalyticsRuntimeConfig,
+  AnalyticsRuntimeConfigCredentials
+>();
 
 /**
  * The sole deliberate, named accessor for the OAuth client-credentials pair
@@ -150,6 +177,26 @@ export function getRuntimeConfigCredentials(
     );
   }
 
+  return credentials;
+}
+
+/** Return the optional independent Analytics authority for this runtime. */
+export function getAnalyticsRuntimeConfig(
+  config: RuntimeConfig,
+): AnalyticsRuntimeConfig | undefined {
+  return analyticsConfigByRuntimeConfig.get(config);
+}
+
+/** Deliberate accessor for private Analytics OAuth credentials only. */
+export function getAnalyticsRuntimeConfigCredentials(
+  config: AnalyticsRuntimeConfig,
+): AnalyticsRuntimeConfigCredentials {
+  const credentials = analyticsCredentialsByConfig.get(config);
+  if (credentials === undefined) {
+    throw new TypeError(
+      "getAnalyticsRuntimeConfigCredentials requires an Analytics configuration from loadRuntimeConfig.",
+    );
+  }
   return credentials;
 }
 
@@ -349,6 +396,7 @@ function validateMerchantAiConsentAcknowledgment(
 function finalizeRuntimeConfig(
   config: RuntimeConfig,
   credentials: RuntimeConfigCredentials,
+  analytics: { readonly config: AnalyticsRuntimeConfig; readonly credentials: AnalyticsRuntimeConfigCredentials } | undefined,
 ): RuntimeConfig {
   const frozenConfig = Object.freeze(config);
 
@@ -356,6 +404,15 @@ function finalizeRuntimeConfig(
     frozenConfig,
     Object.freeze({ ...credentials }),
   );
+
+  if (analytics !== undefined) {
+    const frozenAnalyticsConfig = Object.freeze(analytics.config);
+    analyticsCredentialsByConfig.set(
+      frozenAnalyticsConfig,
+      Object.freeze({ ...analytics.credentials }),
+    );
+    analyticsConfigByRuntimeConfig.set(frozenConfig, frozenAnalyticsConfig);
+  }
 
   return frozenConfig;
 }
@@ -398,6 +455,7 @@ export function loadRuntimeConfig(
     source.TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED,
     issues,
   );
+  const analytics = validateOptionalAnalyticsConfig(source, issues);
 
   if (issues.length > 0) {
     throw new RuntimeConfigError(issues);
@@ -410,7 +468,48 @@ export function loadRuntimeConfig(
     merchantAiConsentAcknowledged,
   };
 
-  return finalizeRuntimeConfig(config, { clientId, clientSecret });
+  return finalizeRuntimeConfig(config, { clientId, clientSecret }, analytics);
+}
+
+function validateOptionalAnalyticsConfig(
+  source: RuntimeConfigSource,
+  issues: RuntimeConfigIssue[],
+): { readonly config: AnalyticsRuntimeConfig; readonly credentials: AnalyticsRuntimeConfigCredentials } | undefined {
+  const fields = [
+    "TOAST_ANALYTICS_API_HOSTNAME",
+    "TOAST_ANALYTICS_ACCESS_TYPE",
+    "TOAST_ANALYTICS_CLIENT_ID",
+    "TOAST_ANALYTICS_CLIENT_SECRET",
+  ] as const;
+  const supplied = fields.filter((field) => source[field] !== undefined);
+  if (supplied.length === 0) return undefined;
+
+  for (const field of fields) {
+    const value = source[field];
+    if (value === undefined || isBlank(value)) {
+      issues.push({ field, message: "is required when any Analytics configuration value is set. The value itself is never echoed back." });
+    }
+  }
+  const hostname = source.TOAST_ANALYTICS_API_HOSTNAME;
+  if (hostname !== undefined && !isBlank(hostname) && (hasSurroundingWhitespace(hostname) || hostname.includes("://") || !hostnameSchema.safeParse(hostname).success)) {
+    issues.push({ field: "TOAST_ANALYTICS_API_HOSTNAME", message: "must be a bare hostname with no scheme, path, query, or port." });
+  }
+  const accessType = source.TOAST_ANALYTICS_ACCESS_TYPE;
+  if (accessType !== undefined && !isBlank(accessType) && !accessTypeSchema.safeParse(accessType).success) {
+    issues.push({ field: "TOAST_ANALYTICS_ACCESS_TYPE", message: `must be set to the exact documented value \"${DOCUMENTED_MACHINE_CLIENT_ACCESS_TYPE}\".` });
+  }
+  for (const field of ["TOAST_ANALYTICS_CLIENT_ID", "TOAST_ANALYTICS_CLIENT_SECRET"] as const) {
+    const value = source[field];
+    if (value !== undefined && !isBlank(value) && (hasSurroundingWhitespace(value) || !nonBlankCredentialSchema.safeParse(value).success)) {
+      issues.push({ field, message: "must be a non-empty credential without leading or trailing whitespace. The value itself is never echoed back." });
+    }
+  }
+  if (issues.some((issue) => fields.includes(issue.field as (typeof fields)[number]))) return undefined;
+
+  return {
+    config: { apiHostname: hostname!, machineClientAccessType: DOCUMENTED_MACHINE_CLIENT_ACCESS_TYPE },
+    credentials: { clientId: source.TOAST_ANALYTICS_CLIENT_ID!, clientSecret: source.TOAST_ANALYTICS_CLIENT_SECRET! },
+  };
 }
 
 /** Env keys this module reads. Exported so tests can assert exhaustiveness. */

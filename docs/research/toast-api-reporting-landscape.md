@@ -241,6 +241,14 @@ The initial product may report read-only stock status when `stock:read` is avail
 
 ### Analytics API reporting
 
+#### T5-001 implemented authority boundary
+
+T5-001 adds only an internal Analytics authority and management-group restaurant-discovery adapter. Its optional local configuration uses `TOAST_ANALYTICS_API_HOSTNAME`, `TOAST_ANALYTICS_ACCESS_TYPE`, `TOAST_ANALYTICS_CLIENT_ID`, and `TOAST_ANALYTICS_CLIENT_SECRET`. All four values must be present and valid. When all four are absent, Standard startup is unchanged. Standard credentials, token state, connection scopes, locations, and rate-limit state are not Analytics fallback inputs.
+
+The adapter requires `enterprise-metrics:read` before its sole operation: `GET /era/v1/restaurants-information`. The request uses the separate Analytics credential and omits `Toast-Restaurant-External-ID`. It uses a closed operation type, so it cannot create an arbitrary path or Analytics guest-payment request. It validates and minimizes restaurant GUID, name, active, test-mode, and archived facts. It rejects malformed or duplicate records before atomically publishing an immutable registry. A future job call must use a non-empty, canonical UUID subset bound to the private Analytics credential identity.
+
+T5-001 has no Analytics report POST or GET lifecycle, no `reportRequestGuid`, no MCP tool, and no stdio tool path. T5-002 owns report jobs, polling, expiry, 409 replacement, and endpoint/time-range policy. T5-003 owns source-labelled Analytics report presentation. Synthetic evidence does not prove authorized live Analytics compatibility.
+
 The initial Analytics adapter may support:
 
 - aggregated sales
@@ -337,6 +345,7 @@ Analytics API limits depend on method, dataset endpoint, and time range. Represe
 - menu custom range POST: 10 requests/hour
 - payout payments day POST: 5 requests/minute and 60 requests/day
 - Analytics report GET endpoints: commonly 5 requests/second and 30 requests/minute
+- Analytics restaurant-information GET: 5 requests/second and 30 requests/minute
 
 The shared limiter must key Analytics limits by method, endpoint, time range, credential identity, and management-group or restaurant-set identity. It must not reuse Standard API defaults for Analytics POST or GET operations.
 

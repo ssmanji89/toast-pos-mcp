@@ -82,6 +82,10 @@ Optional:
 | Variable | Purpose |
 |---|---|
 | `TOAST_DEFAULT_RESTAURANT_GUID` | Bootstrap restaurant GUID. It fails closed when the configured location is not accessible to the credential. |
+| `TOAST_ANALYTICS_API_HOSTNAME` | Analytics API hostname. Set this only with the other three Analytics variables. |
+| `TOAST_ANALYTICS_ACCESS_TYPE` | Analytics machine-client access type. |
+| `TOAST_ANALYTICS_CLIENT_ID` | Analytics OAuth client ID. |
+| `TOAST_ANALYTICS_CLIENT_SECRET` | Analytics OAuth client secret. |
 
 If any required variable is absent or invalid, or `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED` is not exactly `true`, the process fails closed: it exits non-zero before opening the MCP transport and prints only a generic startup-failure message on stderr, never a configured value. `TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` records operator intent only; it does not by itself establish that Merchant consent is legally sufficient. See [`docs/architecture/public-use-boundary.md`](docs/architecture/public-use-boundary.md).
 
@@ -94,6 +98,14 @@ The location layer consumes the Partners accessible-restaurants source when it i
 Toast documentation conflicts on Standard credential access to `/partners/v1/restaurants`. An authorization failure returns static `location_discovery_source_unavailable`. The runtime never falls back to every management-group location. Issue #28 records the required live release proof.
 
 Capability preflight uses two independent Toast authorities for the selected restaurant. It intersects the current authentication-token JWT scopes with that restaurant connection's scopes. It then removes guest-linked scopes. A missing scope returns a deterministic denial with global or connection diagnostics. A product-excluded scope returns `excluded_scope_required`. A generic Toast 403 remains an invocation-level denial. It is never cached as capability state. See [`docs/research/toast-auth-capability-contract.md`](docs/research/toast-auth-capability-contract.md).
+
+### Internal Analytics authority
+
+The four optional `TOAST_ANALYTICS_*` values are an all-or-nothing local contract. They are operator-supplied, non-persistent, and separate from Standard credentials. When all four values are absent, Standard startup does not change. When any value is absent or invalid, Analytics authority is unavailable and fails closed. The runtime never uses Standard host, access-type, client-ID, or client-secret values as Analytics fallback values.
+
+T5-001 provides an internal, capability-gated Analytics management-group discovery adapter. It requires `enterprise-metrics:read` before its only operation: `GET /era/v1/restaurants-information`. The closed operation sends no `Toast-Restaurant-External-ID` header. It does not construct guest-payment routes or request guest-linked data, including `cardFingerprint`. It validates and freezes a minimized restaurant registry. Later callers must submit a non-empty, canonical UUID subset that binds to the private Analytics credential identity.
+
+This is not an MCP tool, a stdio tool path, an Analytics report, or live-compatibility proof. T5-002 owns report-job creation, polling, expiry, 409 replacement, and dataset/time-range policy. T5-003 owns Analytics report tools and presentation. Authorized live Analytics access, Merchant consent for AI processing, first-tool-request cancellation, signing, publication, and install smoke remain release gates.
 
 ## MCP stdio failure behavior
 
