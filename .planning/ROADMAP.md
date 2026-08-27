@@ -2,14 +2,14 @@
 
 **Method:** GSD-style outcome planning over the binding `LOOP.md` slice ledger  
 **Authority:** `LOOP.md` + GitHub are canonical for atomic state; this ROADMAP is the outcome/verification projection  
-**Updated:** 2026-08-26
+**Updated:** 2026-08-27
 
 ## v1.0 — Public local Toast reporting MCP
 
 - [x] **Phase 0: Product and safety foundation**
 - [ ] **Phase 1: Local runtime and Standard transport foundation**
 - [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
-- [ ] **Phase 3: Core Standard reporting and real MCP tool wiring**
+- [x] **Phase 3: Core Standard reporting and real MCP tool wiring**
 - [ ] **Phase 4: Cash and labor reporting**
 - [ ] **Phase 5: Source-distinct Analytics adapter and tools**
 - [ ] **Phase 6: Release hardening and public compatibility proof**
@@ -77,7 +77,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 - official legacy and modern clients prove sequential and concurrent requests on one retained process and clean process restart;
 - an official modern client proves handler-observed cancellation and same-process reuse through a synthetic test-only handler after a nonzero request ID;
 - a first-tool-request fixture records that MCP SDK 2.0.0 does not abort handler request ID `0`;
-- no Toast reporting tool is yet registered, so transport reachability is internal rather than user-visible.
+- PR #40 and PR #41 register and prove the Standard reporting tools through the production stdio boundary; Phase 3 cancellation evidence covers report handlers and page-fold paths.
 
 ### Production proof still required
 
