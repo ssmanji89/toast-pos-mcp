@@ -20,7 +20,7 @@ This matrix maps T5-001 safety guards to focused compiled tests and source mutat
 | G10 | Restaurant records require the validated source schema. | `analytics-access-adapter.test.js`: malformed source rejection | `analytics-schema` | MAPPED |
 | G11 | Duplicate restaurant GUIDs fail before publication. | `analytics-access-adapter.test.js`: duplicate identifiers and atomic validation | `analytics-duplicate-guid` | MAPPED |
 | G12 | A failed refresh does not replace a complete registry. | `analytics-access-adapter.test.js`: validates atomically | `analytics-atomic-publication` | MAPPED |
-| G13 | Selected restaurant sets contain only valid UUIDs. | `analytics-access-adapter.test.js`: canonical non-empty UUID subset | `analytics-selection-uuid` | MAPPED |
+| G13 | Selected restaurant sets contain only primitive valid UUID values before membership normalization. | `analytics-access-adapter.test.js`: canonical non-empty UUID subset | `analytics-selection-uuid` | MAPPED |
 | G14 | Selected restaurant sets reject duplicates. | `analytics-access-adapter.test.js`: canonical non-empty UUID subset | `analytics-selection-duplicate` | MAPPED |
 | G15 | Selected restaurant sets reject inaccessible members. | `analytics-access-adapter.test.js`: canonical non-empty UUID subset | `analytics-selection-membership` | MAPPED |
 | G16 | Selected restaurant sets canonicalize normalized GUID order. | `analytics-access-adapter.test.js`: canonical non-empty UUID subset | `analytics-selection-canonicalization` | MAPPED |

@@ -46,7 +46,7 @@ const guards = Object.freeze([
   ["analytics-schema", accessSourcePath, "restaurantGuid: restaurantGuidSchema", "restaurantGuid: z.string()"],
   ["analytics-duplicate-guid", accessSourcePath, "seenRestaurantGuids.has", "false"],
   ["analytics-atomic-publication", accessSourcePath, "this.#state.registry = registry;", "this.#state.registry = undefined;"],
-  ["analytics-selection-uuid", accessSourcePath, "restaurantGuidSchema.safeParse(guid).success", "true"],
+  ["analytics-selection-uuid", accessSourcePath, "restaurantGuidSchema.safeParse(restaurantGuid).success", "true"],
   ["analytics-selection-duplicate", accessSourcePath, "seen.has", "false"],
   ["analytics-selection-membership", accessSourcePath, "!registryByGuid.has(guid)", "false"],
   ["analytics-selection-canonicalization", accessSourcePath, "normalized.sort();", "normalized.sort((first, second) => second.localeCompare(first));"],

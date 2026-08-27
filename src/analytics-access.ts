@@ -103,20 +103,25 @@ export class AnalyticsAccessAdapter {
   }
 
   async refreshManagementGroupRestaurants(options: { readonly signal?: AbortSignal } = {}): Promise<AnalyticsRestaurantRegistry> {
-    if (options.signal?.aborted) throw options.signal.reason;
+    throwIfAnalyticsRequestCancelled(options.signal);
     const decision = await decideAnalyticsCapability(this.#tokenManager);
     if (decision.status === "denied") {
       throw new AnalyticsAccessError("analytics_scope_unavailable", "Analytics access is denied because enterprise-metrics:read is not provisioned.");
     }
     await this.#waitForEndpointCapacity(options.signal);
-    const response = await this.#fetch(
-      `https://${this.#hostname}${ANALYTICS_RESTAURANT_INFORMATION_PATH}`,
-      {
-        method: "GET",
-        headers: { authorization: await this.#tokenManager.getAuthorizationHeader() },
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      },
-    );
+    let response: Response;
+    try {
+      response = await this.#fetch(
+        `https://${this.#hostname}${ANALYTICS_RESTAURANT_INFORMATION_PATH}`,
+        {
+          method: "GET",
+          headers: { authorization: await this.#tokenManager.getAuthorizationHeader() },
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+        },
+      );
+    } catch {
+      throw analyticsRequestFailure();
+    }
     if (!response.ok) {
       throw new AnalyticsAccessError("analytics_request_failed", "Analytics restaurant-information request did not succeed.");
     }
@@ -141,7 +146,7 @@ export class AnalyticsAccessAdapter {
   }
 
   async #waitForEndpointCapacity(signal: AbortSignal | undefined): Promise<void> {
-    if (signal?.aborted) throw signal.reason;
+    throwIfAnalyticsRequestCancelled(signal);
     const now = this.#now();
     this.#state.requestEpochMs = this.#state.requestEpochMs.filter((at) => at > now - 60_000);
     const secondCount = this.#state.requestEpochMs.filter((at) => at > now - 1_000).length;
@@ -150,7 +155,7 @@ export class AnalyticsAccessAdapter {
         ? this.#state.requestEpochMs[this.#state.requestEpochMs.length - secondCount]! + 1_000
         : this.#state.requestEpochMs[0]! + 60_000;
       await this.#sleep(Math.max(1, boundary - now));
-      if (signal?.aborted) throw signal.reason;
+      throwIfAnalyticsRequestCancelled(signal);
       return this.#waitForEndpointCapacity(signal);
     }
     this.#state.requestEpochMs.push(now);
@@ -174,8 +179,11 @@ export function validateAnalyticsRestaurantSelection(
   const seen = new Set<string>();
   const normalized: string[] = [];
   for (const restaurantGuid of restaurantGuids) {
+    if (!restaurantGuidSchema.safeParse(restaurantGuid).success) {
+      throw selectionError();
+    }
     const guid = restaurantGuid.toLowerCase();
-    if (!restaurantGuidSchema.safeParse(guid).success || seen.has(guid) || !registryByGuid.has(guid)) {
+    if (seen.has(guid) || !registryByGuid.has(guid)) {
       throw selectionError();
     }
     seen.add(guid);
@@ -196,7 +204,7 @@ function bindAnalyticsRegistry(
 }
 
 function analyticsIdentityStateKey(identity: object): object {
-  return identity;
+  return AnalyticsAccessAdapter;
 }
 
 function normalizeAnalyticsRegistry(payload: unknown): AnalyticsRestaurantRegistry {
@@ -217,4 +225,15 @@ function normalizeAnalyticsRegistry(payload: unknown): AnalyticsRestaurantRegist
 
 function selectionError(): AnalyticsAccessError {
   return new AnalyticsAccessError("analytics_selection_invalid", "Analytics restaurant selection must be a non-empty unique UUID subset of the validated management-group registry.");
+}
+
+function throwIfAnalyticsRequestCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw analyticsRequestFailure();
+}
+
+function analyticsRequestFailure(): AnalyticsAccessError {
+  return new AnalyticsAccessError(
+    "analytics_request_failed",
+    "Analytics restaurant-information request did not complete.",
+  );
 }
