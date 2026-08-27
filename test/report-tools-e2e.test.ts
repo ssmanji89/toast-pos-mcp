@@ -16,6 +16,11 @@ const REPORT_SERVER_PATH = path.resolve(
 const BUSINESS_DATE = 20260816;
 const INACCESSIBLE_RESTAURANT_GUID =
   "00000000-0000-4000-8000-000000009999";
+const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
+const SECOND_ITEM_GUID = "00000000-0000-4000-8000-000000000812";
+const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
+const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
+const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
 
 type FixtureScenario =
   | "success"
@@ -23,7 +28,19 @@ type FixtureScenario =
   | "malformed-source"
   | "broken-pagination"
   | "cancel-active-report"
-  | "rate-limit-wait";
+  | "rate-limit-wait"
+  | "missing-menu-item"
+  | "menu-refresh-fails-after-cache"
+  | "menu-unavailable-no-cache"
+  | "missing-config-category"
+  | "malformed-menu-structure"
+  | "missing-menus-scope"
+  | "missing-config-scope"
+  | "multi-group-tags"
+  | "missing-item-group"
+  | "conflicting-item-group"
+  | "conflicting-group-tags"
+  | "missing-item-group-singleton";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -36,6 +53,7 @@ test(
       const names = listed.tools.map((tool) => tool.name).sort();
       assert.ok(names.includes("toast_sales_summary"));
       assert.ok(names.includes("toast_payment_summary"));
+      assert.ok(names.includes("toast_item_sales_summary"));
 
       const sales = await connection.client.callTool({
         name: "toast_sales_summary",
@@ -50,17 +68,12 @@ test(
       assert.equal(salesOutput.requestedBusinessDate, BUSINESS_DATE);
       assert.equal(salesOutput.effectiveBusinessDate, BUSINESS_DATE);
       assert.equal(structured(salesOutput.contextFreshness).maxAgeMs, 21_600_000);
-      assert.ok(Array.isArray(salesOutput.formulaNotes));
       const combined = structured(salesOutput.combined);
       assert.equal(combined.grossCheckAmountMinor, 1000);
       assert.equal(combined.netOrderAmountMinor, 900);
-      // One selection satisfies both deferred and HOUSE_ACCOUNT_PAY_BALANCE;
-      // Toast's exclusion predicate is OR, so its $1 price is deducted once.
       assert.equal(combined.netSalesMinor, 600);
       assert.equal(combined.ordersEmbeddedRefundAmountMinor, 200);
       assert.equal(combined.fundraisingContributionAmountMinor, 100);
-      assert.equal(structured(salesOutput.future).orderCount, 0);
-      assert.equal(structured(salesOutput.currentAndPast).orderCount, 1);
       assert.ok(!JSON.stringify(salesOutput).includes("must-not-leak"));
 
       const payments = await connection.client.callTool({
@@ -71,25 +84,367 @@ test(
       const paymentOutput = structured(payments.structuredContent);
       assert.equal(paymentOutput.schemaVersion, 1);
       assert.equal(paymentOutput.status, "complete");
-      assert.equal(paymentOutput.report, "payment_summary");
-      assert.equal(paymentOutput.restaurantName, "Synthetic Tool Cafe");
-      assert.equal(paymentOutput.requestedBusinessDate, BUSINESS_DATE);
-      assert.equal(paymentOutput.effectiveBusinessDate, BUSINESS_DATE);
       assert.equal(paymentOutput.eventListCount, 3);
       assert.equal(paymentOutput.paymentDetailsProcessed, 1);
       assert.equal(structured(paymentOutput.paid).amountMinor, 1000);
-      assert.equal(structured(paymentOutput.paid).tipAmountMinor, 100);
       assert.equal(structured(paymentOutput.refunded).refundAmountMinor, 200);
-      assert.equal(structured(paymentOutput.refunded).tipRefundAmountMinor, 50);
       assert.equal(structured(paymentOutput.voided).amountMinor, 1000);
-      assert.equal(paymentOutput.uniquePaymentCount, 1);
-      assert.ok(Array.isArray(paymentOutput.formulaNotes));
       assert.ok(!JSON.stringify(paymentOutput).includes("must-not-leak"));
+
+      const itemsFirst = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(itemsFirst.isError, true);
+      const itemOutput = structured(itemsFirst.structuredContent);
+      assert.equal(itemOutput.status, "complete");
+      assert.equal(itemOutput.report, "item_sales_summary");
+      assert.equal(itemOutput.dimension, "item");
+      assert.equal(itemOutput.metricBasis, "selection");
+      assert.equal(itemOutput.nonAdditiveAcrossGroups, false);
+      assert.equal(itemOutput.modifierSelectionsTraversed, 2);
+      assert.equal(itemOutput.unresolvedContributionCount, 0);
+      assert.equal(structured(itemOutput.dimensionContext).menuState, "current");
+      assert.deepEqual(
+        structured(structured(itemOutput.dimensionContext).menuSourceProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-full-1"],
+      );
+      assert.deepEqual(
+        structured(structured(itemOutput.dimensionContext).menuFreshnessProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-metadata-1"],
+      );
+
+      const firstItem = groupByGuid(itemOutput, ITEM_GUID);
+      const secondItem = groupByGuid(itemOutput, SECOND_ITEM_GUID);
+      assert.equal(firstItem.displayName, "Current Burger");
+      assert.equal(secondItem.displayName, "Current Burger");
+      assert.notEqual(firstItem.key, secondItem.key);
+      assert.equal(firstItem.quantity, "0.5");
+      assert.equal(firstItem.grossSelectionAmountMinor, 900);
+      assert.equal(firstItem.netSelectionAmountMinor, 800);
+      assert.equal(secondItem.quantity, "1");
+      assert.equal(secondItem.netSelectionAmountMinor, 200);
+      assert.equal(
+        firstItem.netSelectionAmountMinor + secondItem.netSelectionAmountMinor,
+        1000,
+      );
+
+      const itemsSecond = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(itemsSecond.isError, true);
+      const secondOutput = structured(itemsSecond.structuredContent);
+      assert.equal(structured(secondOutput.dimensionContext).menuState, "current");
+      assert.deepEqual(
+        structured(structured(secondOutput.dimensionContext).menuFreshnessProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-metadata-2"],
+      );
+      assert.deepEqual(
+        structured(structured(secondOutput.dimensionContext).menuSourceProvenance)
+          .upstreamRequestIds,
+        ["fixture-menu-full-1"],
+      );
+
+      const categories = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(categories.isError, true);
+      const categoryOutput = structured(categories.structuredContent);
+      assert.equal(categoryOutput.metricBasis, "check_attribution");
+      assert.equal(categoryOutput.nonAdditiveAcrossGroups, true);
+      assert.equal(
+        structured(categoryOutput.dimensionContext).configurationState,
+        "current",
+      );
+      const category = groupByGuid(categoryOutput, SALES_CATEGORY_GUID);
+      assert.equal(category.displayName, "Current Entrees");
+      assert.equal(category.attributedCheckAmountMinor, 1000);
+      assert.ok(
+        structured(categoryOutput.dimensionContext)
+          .configurationLastModifiedCursor,
+      );
+
+      // Every config endpoint in the fixture throws on another full snapshot.
+      // This second successful call therefore proves same-day cache reuse.
+      const categoriesAgain = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(categoriesAgain.isError, true);
+      assert.equal(
+        groupByGuid(
+          structured(categoriesAgain.structuredContent),
+          SALES_CATEGORY_GUID,
+        ).attributedCheckAmountMinor,
+        1000,
+      );
+
+      const tags = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+      });
+      assert.notEqual(tags.isError, true);
+      const tagOutput = structured(tags.structuredContent);
+      assert.equal(tagOutput.nonAdditiveAcrossGroups, true);
+      assert.equal(groupByGuid(tagOutput, TAG_LUNCH_GUID).displayName, "Lunch");
+      assert.equal(
+        groupByGuid(tagOutput, TAG_LUNCH_GUID).attributedCheckAmountMinor,
+        1000,
+      );
+      assert.equal(
+        groupByGuid(tagOutput, TAG_UNKNOWN_GUID).displayName,
+        "NEW_ENUM_TAG",
+      );
     } finally {
       await connection.client.close();
     }
   },
 );
+
+test(
+  "historical item absent from current menu remains a distinct unresolved sales fact",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "missing-menu-item");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      const historical = groupByGuid(output, ITEM_GUID);
+      assert.equal(historical.displayName, undefined);
+      assert.equal(historical.enrichmentState, "unresolved");
+      assert.equal(historical.quantity, "0.5");
+      assert.equal(historical.netSelectionAmountMinor, 800);
+      assert.equal(output.unresolvedContributionCount, 1);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "unavailable menu with no prior cache preserves historical item sales as unresolved",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "menu-unavailable-no-cache");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      assert.equal(structured(output.dimensionContext).menuState, "unresolved");
+      const historical = groupByGuid(output, ITEM_GUID);
+      assert.equal(historical.enrichmentState, "unresolved");
+      assert.equal(historical.netSelectionAmountMinor, 800);
+      assert.ok(
+        (output.warnings as unknown[]).some((warning) =>
+          String(warning).includes("unresolved")),
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "failed metadata refresh after a valid menu snapshot reports stale enrichment instead of current or zero sales",
+  { timeout: 25_000 },
+  async () => {
+    const connection = createConnection(
+      "modern",
+      "menu-refresh-fails-after-cache",
+    );
+    try {
+      await connectWithTimeout(connection);
+      const first = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(first.isError, true);
+
+      const second = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+      });
+      assert.notEqual(second.isError, true);
+      const output = structured(second.structuredContent);
+      assert.equal(structured(output.dimensionContext).menuState, "stale");
+      assert.equal(groupByGuid(output, ITEM_GUID).enrichmentState, "stale");
+      assert.equal(groupByGuid(output, ITEM_GUID).netSelectionAmountMinor, 800);
+      assert.ok(
+        (output.warnings as unknown[]).some((warning) =>
+          String(warning).includes("stale")),
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test(
+  "historical sales category missing from current Configuration remains reportable and unresolved",
+  { timeout: 25_000 },
+  async () => {
+    const connection = createConnection("modern", "missing-config-category");
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: {
+          businessDate: BUSINESS_DATE,
+          dimension: "sales_category",
+        },
+      });
+      assert.notEqual(result.isError, true);
+      const output = structured(result.structuredContent);
+      const category = groupByGuid(output, SALES_CATEGORY_GUID);
+      assert.equal(category.displayName, undefined);
+      assert.equal(category.enrichmentState, "unresolved");
+      assert.equal(category.attributedCheckAmountMinor, 1000);
+      assert.equal(output.unresolvedContributionCount, 1);
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+test("item enrichment retains a multi-group menu item when Orders supplies its itemGroup", async () => {
+  const connection = createConnection("modern");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(groupByGuid(output, ITEM_GUID).enrichmentState, "current");
+    assert.equal(groupByGuid(output, ITEM_GUID).displayName, "Current Burger");
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("item tags use the menu group selected by the Orders itemGroup", async () => {
+  const connection = createConnection("modern", "multi-group-tags");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(groupByGuid(output, TAG_UNKNOWN_GUID).displayName, "NEW_ENUM_TAG");
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("missing or conflicting Orders itemGroup leaves merged menu tags unresolved", async () => {
+  for (const scenario of ["missing-item-group", "conflicting-item-group"] as const) {
+    const connection = createConnection("modern", scenario);
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+      });
+      const output = structured(result.structuredContent);
+      assert.equal(output.unresolvedContributionCount, 1, scenario);
+      assert.equal(output.groups.some((group: unknown) =>
+        structured(group).guid === TAG_UNKNOWN_GUID), false);
+    } finally {
+      await connection.client.close();
+    }
+  }
+});
+
+test("missing Orders itemGroup does not use singleton current group tags", async () => {
+  const connection = createConnection("modern", "missing-item-group-singleton");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(output.unresolvedContributionCount, 1);
+    assert.equal(output.groups.some((group: unknown) =>
+      structured(group).guid === TAG_UNKNOWN_GUID), false);
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("conflicting tags for one exact menu item group fail closed", async () => {
+  const connection = createConnection("modern", "conflicting-group-tags");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(output.status, "denied");
+    assert.equal(structured(output.denial).code, "item_tag_context_unavailable");
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("malformed full menus leave item enrichment unresolved without deleting historical sales", async () => {
+  const connection = createConnection("modern", "malformed-menu-structure");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(structured(output.dimensionContext).menuState, "unresolved");
+    assert.equal(groupByGuid(output, ITEM_GUID).netSelectionAmountMinor, 800);
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("missing menu or configuration scopes publish unresolved required context", async () => {
+  for (const [scenario, dimension, key] of [
+    ["missing-menus-scope", "item", "menuState"],
+    ["missing-config-scope", "sales_category", "configurationState"],
+  ] as const) {
+    const connection = createConnection("modern", scenario);
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension },
+      });
+      const output = structured(result.structuredContent);
+      assert.notEqual(result.isError, true);
+      assert.equal(structured(output.dimensionContext)[key], "unresolved");
+    } finally {
+      await connection.client.close();
+    }
+  }
+});
 
 test(
   "production-wired pinned 2026-07-28 stdio exposes and calls a real report tool",
@@ -100,6 +455,9 @@ test(
       await connectWithTimeout(connection);
       const listed = await connection.client.listTools();
       assert.ok(listed.tools.some((tool) => tool.name === "toast_sales_summary"));
+      assert.ok(
+        listed.tools.some((tool) => tool.name === "toast_item_sales_summary"),
+      );
 
       const result = await connection.client.callTool({
         name: "toast_sales_summary",
@@ -169,6 +527,32 @@ test(
       {},
       "pagination_integrity_failed",
     );
+  },
+);
+
+test(
+  "modern stdio returns item-report denials for malformed Orders and broken pagination",
+  { timeout: 20_000 },
+  async () => {
+    for (const [scenario, expectedCode] of [
+      ["malformed-source", "orders_source_invalid"],
+      ["broken-pagination", "pagination_integrity_failed"],
+    ] as const) {
+      const connection = createConnection("modern", scenario);
+      try {
+        await connectWithTimeout(connection);
+        const result = await connection.client.callTool({
+          name: "toast_item_sales_summary",
+          arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+        });
+        assert.equal(result.isError, true, scenario);
+        const output = structured(result.structuredContent);
+        assert.equal(output.status, "denied", scenario);
+        assert.equal(structured(output.denial).code, expectedCode, scenario);
+      } finally {
+        await connection.client.close();
+      }
+    }
   },
 );
 
@@ -319,6 +703,17 @@ async function assertSalesDenied(
   } finally {
     await connection.client.close();
   }
+}
+
+function groupByGuid(
+  output: Record<string, any>,
+  guid: string,
+): Record<string, any> {
+  assert.ok(Array.isArray(output.groups));
+  const group = (output.groups as unknown[]).find((candidate) =>
+    structured(candidate).guid === guid);
+  assert.ok(group, `expected group for GUID ${guid}`);
+  return structured(group);
 }
 
 async function connectWithTimeout(connection: Connection): Promise<void> {

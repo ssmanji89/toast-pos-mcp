@@ -279,7 +279,7 @@ async function assertReportServerIdentity(client: Client): Promise<void> {
   const listed = await client.listTools();
   assert.deepEqual(
     listed.tools.map((tool) => tool.name).sort(),
-    ["toast_payment_summary", "toast_sales_summary"],
+    ["toast_item_sales_summary", "toast_payment_summary", "toast_sales_summary"],
   );
 }
 

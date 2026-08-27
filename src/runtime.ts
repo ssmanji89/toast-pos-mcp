@@ -8,6 +8,7 @@ import {
   type RuntimeConfig,
   type RuntimeConfigSource,
 } from "./config.js";
+import { StandardDimensionContextProvider } from "./dimension-context.js";
 import {
   createLocationRegistry,
   discoverStandardLocations,
@@ -87,6 +88,7 @@ export class ApplicationRuntimeError extends Error {
  */
 export class ApplicationRuntime {
   readonly config: RuntimeConfig;
+  readonly dimensionContextProvider: StandardDimensionContextProvider;
   readonly locationContextMaxAgeMs: number;
   readonly locationRegistry: ToastLocationRegistry;
   readonly now: () => number;
@@ -109,6 +111,10 @@ export class ApplicationRuntime {
     locationRegistry: ToastLocationRegistry,
     now: () => number,
     locationContextMaxAgeMs = DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
+    dimensionContextProvider = new StandardDimensionContextProvider(
+      toastHttpClient,
+      now,
+    ),
   ) {
     if (
       !Number.isSafeInteger(locationContextMaxAgeMs)
@@ -125,6 +131,7 @@ export class ApplicationRuntime {
     this.locationRegistry = locationRegistry;
     this.now = now;
     this.locationContextMaxAgeMs = locationContextMaxAgeMs;
+    this.dimensionContextProvider = dimensionContextProvider;
   }
 
   async getLocation(
