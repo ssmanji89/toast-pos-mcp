@@ -36,7 +36,9 @@ type FixtureScenario =
   | "malformed-menu-structure"
   | "missing-menus-scope"
   | "missing-config-scope"
-  | "multi-group-tags";
+  | "multi-group-tags"
+  | "missing-item-group"
+  | "conflicting-item-group";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -350,6 +352,25 @@ test("item tags use the menu group selected by the Orders itemGroup", async () =
     assert.equal(groupByGuid(output, TAG_UNKNOWN_GUID).displayName, "NEW_ENUM_TAG");
   } finally {
     await connection.client.close();
+  }
+});
+
+test("missing or conflicting Orders itemGroup leaves merged menu tags unresolved", async () => {
+  for (const scenario of ["missing-item-group", "conflicting-item-group"] as const) {
+    const connection = createConnection("modern", scenario);
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+      });
+      const output = structured(result.structuredContent);
+      assert.equal(output.unresolvedContributionCount, 1, scenario);
+      assert.equal(output.groups.some((group: unknown) =>
+        structured(group).guid === TAG_UNKNOWN_GUID), false);
+    } finally {
+      await connection.client.close();
+    }
   }
 });
 

@@ -47,7 +47,9 @@ type FixtureScenario =
   | "malformed-menu-structure"
   | "missing-menus-scope"
   | "missing-config-scope"
-  | "multi-group-tags";
+  | "multi-group-tags"
+  | "missing-item-group"
+  | "conflicting-item-group";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
@@ -269,7 +271,13 @@ async function syntheticToastFetch(
       );
     }
     return jsonResponse(
-      [syntheticOrder(ITEM_GROUP_GUID)],
+      [syntheticOrder(
+        scenario === "missing-item-group"
+          ? null
+          : scenario === "conflicting-item-group"
+            ? { guid: ITEM_GROUP_GUID, multiLocationId: "synthetic-group-b" }
+            : { guid: ITEM_GROUP_GUID },
+      )],
       "fixture-orders-page-1",
     );
   }
@@ -322,7 +330,7 @@ async function syntheticToastFetch(
   });
 }
 
-function syntheticOrder(primaryItemGroupGuid = ITEM_GROUP_GUID): object {
+function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GROUP_GUID }): object {
   return {
     guid: ORDER_GUID,
     businessDate: BUSINESS_DATE,
@@ -352,7 +360,7 @@ function syntheticOrder(primaryItemGroupGuid = ITEM_GROUP_GUID): object {
           {
             guid: SELECTION_GUID,
             item: { guid: ITEM_GUID },
-            itemGroup: { guid: primaryItemGroupGuid },
+            ...(primaryItemGroup === null ? {} : { itemGroup: primaryItemGroup }),
             salesCategory: { guid: SALES_CATEGORY_GUID },
             diningOption: { guid: DINING_OPTION_GUID },
             quantity: 0.5,
@@ -481,6 +489,7 @@ function syntheticMenus(omitPrimaryItem: boolean): object {
         menuGroups: [
           {
             guid: MENU_GROUP_A_GUID,
+            multiLocationId: "synthetic-group-a",
             name: "Path A",
             menuItems: omitPrimaryItem
               ? [sameNameDifferentGuid]
@@ -488,6 +497,7 @@ function syntheticMenus(omitPrimaryItem: boolean): object {
           },
           {
             guid: MENU_GROUP_B_GUID,
+            multiLocationId: "synthetic-group-b",
             name: "Path B",
             menuItems: omitPrimaryItem ? [] : [primaryB],
           },
@@ -559,6 +569,8 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "missing-menus-scope"
     || value === "missing-config-scope"
     || value === "multi-group-tags"
+    || value === "missing-item-group"
+    || value === "conflicting-item-group"
   ) {
     return value ?? "success";
   }
