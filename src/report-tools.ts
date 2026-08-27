@@ -78,43 +78,8 @@ export function registerStandardReportTools(
   server: McpServer,
   runtime: ApplicationRuntime,
 ): void {
-  server.registerTool(
-    "toast_cash_summary",
-    {
-      title: "Toast Cash Summary",
-      description:
-        "Calculate a deterministic read-only Standard API cash-entry and deposit summary for one Toast business date. Cash Management source facts remain distinct from guest cash payments.",
-      inputSchema: reportInputSchema,
-      outputSchema: baseCompleteOutputSchema,
-      annotations: readOnlyAnnotations(),
-    },
-    async (input, ctx) => toolResult(await buildCashSummaryReport(
-      runtime,
-      input.restaurantGuid === undefined
-        ? { businessDate: input.businessDate }
-        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
-      { signal: ctx.mcpReq.signal },
-    )),
-  );
-
-  server.registerTool(
-    "toast_labor_summary",
-    {
-      title: "Toast Labor Summary",
-      description:
-        "Calculate a deterministic read-only Standard API labor summary for one Toast business date. Active or unresolved labor facts return an explicit incomplete result.",
-      inputSchema: reportInputSchema,
-      outputSchema: laborOutputSchema,
-      annotations: readOnlyAnnotations(),
-    },
-    async (input, ctx) => toolResult(await buildLaborSummaryReport(
-      runtime,
-      input.restaurantGuid === undefined
-        ? { businessDate: input.businessDate }
-        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
-      { signal: ctx.mcpReq.signal },
-    )),
-  );
+  registerCashSummaryTool(server, runtime);
+  registerLaborSummaryTool(server, runtime);
 
   server.registerTool(
     "toast_sales_summary",
@@ -173,6 +138,54 @@ export function registerStandardReportTools(
             dimension: input.dimension,
             restaurantGuid: input.restaurantGuid,
           },
+      { signal: ctx.mcpReq.signal },
+    )),
+  );
+}
+
+function registerCashSummaryTool(
+  server: McpServer,
+  runtime: ApplicationRuntime,
+): void {
+  server.registerTool(
+    "toast_cash_summary",
+    {
+      title: "Toast Cash Summary",
+      description:
+        "Calculate a deterministic read-only Standard API cash-entry and deposit summary for one Toast business date. Cash Management source facts remain distinct from guest cash payments.",
+      inputSchema: reportInputSchema,
+      outputSchema: baseCompleteOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => toolResult(await buildCashSummaryReport(
+      runtime,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
+      { signal: ctx.mcpReq.signal },
+    )),
+  );
+}
+
+function registerLaborSummaryTool(
+  server: McpServer,
+  runtime: ApplicationRuntime,
+): void {
+  server.registerTool(
+    "toast_labor_summary",
+    {
+      title: "Toast Labor Summary",
+      description:
+        "Calculate a deterministic read-only Standard API labor summary for one Toast business date. Active or unresolved labor facts return an explicit incomplete result.",
+      inputSchema: reportInputSchema,
+      outputSchema: laborOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => toolResult(await buildLaborSummaryReport(
+      runtime,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate }
+        : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
     )),
   );
