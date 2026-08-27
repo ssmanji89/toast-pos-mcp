@@ -5,6 +5,11 @@ import type {
   NoSaleReasonSource,
   PayoutReasonSource,
 } from "./cash-report-source.js";
+import {
+  MAX_CASH_ENTRY_TYPES,
+  MAX_CASH_REFERENCE_KEYS,
+  MAX_CASH_SOURCE_RECORDS,
+} from "./cash-report-limits.js";
 import { addMinorUnits, moneyToMinorUnits, ReportComputationError } from "./report-core.js";
 
 export interface CashEntryTypeTotal {
@@ -87,6 +92,7 @@ interface FoldState {
 /** This pure fold reports observed Cash Management facts only. */
 export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
   assertValidBusinessDate(input.businessDate);
+  assertRecordLimits(input);
   const state = createFoldState();
   const entryGuids = collectUniqueGuids(input.entries, "cash entry");
   const depositGuids = collectUniqueGuids(input.deposits, "cash deposit");
@@ -126,6 +132,7 @@ function foldEntries(
   state: FoldState,
 ): void {
   for (const entry of entries) {
+    assertNotSelfReference(entry.guid, entry.undoes);
     const amountMinor = moneyToMinorUnits(entry.amount, "cashEntry.amount");
     state.cashEntryAmountMinor = addMinorUnits(state.cashEntryAmountMinor, amountMinor);
     incrementTypeTotal(state.typeTotals, entry.type, amountMinor);
@@ -147,6 +154,7 @@ function foldDeposits(
   state: FoldState,
 ): void {
   for (const deposit of deposits) {
+    assertNotSelfReference(deposit.guid, deposit.undoes);
     const amountMinor = moneyToMinorUnits(deposit.amount, "cashDeposit.amount");
     const undoneDepositGuid = deposit.undoes;
     const isReversal = undoneDepositGuid != null;
@@ -186,6 +194,7 @@ function freezeFold(input: CashSummaryFoldInput, state: FoldState): CashSummaryF
 function incrementTypeTotal(
   totals: Map<string, MutableTypeTotal>, type: string, amountMinor: number,
 ): void {
+  if (!totals.has(type) && totals.size >= MAX_CASH_ENTRY_TYPES) throw cashSourceLimitExceeded();
   const current = totals.get(type) ?? { entryCount: 0, amountMinor: 0 };
   current.entryCount += 1;
   current.amountMinor = addMinorUnits(current.amountMinor, amountMinor);
@@ -194,6 +203,9 @@ function incrementTypeTotal(
 
 function incrementReference(references: Map<string, MutableReference>, guid: string): void {
   const canonical = canonicalGuid(guid);
+  if (!references.has(canonical) && references.size >= MAX_CASH_REFERENCE_KEYS) {
+    throw cashSourceLimitExceeded();
+  }
   const current = references.get(canonical) ?? { entryCount: 0 };
   current.entryCount += 1;
   references.set(canonical, current);
@@ -239,6 +251,18 @@ function freezeReasonReferences(
 
 function canonicalGuid(value: string): string { return value.toLowerCase(); }
 
+function assertRecordLimits(input: CashSummaryFoldInput): void {
+  for (const records of [
+    input.entries, input.deposits, input.cashDrawers, input.noSaleReasons, input.payoutReasons,
+  ]) if (records.length > MAX_CASH_SOURCE_RECORDS) throw cashSourceLimitExceeded();
+}
+
+function assertNotSelfReference(recordGuid: string, undoneGuid: string | null | undefined): void {
+  if (undoneGuid != null && canonicalGuid(recordGuid) === canonicalGuid(undoneGuid)) {
+    throw cashSourceInvalid();
+  }
+}
+
 export function assertValidBusinessDate(value: number): void {
   const text = String(value);
   const date = new Date(Date.UTC(Number(text.slice(0, 4)), Number(text.slice(4, 6)) - 1, Number(text.slice(6, 8))));
@@ -247,6 +271,13 @@ export function assertValidBusinessDate(value: number): void {
 
 function duplicateSource(entity: string): ReportComputationError {
   return new ReportComputationError("cash_source_duplicate", `Toast cash source contained a duplicate canonical ${entity} GUID.`);
+}
+
+function cashSourceLimitExceeded(): ReportComputationError {
+  return new ReportComputationError(
+    "cash_source_limit_exceeded",
+    "Toast cash source exceeded a deterministic reporting limit.",
+  );
 }
 
 export function cashSourceInvalid(): ReportComputationError {

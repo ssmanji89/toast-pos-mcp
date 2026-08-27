@@ -4,8 +4,12 @@ import {
   guidSchema,
   isValidSourceDateTime,
 } from "./orders-normalization-helpers.js";
+import {
+  MAX_CASH_ENTRY_TYPE_LENGTH,
+  MAX_CASH_SOURCE_RECORDS,
+} from "./cash-report-limits.js";
 
-const openStringSchema = z.string().min(1);
+const openStringSchema = z.string().min(1).max(MAX_CASH_ENTRY_TYPE_LENGTH);
 const sourceMoneySchema = z.number().finite();
 const sourceDateTimeSchema = z.string().min(1).refine(
   isValidSourceDateTime,
@@ -49,11 +53,11 @@ const payoutReasonSchema = z.object({
   guid: guidSchema,
 }).passthrough();
 
-export const cashEntryArraySchema = z.array(cashEntrySchema);
-export const cashDepositArraySchema = z.array(cashDepositSchema);
-export const cashDrawerArraySchema = z.array(cashDrawerSchema);
-export const noSaleReasonArraySchema = z.array(noSaleReasonSchema);
-export const payoutReasonArraySchema = z.array(payoutReasonSchema);
+export const cashEntryArraySchema = z.array(cashEntrySchema).max(MAX_CASH_SOURCE_RECORDS);
+export const cashDepositArraySchema = z.array(cashDepositSchema).max(MAX_CASH_SOURCE_RECORDS);
+export const cashDrawerArraySchema = z.array(cashDrawerSchema).max(MAX_CASH_SOURCE_RECORDS);
+export const noSaleReasonArraySchema = z.array(noSaleReasonSchema).max(MAX_CASH_SOURCE_RECORDS);
+export const payoutReasonArraySchema = z.array(payoutReasonSchema).max(MAX_CASH_SOURCE_RECORDS);
 
 export type CashEntrySource = z.infer<typeof cashEntrySchema>;
 export type CashDepositSource = z.infer<typeof cashDepositSchema>;

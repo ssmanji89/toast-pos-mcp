@@ -193,34 +193,34 @@ async function loadCashSummaryFold(
   signal: AbortSignal | undefined,
 ): Promise<LoadedCashSummary> {
   const provenance = new ReportProvenanceCollector();
-  const entries = await readCashResult(
+  const entries = parseEntries((await readCashResult(
     runtime, "/cashmgmt/v1/entries", restaurantGuid, businessDate,
     "cash-entries", provenance, signal,
-  );
-  const deposits = await readCashResult(
+  )).body);
+  const deposits = parseDeposits((await readCashResult(
     runtime, "/cashmgmt/v1/deposits", restaurantGuid, businessDate,
     "cash-deposits", provenance, signal,
-  );
-  const cashDrawers = await readConfigurationPages(
+  )).body);
+  const cashDrawers = parseConfigurationPages(await readConfigurationPages(
     runtime, "/config/v2/cashDrawers", restaurantGuid,
     "config-cash-drawers", provenance, signal,
-  );
-  const noSaleReasons = await readConfigurationPages(
+  ), parseCashDrawers);
+  const noSaleReasons = parseConfigurationPages(await readConfigurationPages(
     runtime, "/config/v2/noSaleReasons", restaurantGuid,
     "config-no-sale-reasons", provenance, signal,
-  );
-  const payoutReasons = await readConfigurationPages(
+  ), parseNoSaleReasons);
+  const payoutReasons = parseConfigurationPages(await readConfigurationPages(
     runtime, "/config/v2/payoutReasons", restaurantGuid,
     "config-payout-reasons", provenance, signal,
-  );
+  ), parsePayoutReasons);
   return Object.freeze({
     fold: foldCashSummary({
       businessDate,
-      entries: parseEntries(entries.body),
-      deposits: parseDeposits(deposits.body),
-      cashDrawers: parseConfigurationPages(cashDrawers, parseCashDrawers),
-      noSaleReasons: parseConfigurationPages(noSaleReasons, parseNoSaleReasons),
-      payoutReasons: parseConfigurationPages(payoutReasons, parsePayoutReasons),
+      entries,
+      deposits,
+      cashDrawers,
+      noSaleReasons,
+      payoutReasons,
     }),
     provenance: provenance.snapshot(),
   });
