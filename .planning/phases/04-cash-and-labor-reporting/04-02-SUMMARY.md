@@ -145,7 +145,36 @@ Targeted mutation checks passed. Removing unresolved-job rejection, cross-page i
 
 DOX: updated this plan summary because the report's withholding basis and source-validation rules are durable output-contract facts.
 
+## Review Round 3 Fixes
+
+The independent review at `7888469` found three blockers. Commit `bef762a` resolves them.
+
+1. Optional TimeEntry `jobReference` and break `breakType` values now remain explicit unresolved facts.
+   A missing job reference excludes that entry from formula-dependent totals and marks the report incomplete.
+   A missing break-type reference remains counted and marks the report incomplete.
+   A Job without its required `excludeFromReporting` formula field denies the report.
+2. The source boundary rejects duplicate TimeEntry GUIDs.
+   Each Jobs response must contain exactly the requested GUID set, with no duplicate or extra Job GUID.
+   BreakType GUIDs are unique across all configuration pages.
+3. Regular and overtime hours use the repository exact-decimal arithmetic module.
+   The builder converts only a finite aggregate to a number and denies an overflow before result construction.
+
+Review-round-three verification passed:
+
+```text
+Node 20.20.2: npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+Node 22.22.2: npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+21 tests passed on each runtime.
+
+Node 22.22.2: npm run check
+313 tests passed and npm pack --dry-run --json passed.
+```
+
+Targeted mutation checks passed. Requiring an optional job reference, accepting a non-exact Jobs response set, or allowing an infinite decimal aggregate each caused its focused test to fail. The implementation was restored before final verification.
+
+DOX: updated this plan summary because unresolved-reference finality, source identity, and numeric-overflow behavior are durable report-contract facts.
+
 ## Self-Check: PASSED
 
 - Source, report, and focused test files exist.
-- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, and review-fix commit `7f77963` exist.
+- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, and review-fix commit `bef762a` exist.
