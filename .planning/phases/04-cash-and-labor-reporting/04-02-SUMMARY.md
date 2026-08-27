@@ -208,3 +208,24 @@ DOX: updated this plan summary because wage-state finality, break-reference vali
 
 - Source, report, and focused test files exist.
 - Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, `7f77963`, `bef762a`, and review-fix commit `719bdc7` exist.
+
+## Review Round 5 Fixes
+
+The independent review at `3175f86` found three missing acceptance proofs. Commit `42ab569` resolves them without changing production behavior.
+
+1. The labor test now asserts the full context freshness and location provenance values.
+   It asserts report retrieval timestamp, all five source request IDs, request ID count, and no provenance truncation.
+2. The test now asserts every labor source request object.
+   It covers paths, restaurant GUIDs, queries, rate-limit keys, the Orders `businessDate`, and Orders `pageSize: 100`.
+3. A deferred location-context test now asserts that the caller signal reaches `getLocationContext`.
+   It cancels before location resolution completes and proves that no later labor, configuration, or Orders source starts.
+
+Review-round-five verification passed:
+
+```text
+Node 20.20.2: npm run check
+Node 22.22.2: npm run check
+Each run passed 319 tests and npm pack --dry-run --json.
+```
+
+DOX: no durable product change. This summary records expanded acceptance evidence only.
