@@ -24,7 +24,7 @@ const cashEntrySchema = z.object({
   date: sourceDateTimeSchema,
   amount: sourceMoneySchema,
   type: openStringSchema,
-  cashDrawer: guidReferenceSchema,
+  cashDrawer: guidReferenceSchema.nullable().optional(),
   undoes: guidSchema.nullable().optional(),
   noSaleReason: guidReferenceSchema.nullable().optional(),
   payoutReason: guidReferenceSchema.nullable().optional(),
@@ -33,7 +33,7 @@ const cashEntrySchema = z.object({
 const cashDepositSchema = z.object({
   guid: guidSchema,
   date: sourceDateTimeSchema,
-  amount: sourceMoneySchema,
+  amount: sourceMoneySchema.positive(),
   undoes: guidSchema.nullable().optional(),
 }).passthrough();
 

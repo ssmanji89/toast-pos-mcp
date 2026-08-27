@@ -19,6 +19,7 @@ const IDS = Object.freeze({
   entryB: "00000000-0000-4000-8000-000000004002",
   entryC: "00000000-0000-4000-8000-000000004003",
   depositA: "00000000-0000-4000-8000-000000004004",
+  depositB: "00000000-0000-4000-8000-000000004010",
   drawerA: "00000000-0000-4000-8000-000000004005",
   drawerMissing: "00000000-0000-4000-8000-000000004006",
   noSaleReasonA: "00000000-0000-4000-8000-000000004007",
@@ -67,12 +68,55 @@ test("cash fold keeps source types, reversals, deposits, and references distinct
     { type: "OPEN_TOAST_TYPE", entryCount: 1, amountMinor: -234 },
   ]);
   assert.deepEqual(result.cashDrawerReferences, [
-    { drawerGuid: IDS.drawerA, entryCount: 2, depositCount: 0, resolved: true },
-    { drawerGuid: IDS.drawerMissing, entryCount: 1, depositCount: 0, resolved: false },
+    { drawerGuid: IDS.drawerA, entryCount: 2, resolved: true },
+    { drawerGuid: IDS.drawerMissing, entryCount: 1, resolved: false },
   ]);
   assert.deepEqual(result.noSaleReasonReferences, [
     { reasonGuid: IDS.noSaleReasonA, entryCount: 1, resolved: true },
   ]);
+});
+
+test("cash fold reverses same-date deposits and preserves cross-date deposit reversal facts", () => {
+  const base = {
+    businessDate: BUSINESS_DATE,
+    entries: cashEntryArraySchema.parse([]),
+    cashDrawers: cashDrawerArraySchema.parse([]),
+    noSaleReasons: noSaleReasonArraySchema.parse([]),
+    payoutReasons: payoutReasonArraySchema.parse([]),
+  };
+  const sameDate = foldCashSummary({
+    ...base,
+    deposits: cashDepositArraySchema.parse([
+      deposit({ guid: IDS.depositA, amount: 10 }),
+      deposit({ guid: IDS.depositB, amount: 10, undoes: IDS.depositA }),
+    ]),
+  });
+  assert.equal(sameDate.depositAmountMinor, 0);
+  assert.equal(sameDate.observedDepositReversalCount, 1);
+  assert.equal(sameDate.unresolvedCrossDateDepositReversalCount, 0);
+
+  const crossDate = foldCashSummary({
+    ...base,
+    deposits: cashDepositArraySchema.parse([
+      deposit({ guid: IDS.depositB, amount: 10, undoes: IDS.depositA }),
+    ]),
+  });
+  assert.equal(crossDate.depositAmountMinor, -1_000);
+  assert.equal(crossDate.observedDepositReversalCount, 1);
+  assert.equal(crossDate.unresolvedCrossDateDepositReversalCount, 1);
+});
+
+test("cash fold allows an absent drawer and records the completeness fact", () => {
+  const result = foldCashSummary({
+    businessDate: BUSINESS_DATE,
+    entries: cashEntryArraySchema.parse([entry({ cashDrawer: null })]),
+    deposits: cashDepositArraySchema.parse([]),
+    cashDrawers: cashDrawerArraySchema.parse([]),
+    noSaleReasons: noSaleReasonArraySchema.parse([]),
+    payoutReasons: payoutReasonArraySchema.parse([]),
+  });
+  assert.equal(result.cashEntriesWithoutDrawerCount, 1);
+  assert.deepEqual(result.cashDrawerReferences, []);
 });
 
 test("cash fold keeps a cross-date reversal as an observed fact without netting", () => {
@@ -99,6 +143,9 @@ test("cash source schemas fail closed on malformed input", () => {
   }]).success, true, "schemas retain numeric precision checks for the fold");
   assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), date: "2026-02-30T12:00:00-05:00" }]).success, false);
   assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), guid: "not-a-guid" }]).success, false);
+  assert.equal(cashEntryArraySchema.safeParse([{ ...entry({}), cashDrawer: null }]).success, true);
+  assert.equal(cashDepositArraySchema.safeParse([{ ...deposit({}), amount: 0 }]).success, false);
+  assert.equal(cashDepositArraySchema.safeParse([{ ...deposit({}), amount: -1 }]).success, false);
   assert.equal(cashDrawerArraySchema.safeParse([{ guid: "not-a-guid" }]).success, false);
   assert.equal(noSaleReasonArraySchema.safeParse([{ guid: "not-a-guid" }]).success, false);
   assert.equal(payoutReasonArraySchema.safeParse([{ guid: "not-a-guid" }]).success, false);

@@ -51,7 +51,6 @@ export interface CashEntryTypeTotal {
 export interface CashDrawerReference {
   readonly drawerGuid: string;
   readonly entryCount: number;
-  readonly depositCount: number;
   readonly resolved: boolean;
 }
 
@@ -68,6 +67,7 @@ export interface CashSummaryFold {
   readonly cashEntryAmountMinor: number;
   readonly depositAmountMinor: number;
   readonly noSaleCount: number;
+  readonly cashEntriesWithoutDrawerCount: number;
   readonly cashInCount: number;
   readonly cashOutCount: number;
   readonly cashCollectedCount: number;
@@ -77,6 +77,8 @@ export interface CashSummaryFold {
   readonly closeoutCount: number;
   readonly observedReversalCount: number;
   readonly unresolvedCrossDateReversalCount: number;
+  readonly observedDepositReversalCount: number;
+  readonly unresolvedCrossDateDepositReversalCount: number;
   readonly cashEntryTotalsByType: readonly CashEntryTypeTotal[];
   readonly cashDrawerReferences: readonly CashDrawerReference[];
   readonly noSaleReasonReferences: readonly CashReasonReference[];
@@ -143,7 +145,6 @@ interface MutableTypeTotal {
 
 interface MutableDrawerReference {
   entryCount: number;
-  depositCount: number;
 }
 
 interface MutableReasonReference {
@@ -167,6 +168,7 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
   let cashEntryAmountMinor = 0;
   let depositAmountMinor = 0;
   let noSaleCount = 0;
+  let cashEntriesWithoutDrawerCount = 0;
   let cashInCount = 0;
   let cashOutCount = 0;
   let cashCollectedCount = 0;
@@ -176,6 +178,8 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
   let closeoutCount = 0;
   let observedReversalCount = 0;
   let unresolvedCrossDateReversalCount = 0;
+  let observedDepositReversalCount = 0;
+  let unresolvedCrossDateDepositReversalCount = 0;
 
   for (const entry of input.entries) entryGuids.add(entry.guid);
   for (const entry of input.entries) {
@@ -188,7 +192,11 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
     typeTotal.entryCount += 1;
     typeTotal.amountMinor = addMinorUnits(typeTotal.amountMinor, amountMinor);
     typeTotals.set(entry.type, typeTotal);
-    incrementDrawer(drawerReferences, entry.cashDrawer.guid, "entryCount");
+    if (entry.cashDrawer === undefined || entry.cashDrawer === null) {
+      cashEntriesWithoutDrawerCount += 1;
+    } else {
+      incrementDrawer(drawerReferences, entry.cashDrawer.guid);
+    }
     incrementEntryKind(entry.type, {
       noSale: () => { noSaleCount += 1; },
       cashIn: () => { cashInCount += 1; },
@@ -211,11 +219,21 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
     }
   }
 
+  const depositGuids = new Set(input.deposits.map((deposit) => deposit.guid));
   for (const deposit of input.deposits) {
+    const amountMinor = moneyToMinorUnits(deposit.amount, "cashDeposit.amount");
+    const undoneDepositGuid = deposit.undoes;
+    const isReversal = undoneDepositGuid !== undefined && undoneDepositGuid !== null;
     depositAmountMinor = addMinorUnits(
       depositAmountMinor,
-      moneyToMinorUnits(deposit.amount, "cashDeposit.amount"),
+      isReversal ? -amountMinor : amountMinor,
     );
+    if (isReversal) {
+      observedDepositReversalCount += 1;
+      if (!depositGuids.has(undoneDepositGuid)) {
+        unresolvedCrossDateDepositReversalCount += 1;
+      }
+    }
   }
 
   return Object.freeze({
@@ -225,6 +243,7 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
     cashEntryAmountMinor,
     depositAmountMinor,
     noSaleCount,
+    cashEntriesWithoutDrawerCount,
     cashInCount,
     cashOutCount,
     cashCollectedCount,
@@ -234,6 +253,8 @@ export function foldCashSummary(input: CashSummaryFoldInput): CashSummaryFold {
     closeoutCount,
     observedReversalCount,
     unresolvedCrossDateReversalCount,
+    observedDepositReversalCount,
+    unresolvedCrossDateDepositReversalCount,
     cashEntryTotalsByType: Object.freeze([...typeTotals.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([type, value]) => Object.freeze({ type, ...value }))),
@@ -524,10 +545,9 @@ function capabilityDenied(
 function incrementDrawer(
   references: Map<string, MutableDrawerReference>,
   drawerGuid: string,
-  field: keyof MutableDrawerReference,
 ): void {
-  const reference = references.get(drawerGuid) ?? { entryCount: 0, depositCount: 0 };
-  reference[field] += 1;
+  const reference = references.get(drawerGuid) ?? { entryCount: 0 };
+  reference.entryCount += 1;
   references.set(drawerGuid, reference);
 }
 
