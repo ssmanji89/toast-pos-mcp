@@ -18,7 +18,7 @@ const MODIFIER_GUID = "00000000-0000-4000-8000-000000000809";
 const NESTED_MODIFIER_GUID = "00000000-0000-4000-8000-000000000810";
 const ITEM_GUID = "00000000-0000-4000-8000-000000000811";
 const SECOND_ITEM_GUID = "00000000-0000-4000-8000-000000000812";
-const ITEM_GROUP_GUID = "00000000-0000-4000-8000-000000000813";
+const ITEM_GROUP_GUID = "00000000-0000-4000-8000-000000000821";
 const SALES_CATEGORY_GUID = "00000000-0000-4000-8000-000000000814";
 const DINING_OPTION_GUID = "00000000-0000-4000-8000-000000000815";
 const REVENUE_CENTER_GUID = "00000000-0000-4000-8000-000000000816";
@@ -42,12 +42,19 @@ type FixtureScenario =
   | "missing-menu-item"
   | "menu-refresh-fails-after-cache"
   | "menu-unavailable-no-cache"
-  | "missing-config-category";
+  | "missing-config-category"
+  | "malformed-menu-structure"
+  | "missing-menus-scope"
+  | "missing-config-scope";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
 const tokenScopes = scenario === "missing-scope"
   ? ["restaurants:read"]
+  : scenario === "missing-menus-scope"
+    ? ["orders:read", "restaurants:read", "config:read"]
+    : scenario === "missing-config-scope"
+      ? ["orders:read", "restaurants:read", "menus:read"]
   : ["orders:read", "restaurants:read", "menus:read", "config:read"];
 
 let menuMetadataCalls = 0;
@@ -152,7 +159,9 @@ async function syntheticToastFetch(
       );
     }
     return jsonResponse(
-      syntheticMenus(scenario === "missing-menu-item"),
+      scenario === "malformed-menu-structure"
+        ? { restaurantGuid: RESTAURANT_GUID, lastUpdated: MENU_UPDATED_AT, menus: {} }
+        : syntheticMenus(scenario === "missing-menu-item"),
       "fixture-menu-full-1",
     );
   }
@@ -542,6 +551,9 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "menu-refresh-fails-after-cache"
     || value === "menu-unavailable-no-cache"
     || value === "missing-config-category"
+    || value === "malformed-menu-structure"
+    || value === "missing-menus-scope"
+    || value === "missing-config-scope"
   ) {
     return value ?? "success";
   }

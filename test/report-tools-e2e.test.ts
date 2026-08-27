@@ -32,7 +32,10 @@ type FixtureScenario =
   | "missing-menu-item"
   | "menu-refresh-fails-after-cache"
   | "menu-unavailable-no-cache"
-  | "missing-config-category";
+  | "missing-config-category"
+  | "malformed-menu-structure"
+  | "missing-menus-scope"
+  | "missing-config-scope";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -317,6 +320,59 @@ test(
     }
   },
 );
+
+test("item enrichment retains a multi-group menu item when Orders supplies its itemGroup", async () => {
+  const connection = createConnection("modern");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(groupByGuid(output, ITEM_GUID).enrichmentState, "current");
+    assert.equal(groupByGuid(output, ITEM_GUID).displayName, "Current Burger");
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("malformed full menus leave item enrichment unresolved without deleting historical sales", async () => {
+  const connection = createConnection("modern", "malformed-menu-structure");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(structured(output.dimensionContext).menuState, "unresolved");
+    assert.equal(groupByGuid(output, ITEM_GUID).netSelectionAmountMinor, 800);
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("missing menu or configuration scopes publish unresolved required context", async () => {
+  for (const [scenario, dimension, key] of [
+    ["missing-menus-scope", "item", "menuState"],
+    ["missing-config-scope", "sales_category", "configurationState"],
+  ] as const) {
+    const connection = createConnection("modern", scenario);
+    try {
+      await connectWithTimeout(connection);
+      const result = await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension },
+      });
+      const output = structured(result.structuredContent);
+      assert.notEqual(result.isError, true);
+      assert.equal(structured(output.dimensionContext)[key], "unresolved");
+    } finally {
+      await connection.client.close();
+    }
+  }
+});
 
 test(
   "production-wired pinned 2026-07-28 stdio exposes and calls a real report tool",

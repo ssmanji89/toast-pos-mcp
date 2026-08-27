@@ -61,7 +61,12 @@ function menuClient(metadata: Deferred<ToastDetailedJsonResult>): never {
       return Promise.resolve(result({
         restaurantGuid: RESTAURANT_GUID,
         lastUpdated: "2026-08-16T00:00:00Z",
-        menus: [],
+        menus: [{
+          menuGroups: [{
+            guid: "00000000-0000-4000-8000-000000000002",
+            menuItems: [],
+          }],
+        }],
       }));
     },
   } as never;

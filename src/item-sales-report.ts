@@ -4,6 +4,8 @@ import {
   type CapabilityDenial,
 } from "./capabilities.js";
 import {
+  createUnresolvedConfigContext,
+  createUnavailableMenuContext,
   type ConfigurationDimensionContext,
   type DimensionContextState,
   type MenuDimensionContext,
@@ -264,6 +266,10 @@ export async function buildItemSalesSummaryReport(
           contextProvenance,
         );
       } else {
+        menuContext = createUnavailableMenuContext(
+          generatedAtEpochMs,
+          "menus:read is unavailable; item display enrichment is unresolved but historical item references remain reportable.",
+        );
         warnings.push(
           "menus:read is unavailable; item display enrichment is unresolved but historical item references remain reportable.",
         );
@@ -278,6 +284,9 @@ export async function buildItemSalesSummaryReport(
         );
         warnings.push(...configContext.warnings);
       } else {
+        configContext = createUnresolvedConfigContext(
+          "config:read is unavailable; current descriptive configuration names are unresolved but historical references remain reportable.",
+        );
         warnings.push(
           "config:read is unavailable; current descriptive configuration names are unresolved but historical references remain reportable.",
         );
@@ -528,7 +537,7 @@ function checkDimensionDescriptors(
   } else if (dimension === "item_tag") {
     for (const selection of selections) {
       if (selection.voided || selection.deferred) continue;
-      const item = resolveMenuItem(selection.item, menuContext);
+      const item = resolveMenuItem(selection.item, selection.itemGroup, menuContext);
       if (item === undefined) {
         const unresolved = unresolvedDescriptor(dimension);
         unique.set(unresolved.key, unresolved);
@@ -568,7 +577,7 @@ function itemDescriptor(
 ): DimensionDescriptor {
   const reference = selection.item;
   const key = referenceKey(reference) ?? "unresolved:item";
-  const item = resolveMenuItem(reference, menuContext);
+  const item = resolveMenuItem(reference, selection.itemGroup, menuContext);
   return Object.freeze({
     key,
     guid: reference?.guid,
@@ -586,6 +595,7 @@ function itemDescriptor(
 
 function resolveMenuItem(
   reference: NormalizedReference | undefined,
+  itemGroupReference: NormalizedReference | undefined,
   menuContext: MenuDimensionContext | undefined,
 ): MenuItemDimension | undefined {
   if (reference === undefined || menuContext === undefined) return undefined;
@@ -604,7 +614,14 @@ function resolveMenuItem(
   ) {
     return undefined;
   }
-  return byGuid ?? byMulti;
+  const item = byGuid ?? byMulti;
+  if (item === undefined || itemGroupReference === undefined) return item;
+  return item.itemGroups.some((group) =>
+    (itemGroupReference.guid !== undefined && group.guid === itemGroupReference.guid)
+    || (itemGroupReference.multiLocationId !== undefined
+      && group.multiLocationId === itemGroupReference.multiLocationId))
+    ? item
+    : undefined;
 }
 
 function referenceDescriptor(

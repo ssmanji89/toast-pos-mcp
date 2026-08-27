@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { awaitRefreshForCaller } from "./dimension-context-helpers.js";
 import type { ToastLocation } from "./locations.js";
 import type { RateLimitAwareToastHttpClient } from "./rate-limited-client.js";
 import {
@@ -40,6 +41,12 @@ export interface MenuItemDimension {
   readonly multiLocationId: string | undefined;
   readonly name: string;
   readonly itemTags: readonly MenuTagDimension[];
+  readonly itemGroups: readonly MenuItemGroupDimension[];
+}
+
+export interface MenuItemGroupDimension {
+  readonly guid: string;
+  readonly multiLocationId: string | undefined;
 }
 
 export interface NamedConfigurationDimension {
@@ -210,7 +217,7 @@ export class StandardDimensionContextProvider {
           ["Menus metadata refresh failed; descriptive item context is stale."],
         );
       }
-      return unresolvedMenuContext(
+      return createUnresolvedMenuContext(
         checkedAtEpochMs,
         emptyProvenance(),
         "Menus metadata could not be retrieved; item enrichment is unresolved.",
@@ -233,7 +240,7 @@ export class StandardDimensionContextProvider {
           ["Menus metadata was malformed or mismatched; cached item context is stale."],
         );
       }
-      return unresolvedMenuContext(
+      return createUnresolvedMenuContext(
         checkedAtEpochMs,
         freshnessProvenance,
         "Menus metadata was malformed or mismatched; item enrichment is unresolved.",
@@ -292,7 +299,7 @@ export class StandardDimensionContextProvider {
           ["Menus full refresh failed after metadata changed; cached item context is stale."],
         );
       }
-      return unresolvedMenuContext(
+      return createUnresolvedMenuContext(
         checkedAtEpochMs,
         freshnessProvenance,
         "Menus full refresh failed; item enrichment is unresolved.",
@@ -368,7 +375,7 @@ export class StandardDimensionContextProvider {
           ["Configuration refresh failed; descriptive dimensions are stale."],
         );
       }
-      return unresolvedConfigContext(
+      return createUnresolvedConfigContext(
         "Configuration could not be retrieved; descriptive dimensions are unresolved.",
       );
     }
@@ -440,24 +447,39 @@ function normalizeMenuPayload(
   const ambiguousItemGuids = new Set<string>();
   const ambiguousMultiLocationIds = new Set<string>();
 
-  const menus = Array.isArray(body.menus) ? body.menus : [];
-  const stack = [...menus];
+  if (!Array.isArray(body.menus)) throw new Error("invalid menus payload structure");
+  const stack: Array<{ readonly node: unknown; readonly itemGroup: MenuItemGroupDimension | undefined }> =
+    body.menus.map((node) => ({ node, itemGroup: undefined }));
   while (stack.length > 0) {
-    const node = stack.pop();
-    if (!isRecord(node)) continue;
-    if (Array.isArray(node.menuGroups)) stack.push(...node.menuGroups);
-    if (Array.isArray(node.menuItems)) {
-      for (const rawItem of node.menuItems) {
-        const item = normalizeMenuItem(rawItem);
-        if (item !== undefined) {
-          mergeMenuItem(
-            item,
-            itemsByGuid,
-            itemsByMultiLocationId,
-            ambiguousItemGuids,
-            ambiguousMultiLocationIds,
-          );
-        }
+    const entry = stack.pop();
+    if (entry === undefined || !isRecord(entry.node)) {
+      throw new Error("invalid menus payload structure");
+    }
+    const menuGroups = entry.node.menuGroups;
+    const menuItems = entry.node.menuItems;
+    if (menuGroups !== undefined && !Array.isArray(menuGroups)) {
+      throw new Error("invalid menu groups structure");
+    }
+    if (menuItems !== undefined && !Array.isArray(menuItems)) {
+      throw new Error("invalid menu items structure");
+    }
+    if (Array.isArray(menuGroups)) {
+      for (const group of menuGroups) {
+        const itemGroup = normalizeMenuItemGroup(group);
+        if (itemGroup === undefined) throw new Error("invalid menu group identity");
+        stack.push({ node: group, itemGroup });
+      }
+    }
+    if (Array.isArray(menuItems)) {
+      if (entry.itemGroup === undefined) throw new Error("menu item has no group ancestry");
+      for (const rawItem of menuItems) {
+        mergeMenuItem(
+          normalizeMenuItem(rawItem, entry.itemGroup),
+          itemsByGuid,
+          itemsByMultiLocationId,
+          ambiguousItemGuids,
+          ambiguousMultiLocationIds,
+        );
       }
     }
   }
@@ -471,40 +493,55 @@ function normalizeMenuPayload(
   });
 }
 
-function normalizeMenuItem(raw: unknown): MenuItemDimension | undefined {
+function normalizeMenuItemGroup(raw: unknown): MenuItemGroupDimension | undefined {
   if (!isRecord(raw)) return undefined;
   const guid = guidSchema.safeParse(raw.guid);
+  if (!guid.success) return undefined;
+  return Object.freeze({
+    guid: guid.data.toLowerCase(),
+    multiLocationId: nonEmptyString(raw.multiLocationId),
+  });
+}
+
+function normalizeMenuItem(
+  raw: unknown,
+  itemGroup: MenuItemGroupDimension,
+): MenuItemDimension {
+  if (!isRecord(raw)) throw new Error("invalid menu item");
+  const guid = guidSchema.safeParse(raw.guid);
   const name = nonBlankSchema.safeParse(raw.name);
-  if (!guid.success || !name.success) return undefined;
+  if (!guid.success || !name.success || !Array.isArray(raw.itemTags)) {
+    throw new Error("invalid menu item identity");
+  }
 
   const tags: MenuTagDimension[] = [];
-  if (Array.isArray(raw.itemTags)) {
-    const seenTags = new Set<string>();
-    for (const rawTag of raw.itemTags) {
-      if (!isRecord(rawTag)) continue;
-      const tagGuid = guidSchema.safeParse(rawTag.guid);
-      const tagName = nonBlankSchema.safeParse(rawTag.name);
-      if (!tagGuid.success || !tagName.success) continue;
-      const normalizedGuid = tagGuid.data.toLowerCase();
-      if (seenTags.has(normalizedGuid)) continue;
-      seenTags.add(normalizedGuid);
-      tags.push(Object.freeze({ guid: normalizedGuid, name: tagName.data }));
-    }
+  const seenTags = new Set<string>();
+  for (const rawTag of raw.itemTags) {
+    if (!isRecord(rawTag)) throw new Error("invalid menu item tag");
+    const tagGuid = guidSchema.safeParse(rawTag.guid);
+    const tagName = nonBlankSchema.safeParse(rawTag.name);
+    if (!tagGuid.success || !tagName.success) throw new Error("invalid menu item tag");
+    const normalizedGuid = tagGuid.data.toLowerCase();
+    if (seenTags.has(normalizedGuid)) throw new Error("repeated menu item tag identity");
+    seenTags.add(normalizedGuid);
+    tags.push(Object.freeze({ guid: normalizedGuid, name: tagName.data }));
   }
   tags.sort((left, right) =>
     left.guid.localeCompare(right.guid) || left.name.localeCompare(right.name));
 
-  const multiLocationId = typeof raw.multiLocationId === "string"
-    && raw.multiLocationId.length > 0
-    ? raw.multiLocationId
-    : undefined;
+  const multiLocationId = nonEmptyString(raw.multiLocationId);
 
   return Object.freeze({
     guid: guid.data.toLowerCase(),
     multiLocationId,
     name: name.data,
     itemTags: Object.freeze(tags),
+    itemGroups: Object.freeze([itemGroup]),
   });
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function mergeMenuItem(
@@ -535,7 +572,27 @@ function mergeIdentity(
   if (!sameMenuItem(existing, item)) {
     target.delete(key);
     ambiguous.add(key);
+    return;
   }
+  target.set(key, mergeMenuItemGroups(existing, item));
+}
+
+function mergeMenuItemGroups(
+  left: MenuItemDimension,
+  right: MenuItemDimension,
+): MenuItemDimension {
+  const groups = new Map<string, MenuItemGroupDimension>();
+  for (const group of [...left.itemGroups, ...right.itemGroups]) {
+    const key = group.multiLocationId === undefined
+      ? group.guid
+      : `${group.guid}:${group.multiLocationId}`;
+    groups.set(key, group);
+  }
+  return Object.freeze({
+    ...left,
+    itemGroups: Object.freeze([...groups.values()].sort((a, b) =>
+      a.guid.localeCompare(b.guid) || (a.multiLocationId ?? "").localeCompare(b.multiLocationId ?? ""))),
+  });
 }
 
 function sameMenuItem(
@@ -582,7 +639,7 @@ function menuContextFromCache(
   });
 }
 
-function unresolvedMenuContext(
+export function createUnresolvedMenuContext(
   checkedAtEpochMs: number,
   freshnessProvenance: ReportProvenance,
   warning: string,
@@ -600,6 +657,17 @@ function unresolvedMenuContext(
     ambiguousItemGuids: new Set<string>(),
     ambiguousMultiLocationIds: new Set<string>(),
   });
+}
+
+export function createUnavailableMenuContext(
+  checkedAtEpochMs: number,
+  warning: string,
+): MenuDimensionContext {
+  return createUnresolvedMenuContext(
+    checkedAtEpochMs,
+    emptyProvenance(),
+    warning,
+  );
 }
 
 function configContextFromCache(
@@ -620,7 +688,7 @@ function configContextFromCache(
   });
 }
 
-function unresolvedConfigContext(
+export function createUnresolvedConfigContext(
   warning: string,
 ): ConfigurationDimensionContext {
   return Object.freeze({
@@ -655,37 +723,6 @@ function rethrowCancellation(error: unknown): void {
   if (error instanceof ToastHttpError && error.code === "request_cancelled") {
     throw error;
   }
-}
-
-function awaitRefreshForCaller<T>(
-  refresh: Promise<T>,
-  signal: AbortSignal | undefined,
-): Promise<T> {
-  if (signal === undefined) return refresh;
-  if (signal.aborted) return Promise.reject(callerCancellationError());
-
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const finish = (callback: () => void): void => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener("abort", onAbort);
-      callback();
-    };
-    const onAbort = (): void => finish(() => reject(callerCancellationError()));
-    signal.addEventListener("abort", onAbort, { once: true });
-    void refresh.then(
-      (value) => finish(() => resolve(value)),
-      (error: unknown) => finish(() => reject(error)),
-    );
-  });
-}
-
-function callerCancellationError(): ToastHttpError {
-  return new ToastHttpError("request_cancelled", "Toast request was cancelled.", {
-    apiFamily: "standard",
-    retryable: false,
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
