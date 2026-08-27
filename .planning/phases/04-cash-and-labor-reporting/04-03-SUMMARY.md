@@ -101,6 +101,21 @@ DOX: updated for the durable Standard report and normalization contracts.
 
 None. The implementation matched the planned tool, fixture, test, and documentation scope.
 
+## R1 Review Remediation
+
+Candidate `c1743dd80fbb5cc358a8e9f80a1bf67acd3b62fa` resolves PR #48 findings T4-003-R1-F1 and T4-003-R1-F2.
+
+- `report-tools-t4-e2e.test.ts` proves every cash source stage and every labor source stage through an official MCP stdio client.
+- The suite checks complete, incomplete, and denied outcomes; every cash and labor provenance request ID; an accessible explicit alternate restaurant GUID; alternate-location headers; and request stopping after cancellation at each source stage.
+- The fixture now has route-level synthetic request markers. It records only independently invented fixture facts.
+- The fixture and E2E tests are split into focused files. Each changed fixture or test file is below 600 lines.
+- Mutation checks passed: changing the cash-drawer request ID caused the complete-source assertion to fail, and forcing the default restaurant header caused the alternate-location assertion to fail.
+
+| Runtime | Head before | Result | Head after |
+| --- | --- | --- | --- |
+| Node `v20.20.2`, npm `10.8.2` | `c1743dd` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. The full check discovered 36 test files. Focused E2E ran 40 tests. The package listed 139 files. | `c1743dd` |
+| Node `v22.22.2`, npm `10.9.7` | `c1743dd` | `npm ci`, `npm run check`, all three compiled E2E files, and `npm pack --dry-run --json` passed. The full check discovered 36 test files. Focused E2E ran 40 tests. The package listed 139 files. | `c1743dd` |
+
 ## Known Stubs
 
 None. The plan does not leave an unwired report path or an empty UI data source.
