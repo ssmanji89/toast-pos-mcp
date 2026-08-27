@@ -77,6 +77,7 @@ status: complete
 - Denied configuration page aggregates above the source-record limit before later configuration sources can start.
 - Consumed configuration pages sequentially through the rate-limited transport before each next-token request.
 - Ordered open Cash Entry type totals by Unicode code units, independent of process locale.
+- Accepted valid empty configuration pages while denying an absent configuration traversal.
 
 ## Task Commits
 
@@ -98,6 +99,8 @@ status: complete
    - `3bc2767` `fix(t4-001-04): bound cash source ingress`
 7. **Fifth independent review corrections**
    - `f435cfe` `fix(t4-001-04): stream cash configuration pages`
+8. **Sixth independent review corrections**
+   - `e27b560` `fix(t4-001-04): accept empty cash configuration pages`
 
 ## Verification
 
@@ -215,6 +218,16 @@ DOX: no durable public contract changed. This plan still does not register the c
 - **Result:** The focused suite passed 22/22. `npm run check` passed 33 discovered test files, 323 tests, and the package dry-run on Node 25.9.0. Authentic `npm ci --no-audit --no-fund && npm run check` passed on Node 20.20.2 and Node 22.22.2.
 - **Review status:** This correction set is not self-approved. It requires a fresh independent review.
 
+## Independent Review Round R6
+
+- **Review input:** PR #46 independent-review comment `5443385609` on head `20160b1e52398ccfc9014956dee84385cde94a8a`.
+- **Empty sources:** The cash configuration consumer tracks valid pages separately from parsed record count. A valid empty array is complete source evidence. No valid page remains a `cash_source_invalid` denial.
+- **Endpoint coverage:** Cash Drawer, No Sale Reason, and Payout Reason each have an independent valid-empty-array builder test. All continue through later sources and produce complete reports.
+- **Bounded helpers:** `foldConfigurationPages` now delegates option validation and one-attempt processing. The orchestration method has 27 lines. The attempt method has 39 lines. Complete and restart outcomes preserve the prior page-token and scoped-409 semantics.
+- **Mutation checks:** Replacing the page counter with record-count detection denies a valid empty source. Weakening the configuration page bound starts an extra page and fails the existing transport test. Both mutations were restored.
+- **Result:** The focused suite passed 23/23. Authentic `npm ci --no-audit --no-fund && npm run check` passed 33 discovered test files, 324 tests, and the package dry-run on Node 20.20.2 and Node 22.22.2.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
 ## Evidence Limits
 
 - Synthetic fixtures are implementation evidence only.
@@ -228,4 +241,4 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 ## Self-Check: PASSED
 
 - Confirmed all eight implementation and focused test artifacts and this summary exist.
-- Confirmed all eleven TDD, implementation, correction, and refactor commits exist in the repository history.
+- Confirmed all twelve TDD, implementation, correction, and refactor commits exist in the repository history.
