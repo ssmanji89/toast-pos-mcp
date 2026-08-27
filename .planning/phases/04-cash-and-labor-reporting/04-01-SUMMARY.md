@@ -24,16 +24,21 @@ key-files:
     - test/cash-report-fold.test.ts
     - test/cash-report-r3.test.ts
     - test/cash-report-r4.test.ts
+    - test/configuration-page-fold.test.ts
     - test/support/cash-report-fixtures.ts
   modified:
     - src/cash-report-source.ts
     - src/cash-report.ts
     - src/cash-report-fold.ts
     - src/cash-report-limits.ts
+    - src/rate-limited-client.ts
+    - src/report-core.ts
+    - src/transport.ts
     - test/cash-report.test.ts
     - test/cash-report-fold.test.ts
     - test/cash-report-r3.test.ts
     - test/cash-report-r4.test.ts
+    - test/configuration-page-fold.test.ts
     - test/support/cash-report-fixtures.ts
 key-decisions:
   - "Cash entries and deposits remain source-distinct Cash Management facts, not guest cash payments or expected deposits."
@@ -70,6 +75,8 @@ status: complete
 - Bounded source records, open type values, aggregate type keys, and aggregate reference keys with fail-closed denials.
 - Stripped unknown fields from all cash ingress records and GUID references before the report fold retains them.
 - Denied configuration page aggregates above the source-record limit before later configuration sources can start.
+- Consumed configuration pages sequentially through the rate-limited transport before each next-token request.
+- Ordered open Cash Entry type totals by Unicode code units, independent of process locale.
 
 ## Task Commits
 
@@ -89,6 +96,8 @@ status: complete
    - `ec359e1` `fix(04-01): bound cash source processing`
 6. **Fourth independent review corrections**
    - `3bc2767` `fix(t4-001-04): bound cash source ingress`
+7. **Fifth independent review corrections**
+   - `f435cfe` `fix(t4-001-04): stream cash configuration pages`
 
 ## Verification
 
@@ -195,6 +204,17 @@ DOX: no durable public contract changed. This plan still does not register the c
 - **Result:** The focused suite passed 19/19. `npm run check` passed 32 discovered test files, 320 tests, and the package dry-run on Node 25.9.0. Node 20 and Node 22 executables are not available in this worktree, so their required integration gates remain deferred.
 - **Review status:** This correction set is not self-approved. It requires a fresh independent review.
 
+## Independent Review Round R5
+
+- **Review input:** PR #46 independent-review comment `5443172536` on head `57d864265aa9e198b15eec226c6b62710d2e732d`.
+- **Sequential source path:** `foldConfigurationPages` gives each page to the consumer before it fetches the next token. Cash consumers validate restaurant scope, parse stripped records, enforce the aggregate 1,000-record cap, and retain only normalized records plus minimal provenance metadata.
+- **Restart safety:** A scoped 409 creates a fresh consumer state. Stale parsed records and provenance metadata never enter the cash result.
+- **Transport proof:** The real rate-limited client test stops after a 500-record page and a 501-record page. It proves page three does not start. A second test proves the factory resets state on a scoped 409 and excludes stale data.
+- **Deterministic ordering:** Open cash-entry types use JavaScript code-unit comparison. The `Z` and `Å` test fixes output order as `Z`, then `Å`, regardless of the process locale.
+- **Mutation checks:** Removing the transport consumer made both sequential tests fail. Restoring `localeCompare` made the `Z` and `Å` test fail. Both mutations were restored.
+- **Result:** The focused suite passed 22/22. `npm run check` passed 33 discovered test files, 323 tests, and the package dry-run on Node 25.9.0. Authentic `npm ci --no-audit --no-fund && npm run check` passed on Node 20.20.2 and Node 22.22.2.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
 ## Evidence Limits
 
 - Synthetic fixtures are implementation evidence only.
@@ -208,4 +228,4 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 ## Self-Check: PASSED
 
 - Confirmed all eight implementation and focused test artifacts and this summary exist.
-- Confirmed all ten TDD, implementation, correction, and refactor commits exist in the repository history.
+- Confirmed all eleven TDD, implementation, correction, and refactor commits exist in the repository history.
