@@ -124,7 +124,13 @@ export function registerStandardReportTools(
     },
     async (input, ctx) => toolResult(await buildItemSalesSummaryReport(
       runtime,
-      input,
+      input.restaurantGuid === undefined
+        ? { businessDate: input.businessDate, dimension: input.dimension }
+        : {
+            businessDate: input.businessDate,
+            dimension: input.dimension,
+            restaurantGuid: input.restaurantGuid,
+          },
       { signal: ctx.mcpReq.signal },
     )),
   );

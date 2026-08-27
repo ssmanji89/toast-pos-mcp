@@ -208,7 +208,7 @@ test(
   "historical item absent from current menu remains a distinct unresolved sales fact",
   { timeout: 20_000 },
   async () => {
-    const connection = createConnection("legacy", "missing-menu-item");
+    const connection = createConnection("modern", "missing-menu-item");
     try {
       await connectWithTimeout(connection);
       const result = await connection.client.callTool({
@@ -233,7 +233,7 @@ test(
   "unavailable menu with no prior cache preserves historical item sales as unresolved",
   { timeout: 20_000 },
   async () => {
-    const connection = createConnection("legacy", "menu-unavailable-no-cache");
+    const connection = createConnection("modern", "menu-unavailable-no-cache");
     try {
       await connectWithTimeout(connection);
       const result = await connection.client.callTool({
@@ -261,7 +261,7 @@ test(
   { timeout: 25_000 },
   async () => {
     const connection = createConnection(
-      "legacy",
+      "modern",
       "menu-refresh-fails-after-cache",
     );
     try {
@@ -295,7 +295,7 @@ test(
   "historical sales category missing from current Configuration remains reportable and unresolved",
   { timeout: 25_000 },
   async () => {
-    const connection = createConnection("legacy", "missing-config-category");
+    const connection = createConnection("modern", "missing-config-category");
     try {
       await connectWithTimeout(connection);
       const result = await connection.client.callTool({

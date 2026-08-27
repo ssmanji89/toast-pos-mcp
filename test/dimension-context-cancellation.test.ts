@@ -58,7 +58,11 @@ function menuClient(metadata: Deferred<ToastDetailedJsonResult>): never {
       if (request.path === "/menus/v2/metadata") {
         return rejectWhenAborted(metadata.promise, options.signal);
       }
-      return Promise.resolve(result({ menus: [] }));
+      return Promise.resolve(result({
+        restaurantGuid: RESTAURANT_GUID,
+        lastUpdated: "2026-08-16T00:00:00Z",
+        menus: [],
+      }));
     },
   } as never;
 }

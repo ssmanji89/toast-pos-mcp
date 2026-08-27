@@ -597,8 +597,8 @@ function unresolvedMenuContext(
     warnings: Object.freeze([warning]),
     itemsByGuid: new Map(),
     itemsByMultiLocationId: new Map(),
-    ambiguousItemGuids: new Set(),
-    ambiguousMultiLocationIds: new Set(),
+    ambiguousItemGuids: new Set<string>(),
+    ambiguousMultiLocationIds: new Set<string>(),
   });
 }
 

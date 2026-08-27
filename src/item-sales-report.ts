@@ -430,19 +430,19 @@ function aggregateOrder(
         ]);
         group.grossSelectionAmountMinor = addMinorUnits(
           group.grossSelectionAmountMinor,
-          selection.preDiscountPriceMinor,
+          selection.preDiscountPriceHundredths,
         );
         group.netSelectionAmountMinor = addMinorUnits(
           group.netSelectionAmountMinor,
-          selection.priceMinor,
+          selection.priceHundredths,
         );
         group.observedSelectionRefundAmountMinor = addMinorUnits(
           group.observedSelectionRefundAmountMinor,
-          selection.refundDetails?.refundAmountMinor ?? 0,
+          selection.refundDetails?.refundAmountHundredths ?? 0,
         );
         group.selectionTaxAmountMinor = addMinorUnits(
           group.selectionTaxAmountMinor,
-          selection.taxMinor ?? 0,
+          selection.taxHundredths ?? 0,
         );
       }
       continue;
@@ -466,7 +466,7 @@ function aggregateOrder(
       group.checkCount += 1;
       group.attributedCheckAmountMinor = addMinorUnits(
         group.attributedCheckAmountMinor,
-        check.amountMinor,
+        check.amountHundredths,
       );
     }
   }
