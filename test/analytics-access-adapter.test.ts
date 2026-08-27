@@ -103,6 +103,35 @@ test("Analytics access sends cancellation to the source GET", async () => {
   assert.equal(receivedSignal, controller.signal);
 });
 
+test("Analytics access sanitizes abort and fetch rejection values", async () => {
+  const abortMarker = "invented-raw-abort-reason-556a";
+  const controller = new AbortController();
+  controller.abort(new Error(abortMarker));
+  const abortedAdapter = createAdapter();
+
+  await assert.rejects(
+    abortedAdapter.refreshManagementGroupRestaurants({ signal: controller.signal }),
+    (error: unknown) =>
+      error instanceof AnalyticsAccessError
+      && error.code === "analytics_request_failed"
+      && !error.message.includes(abortMarker),
+  );
+
+  const fetchMarker = "invented-raw-fetch-rejection-556a";
+  const rejectedAdapter = createAdapter({
+    fetch: async () => {
+      throw new Error(fetchMarker);
+    },
+  });
+  await assert.rejects(
+    rejectedAdapter.refreshManagementGroupRestaurants(),
+    (error: unknown) =>
+      error instanceof AnalyticsAccessError
+      && error.code === "analytics_request_failed"
+      && !error.message.includes(fetchMarker),
+  );
+});
+
 test("Analytics access validates atomically and rejects duplicate identifiers", async () => {
   let source = validResponse();
   const adapter = createAdapter({ fetch: async () => source });
@@ -144,6 +173,12 @@ test("Analytics selected sets require a canonical non-empty UUID subset", async 
   for (const invalid of [[], [FIRST_GUID, FIRST_GUID], ["not-a-guid"], ["33333333-3333-4333-8333-333333333333"]]) {
     assert.throws(() => validateAnalyticsRestaurantSelection(registry, invalid));
   }
+  const malformedButMember = {
+    toLowerCase: () => FIRST_GUID,
+  } as unknown as string;
+  assert.throws(() =>
+    validateAnalyticsRestaurantSelection(registry, [malformedButMember]),
+  );
 });
 
 test("Analytics selections require the private identity that minted their registry", async () => {
