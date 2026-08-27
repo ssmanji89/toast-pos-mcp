@@ -84,6 +84,7 @@ test("cash and labor stdio reports record every source request ID", { timeout: 3
 test("explicit accessible restaurantGuid binds both reports to the alternate restaurant", { timeout: 30_000 }, async () => {
   const connection = createConnection("alternate-restaurant");
   const stderr = observeFixtureStderr(connection.transport);
+  const results: unknown[] = [];
   try {
     await connection.client.connect(connection.transport);
     for (const name of ["toast_cash_summary", "toast_labor_summary"] as const) {
@@ -98,6 +99,18 @@ test("explicit accessible restaurantGuid binds both reports to the alternate res
       const output = structured(result.structuredContent);
       assert.equal(output.status, "complete", name);
       assert.equal(output.restaurantGuid, ALTERNATE_RESTAURANT_GUID, name);
+      assert.equal(output.restaurantName, "Synthetic Alternate Cafe", name);
+      assert.equal(output.businessDate, BUSINESS_DATE, name);
+      assert.equal(output.requestedBusinessDate, BUSINESS_DATE, name);
+      assert.equal(output.effectiveBusinessDate, BUSINESS_DATE, name);
+      assert.equal(output.timezone, "America/Chicago", name);
+      assert.equal(output.currencyCode, "USD", name);
+      assert.ok(Array.isArray(structured(output.contextProvenance).upstreamRequestIds), name);
+      results.push(result);
+    }
+    const serialized = JSON.stringify(results);
+    for (const marker of ["synthetic-signature", "Bearer", "synthetic-guest", "must-not-leak@example.invalid", "synthetic-employee", "raw-source", "synthetic-cash-card", "123456", "7890"]) {
+      assert.equal(serialized.toLowerCase().includes(marker.toLowerCase()), false, marker);
     }
     for (const pathValue of SOURCE_PATHS) {
       assert.ok(
@@ -110,6 +123,31 @@ test("explicit accessible restaurantGuid binds both reports to the alternate res
       await connection.client.close();
     } finally {
       stderr.stop();
+    }
+  }
+});
+
+test("malformed later sources deny and stop the report", { timeout: 30_000 }, async () => {
+  for (const [scenario, name, code, expectedPaths] of [
+    ["malformed-cash-deposits", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits"]],
+    ["malformed-cash-drawers", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits", "/config/v2/cashDrawers"]],
+    ["malformed-cash-no-sale-reasons", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits", "/config/v2/cashDrawers", "/config/v2/noSaleReasons"]],
+    ["malformed-cash-payout-reasons", "toast_cash_summary", "cash_source_invalid", ["/cashmgmt/v1/entries", "/cashmgmt/v1/deposits", "/config/v2/cashDrawers", "/config/v2/noSaleReasons", "/config/v2/payoutReasons"]],
+    ["malformed-labor-jobs", "toast_labor_summary", "labor_jobs_source_invalid", ["/labor/v1/timeEntries", "/labor/v1/jobs"]],
+    ["malformed-labor-break-types", "toast_labor_summary", "labor_break_types_source_invalid", ["/labor/v1/timeEntries", "/labor/v1/jobs", "/config/v2/breakTypes"]],
+    ["malformed-labor-tip-withholding", "toast_labor_summary", "labor_tip_withholding_source_invalid", ["/labor/v1/timeEntries", "/labor/v1/jobs", "/config/v2/breakTypes", "/config/v2/tipWithholding"]],
+    ["malformed-labor-orders", "toast_labor_summary", "orders_source_invalid", ["/labor/v1/timeEntries", "/labor/v1/jobs", "/config/v2/breakTypes", "/config/v2/tipWithholding", "/orders/v2/ordersBulk"]],
+  ] as const) {
+    const connection = createConnection(scenario);
+    const stderr = observeFixtureStderr(connection.transport);
+    try {
+      await connection.client.connect(connection.transport);
+      const result = await connection.client.callTool({ name, arguments: { businessDate: BUSINESS_DATE } });
+      assert.equal(result.isError, true, scenario);
+      assert.equal(structured(structured(result.structuredContent).denial).code, code, scenario);
+      assert.deepEqual(sourceRequestPaths(stderr.output()), expectedPaths, scenario);
+    } finally {
+      try { await connection.client.close(); } finally { stderr.stop(); }
     }
   }
 });

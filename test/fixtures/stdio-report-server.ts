@@ -201,6 +201,7 @@ async function syntheticToastFetch(
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
     assertBusinessDateQuery(url);
+    if (scenario === "malformed-cash-deposits") return jsonResponse({ deposits: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse(syntheticCashDeposits(), "fixture-cash-deposits");
@@ -209,6 +210,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/cashDrawers") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-cash-drawers") return jsonResponse({ drawers: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: CASH_DRAWER_GUID }], "fixture-cash-drawers");
@@ -217,6 +219,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/noSaleReasons") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-cash-no-sale-reasons") return jsonResponse({ reasons: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: NO_SALE_REASON_GUID }], "fixture-no-sale-reasons");
@@ -225,6 +228,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/payoutReasons") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-cash-payout-reasons") return jsonResponse({ reasons: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([{ guid: PAYOUT_REASON_GUID }], "fixture-payout-reasons");
@@ -245,6 +249,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/labor/v1/jobs") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-labor-jobs") return jsonResponse({ jobs: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     const jobIds = url.searchParams.get("jobIds");
@@ -259,6 +264,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/breakTypes") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-labor-break-types") return jsonResponse({ breakTypes: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse([
@@ -269,6 +275,7 @@ async function syntheticToastFetch(
   if (url.pathname === "/config/v2/tipWithholding") {
     assertRestaurantHeader(headers);
     assertBusinessDataAllowed();
+    if (scenario === "malformed-labor-tip-withholding") return jsonResponse({ tipWithholding: "invalid" });
     const cancellationMarker = sourceCancellationMarker(url.pathname);
     if (cancellationMarker !== undefined) return waitForAbort(cancellationMarker, init?.signal);
     return jsonResponse({
@@ -365,6 +372,9 @@ async function syntheticToastFetch(
         { not: "an-orders-array" },
         "fixture-malformed-orders",
       );
+    }
+    if (scenario === "malformed-labor-orders") {
+      return jsonResponse({ not: "an-orders-array" }, "fixture-malformed-labor-orders");
     }
     if (scenario === "broken-pagination") {
       return jsonResponse(
