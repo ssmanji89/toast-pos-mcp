@@ -61,6 +61,7 @@ export function syntheticCashRuntime(options: {
   readonly abort?: boolean;
   readonly sourceBarrier?: SourceEntryBarrier;
   readonly twoPageAt?: Exclude<CashSourceKey, "cash-entries" | "cash-deposits">;
+  readonly configurationPageSizes?: readonly [number, number];
   readonly malformedSecondPage?: boolean;
   readonly mismatchedSecondPage?: boolean;
 }): any {
@@ -102,16 +103,28 @@ export function syntheticCashRuntime(options: {
         assertCashRequest(request, input.signal, options.signal, key);
         options.calls.push(key);
         if (options.incomplete) return [];
-        const first = detail(bodyFor(key), `synthetic-${key.replace("config-", "")}`, options.mismatchAt === key);
+        const first = detail(configurationPage(key, 0), `synthetic-${key.replace("config-", "")}`, options.mismatchAt === key);
         if (options.twoPageAt !== key) return [first];
         return [first, detail(
-          options.malformedSecondPage ? [{}] : bodyFor(key),
+          options.malformedSecondPage ? [{}] : configurationPage(key, 1),
           `synthetic-${key.replace("config-", "")}-page-2`,
           options.mismatchedSecondPage,
         )];
       },
     },
   };
+
+  function configurationPage(
+    key: CashSourceKey,
+    pageIndex: number,
+  ): unknown {
+    const size = options.configurationPageSizes?.[pageIndex];
+    if (size === undefined) return bodyFor(key);
+    return Array.from(
+      { length: size },
+      (_value, index) => ({ guid: configurationGuid(key, pageIndex, index) }),
+    );
+  }
 }
 
 function locationContext() {
@@ -141,4 +154,10 @@ async function abortSource(signal: AbortSignal | undefined, barrier: SourceEntry
       "request_cancelled", "Synthetic source request cancelled.", { apiFamily: "standard", retryable: false },
     )), { once: true });
   });
+}
+
+function configurationGuid(key: CashSourceKey, pageIndex: number, index: number): string {
+  const sourceIndex = ["config-cash-drawers", "config-no-sale-reasons", "config-payout-reasons"].indexOf(key);
+  const value = (sourceIndex + 1) * 100_000 + pageIndex * 1_000 + index;
+  return `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 }

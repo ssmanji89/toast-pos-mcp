@@ -17,7 +17,7 @@ const sourceDateTimeSchema = z.string().min(1).refine(
 );
 const guidReferenceSchema = z.object({
   guid: guidSchema,
-}).passthrough();
+}).strip();
 
 /**
  * These schemas are transient ingress guards. The report fold retains only
@@ -32,26 +32,26 @@ const cashEntrySchema = z.object({
   undoes: guidSchema.nullable().optional(),
   noSaleReason: guidReferenceSchema.nullable().optional(),
   payoutReason: guidReferenceSchema.nullable().optional(),
-}).passthrough();
+}).strip();
 
 const cashDepositSchema = z.object({
   guid: guidSchema,
   date: sourceDateTimeSchema,
   amount: sourceMoneySchema.positive(),
   undoes: guidSchema.nullable().optional(),
-}).passthrough();
+}).strip();
 
 const cashDrawerSchema = z.object({
   guid: guidSchema,
-}).passthrough();
+}).strip();
 
 const noSaleReasonSchema = z.object({
   guid: guidSchema,
-}).passthrough();
+}).strip();
 
 const payoutReasonSchema = z.object({
   guid: guidSchema,
-}).passthrough();
+}).strip();
 
 export const cashEntryArraySchema = z.array(cashEntrySchema).max(MAX_CASH_SOURCE_RECORDS);
 export const cashDepositArraySchema = z.array(cashDepositSchema).max(MAX_CASH_SOURCE_RECORDS);

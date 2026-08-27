@@ -10,6 +10,7 @@ import {
   type NoSaleReasonSource,
   type PayoutReasonSource,
 } from "./cash-report-source.js";
+import { MAX_CASH_SOURCE_RECORDS } from "./cash-report-limits.js";
 import {
   assertValidBusinessDate,
   cashSourceInvalid,
@@ -361,7 +362,15 @@ function parseConfigurationPages<T>(
   pages: readonly ToastDetailedJsonResult[],
   parse: (body: unknown) => readonly T[],
 ): readonly T[] {
-  return Object.freeze(pages.flatMap((page) => parse(page.body)));
+  const records: T[] = [];
+  for (const page of pages) {
+    const pageRecords = parse(page.body);
+    if (records.length + pageRecords.length > MAX_CASH_SOURCE_RECORDS) {
+      throw cashSourceInvalid();
+    }
+    records.push(...pageRecords);
+  }
+  return Object.freeze(records);
 }
 
 function assertRestaurantSource(
