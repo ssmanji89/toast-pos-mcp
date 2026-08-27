@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `9f145c287bafc3817ba79767e59c965353e544ce`
+**Observed `main`:** `09a925c3f502f03a4bbd73b33d8b482c88ea83d1`
 
 ## Canonical campaign position
 
@@ -17,7 +17,7 @@ milestone_name: Public local Toast reporting MCP
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - T3-001, T3-002, and T3-003 are CLOSED on `main`;
 - T4 is CLOSED after PR #48 merged with production stdio evidence;
-- T5 remains open;
+- T5-001 is CLOSED; T5-002 and T5-003 remain open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
 ## Campaign work observed

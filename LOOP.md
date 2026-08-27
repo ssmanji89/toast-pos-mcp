@@ -61,7 +61,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T3-003 | T3 | Implement item/category/revenue-center reporting with menu/config cache | T3-002 | CLOSED |
 | T4-001 | T4 | Implement cash-entry and deposit summaries | T3-002 CLOSED | CLOSED |
 | T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | CLOSED |
-| T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | OPEN |
+| T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | CLOSED |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
@@ -429,9 +429,9 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T5-001. Plan and implement the Analytics API capability and
-  management-group location adapter on the closed T4 main base.
-- **Required action:** preserve source separation and exclude guest-payment
-  datasets. Do not make an Analytics call until capability preflight passes.
+- **Next slice:** T5-002. Implement the bounded Analytics report-job lifecycle
+  on the closed T5-001 base.
+- **Required action:** preserve source separation, the closed Analytics access
+  boundary, and guest-payment exclusion. Do not register an Analytics tool.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
   Toast compatibility, and T6 packaging/signing/publication remain open.
