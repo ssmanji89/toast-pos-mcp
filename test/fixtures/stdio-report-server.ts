@@ -49,7 +49,8 @@ type FixtureScenario =
   | "missing-config-scope"
   | "multi-group-tags"
   | "missing-item-group"
-  | "conflicting-item-group";
+  | "conflicting-item-group"
+  | "conflicting-group-tags";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
@@ -165,7 +166,10 @@ async function syntheticToastFetch(
     return jsonResponse(
       scenario === "malformed-menu-structure"
         ? { restaurantGuid: RESTAURANT_GUID, lastUpdated: MENU_UPDATED_AT, menus: {} }
-        : syntheticMenus(scenario === "missing-menu-item"),
+        : syntheticMenus(
+          scenario === "missing-menu-item",
+          scenario === "conflicting-group-tags",
+        ),
       "fixture-menu-full-1",
     );
   }
@@ -466,7 +470,10 @@ function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GROUP_GUI
   };
 }
 
-function syntheticMenus(omitPrimaryItem: boolean): object {
+function syntheticMenus(
+  omitPrimaryItem: boolean,
+  conflictingGroupTags: boolean,
+): object {
   const primaryA = menuItem(ITEM_GUID, [
     { guid: TAG_LUNCH_GUID, name: "Lunch" },
     { guid: TAG_UNKNOWN_GUID, name: "NEW_ENUM_TAG" },
@@ -496,8 +503,10 @@ function syntheticMenus(omitPrimaryItem: boolean): object {
               : [primaryA, sameNameDifferentGuid],
           },
           {
-            guid: MENU_GROUP_B_GUID,
-            multiLocationId: "synthetic-group-b",
+            guid: conflictingGroupTags ? MENU_GROUP_A_GUID : MENU_GROUP_B_GUID,
+            multiLocationId: conflictingGroupTags
+              ? "synthetic-group-a"
+              : "synthetic-group-b",
             name: "Path B",
             menuItems: omitPrimaryItem ? [] : [primaryB],
           },
@@ -571,6 +580,7 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "multi-group-tags"
     || value === "missing-item-group"
     || value === "conflicting-item-group"
+    || value === "conflicting-group-tags"
   ) {
     return value ?? "success";
   }

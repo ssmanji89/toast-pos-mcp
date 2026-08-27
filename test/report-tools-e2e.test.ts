@@ -38,7 +38,8 @@ type FixtureScenario =
   | "missing-config-scope"
   | "multi-group-tags"
   | "missing-item-group"
-  | "conflicting-item-group";
+  | "conflicting-item-group"
+  | "conflicting-group-tags";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -371,6 +372,22 @@ test("missing or conflicting Orders itemGroup leaves merged menu tags unresolved
     } finally {
       await connection.client.close();
     }
+  }
+});
+
+test("conflicting tags for one exact menu item group fail closed", async () => {
+  const connection = createConnection("modern", "conflicting-group-tags");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(output.status, "denied");
+    assert.equal(structured(output.denial).code, "item_tag_context_unavailable");
+  } finally {
+    await connection.client.close();
   }
 });
 

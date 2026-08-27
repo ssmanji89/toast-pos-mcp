@@ -55,10 +55,11 @@ unresolved; it propagates as cancellation.
 
 ### Multi-path identity
 
-The same menu item can appear in multiple menu groups/paths. The cache merges
-repeated appearances only when stable item identity, name and canonicalized tag
-sets agree. Tag order is irrelevant. Path-dependent settings that T3-003 does
-not use as facts are not part of item identity.
+The same menu item can appear in multiple menu groups or paths. The cache merges
+repeated appearances only when stable item identity and name agree. Each exact
+group identity retains its own canonicalized tag set. Conflicting tag sets for
+one exact item-group identity fail closed. Orders `itemGroup` selects the tag
+set. Missing or ambiguous group context remains unresolved.
 
 Top-level item sales do not index the restaurant-level
 `modifierOptionReferences` map. Nested modifiers are already present in Orders
@@ -196,8 +197,8 @@ Adversarial scenarios prove:
 - two distinct GUIDs with the same current item name stay separate;
 - weighted quantity `0.5` survives exactly;
 - nested modifiers are traversed but not double-counted into item money;
-- the same item repeated on two menu paths with tag order reversed remains one
-  resolvable item;
+- Orders `itemGroup` selects the matching menu-path tags;
+- missing, ambiguous, or conflicting item-group tags remain unresolved;
 - a second item-report call polls metadata again but does not download the full
   menu when `lastUpdated` is unchanged;
 - failed metadata refresh after a valid snapshot yields stale enrichment and

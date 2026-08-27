@@ -173,11 +173,21 @@ const FORMULA_NOTES = Object.freeze([
 
 export async function buildItemSalesSummaryReport(
   runtime: ApplicationRuntime,
-  input: {
-    readonly businessDate: number;
-    readonly dimension: ItemSalesDimension;
-    readonly restaurantGuid?: string;
-  },
+  input: ItemSalesReportInput,
+  options: { readonly signal?: AbortSignal | undefined } = {},
+): Promise<ItemSalesSummaryResult> {
+  return buildItemSalesSummaryReportInternal(runtime, input, options);
+}
+
+interface ItemSalesReportInput {
+  readonly businessDate: number;
+  readonly dimension: ItemSalesDimension;
+  readonly restaurantGuid?: string;
+}
+
+async function buildItemSalesSummaryReportInternal(
+  runtime: ApplicationRuntime,
+  input: ItemSalesReportInput,
   options: { readonly signal?: AbortSignal | undefined } = {},
 ): Promise<ItemSalesSummaryResult> {
   const generatedAtEpochMs = runtime.now();
