@@ -25,6 +25,7 @@ const REVENUE_CENTER_GUID = "00000000-0000-4000-8000-000000000816";
 const RESTAURANT_SERVICE_GUID = "00000000-0000-4000-8000-000000000817";
 const TAG_LUNCH_GUID = "00000000-0000-4000-8000-000000000818";
 const TAG_UNKNOWN_GUID = "00000000-0000-4000-8000-000000000819";
+const TAG_DINNER_GUID = "00000000-0000-4000-8000-000000000823";
 const MENU_GUID = "00000000-0000-4000-8000-000000000820";
 const MENU_GROUP_A_GUID = "00000000-0000-4000-8000-000000000821";
 const MENU_GROUP_B_GUID = "00000000-0000-4000-8000-000000000822";
@@ -45,7 +46,8 @@ type FixtureScenario =
   | "missing-config-category"
   | "malformed-menu-structure"
   | "missing-menus-scope"
-  | "missing-config-scope";
+  | "missing-config-scope"
+  | "multi-group-tags";
 
 const scenario = parseScenario(process.argv[2]);
 let ordersFetchCount = 0;
@@ -266,7 +268,10 @@ async function syntheticToastFetch(
           : {},
       );
     }
-    return jsonResponse([syntheticOrder()], "fixture-orders-page-1");
+    return jsonResponse(
+      [syntheticOrder(ITEM_GROUP_GUID)],
+      "fixture-orders-page-1",
+    );
   }
 
   if (url.pathname === "/orders/v2/payments") {
@@ -317,7 +322,7 @@ async function syntheticToastFetch(
   });
 }
 
-function syntheticOrder(): object {
+function syntheticOrder(primaryItemGroupGuid = ITEM_GROUP_GUID): object {
   return {
     guid: ORDER_GUID,
     businessDate: BUSINESS_DATE,
@@ -347,7 +352,7 @@ function syntheticOrder(): object {
           {
             guid: SELECTION_GUID,
             item: { guid: ITEM_GUID },
-            itemGroup: { guid: ITEM_GROUP_GUID },
+            itemGroup: { guid: primaryItemGroupGuid },
             salesCategory: { guid: SALES_CATEGORY_GUID },
             diningOption: { guid: DINING_OPTION_GUID },
             quantity: 0.5,
@@ -459,8 +464,7 @@ function syntheticMenus(omitPrimaryItem: boolean): object {
     { guid: TAG_UNKNOWN_GUID, name: "NEW_ENUM_TAG" },
   ]);
   const primaryB = menuItem(ITEM_GUID, [
-    { guid: TAG_UNKNOWN_GUID, name: "NEW_ENUM_TAG" },
-    { guid: TAG_LUNCH_GUID, name: "Lunch" },
+    { guid: TAG_DINNER_GUID, name: "Dinner" },
   ]);
   const sameNameDifferentGuid = menuItem(SECOND_ITEM_GUID, [
     { guid: TAG_LUNCH_GUID, name: "Lunch" },
@@ -554,6 +558,7 @@ function parseScenario(value: string | undefined): FixtureScenario {
     || value === "malformed-menu-structure"
     || value === "missing-menus-scope"
     || value === "missing-config-scope"
+    || value === "multi-group-tags"
   ) {
     return value ?? "success";
   }

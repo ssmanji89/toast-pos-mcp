@@ -616,12 +616,13 @@ function resolveMenuItem(
   }
   const item = byGuid ?? byMulti;
   if (item === undefined || itemGroupReference === undefined) return item;
-  return item.itemGroups.some((group) =>
+  const matchingGroup = item.itemGroups.find((group) =>
     (itemGroupReference.guid !== undefined && group.guid === itemGroupReference.guid)
     || (itemGroupReference.multiLocationId !== undefined
-      && group.multiLocationId === itemGroupReference.multiLocationId))
-    ? item
-    : undefined;
+      && group.multiLocationId === itemGroupReference.multiLocationId));
+  return matchingGroup === undefined
+    ? undefined
+    : Object.freeze({ ...item, itemTags: matchingGroup.itemTags });
 }
 
 function referenceDescriptor(

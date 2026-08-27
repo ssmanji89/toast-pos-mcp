@@ -35,7 +35,8 @@ type FixtureScenario =
   | "missing-config-category"
   | "malformed-menu-structure"
   | "missing-menus-scope"
-  | "missing-config-scope";
+  | "missing-config-scope"
+  | "multi-group-tags";
 
 test(
   "production-wired pinned 2026-07-28 stdio lists and calls both Standard report tools",
@@ -332,6 +333,21 @@ test("item enrichment retains a multi-group menu item when Orders supplies its i
     const output = structured(result.structuredContent);
     assert.equal(groupByGuid(output, ITEM_GUID).enrichmentState, "current");
     assert.equal(groupByGuid(output, ITEM_GUID).displayName, "Current Burger");
+  } finally {
+    await connection.client.close();
+  }
+});
+
+test("item tags use the menu group selected by the Orders itemGroup", async () => {
+  const connection = createConnection("modern", "multi-group-tags");
+  try {
+    await connectWithTimeout(connection);
+    const result = await connection.client.callTool({
+      name: "toast_item_sales_summary",
+      arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+    });
+    const output = structured(result.structuredContent);
+    assert.equal(groupByGuid(output, TAG_UNKNOWN_GUID).displayName, "NEW_ENUM_TAG");
   } finally {
     await connection.client.close();
   }

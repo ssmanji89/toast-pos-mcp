@@ -47,6 +47,7 @@ export interface MenuItemDimension {
 export interface MenuItemGroupDimension {
   readonly guid: string;
   readonly multiLocationId: string | undefined;
+  readonly itemTags: readonly MenuTagDimension[];
 }
 
 export interface NamedConfigurationDimension {
@@ -500,6 +501,7 @@ function normalizeMenuItemGroup(raw: unknown): MenuItemGroupDimension | undefine
   return Object.freeze({
     guid: guid.data.toLowerCase(),
     multiLocationId: nonEmptyString(raw.multiLocationId),
+    itemTags: Object.freeze([]),
   });
 }
 
@@ -536,7 +538,7 @@ function normalizeMenuItem(
     multiLocationId,
     name: name.data,
     itemTags: Object.freeze(tags),
-    itemGroups: Object.freeze([itemGroup]),
+    itemGroups: Object.freeze([Object.freeze({ ...itemGroup, itemTags: Object.freeze(tags) })]),
   });
 }
 
@@ -601,14 +603,7 @@ function sameMenuItem(
 ): boolean {
   return left.guid === right.guid
     && left.multiLocationId === right.multiLocationId
-    && left.name === right.name
-    && left.itemTags.length === right.itemTags.length
-    && left.itemTags.every((tag, index) => {
-      const other = right.itemTags[index];
-      return other !== undefined
-        && tag.guid === other.guid
-        && tag.name === other.name;
-    });
+    && left.name === right.name;
 }
 
 function menuCacheFields(cache: MenuCacheEntry) {
