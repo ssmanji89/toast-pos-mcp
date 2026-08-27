@@ -15,7 +15,6 @@ import {
   MENU_UPDATED_AT,
   NO_SALE_REASON_GUID,
   NOW,
-  PAYMENT_GUID,
   PAYOUT_REASON_GUID,
   RESTAURANT_GUID,
   SALES_CATEGORY_GUID,
@@ -33,6 +32,7 @@ import {
   syntheticOrder,
   type FixtureScenario,
 } from "./stdio-report-data.js";
+import { handlePaymentRoute } from "./stdio-report-payment-routes.js";
 
 const scenario = parseScenario(process.argv[2]);
 const selectedRestaurantGuid = scenario === "alternate-restaurant"
@@ -119,7 +119,7 @@ const fixtureRouteHandlers: readonly FixtureRouteHandler[] = [
   handleMenuRoute,
   handleConfigurationRoute,
   handleOrdersRoute,
-  handlePaymentRoute,
+  handlePaymentFixtureRoute,
 ];
 
 async function handleLocationRoute(
@@ -495,53 +495,14 @@ async function handleOrdersRoute(
   return undefined;
 }
 
-async function handlePaymentRoute(
+async function handlePaymentFixtureRoute(
   url: URL,
   headers: Headers,
 ): Promise<Response | undefined> {
-  if (url.pathname === "/orders/v2/payments") {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    if (
-      url.searchParams.get("paidBusinessDate") === String(BUSINESS_DATE)
-      || url.searchParams.get("refundBusinessDate") === String(BUSINESS_DATE)
-      || url.searchParams.get("voidBusinessDate") === String(BUSINESS_DATE)
-    ) {
-      return jsonResponse([PAYMENT_GUID], `fixture-payment-list-${url.search}`);
-    }
-    return jsonResponse([]);
-  }
-
-  if (url.pathname === `/orders/v2/payments/${PAYMENT_GUID}`) {
-    assertRestaurantHeader(headers);
-    assertBusinessDataAllowed();
-    return jsonResponse({
-      guid: PAYMENT_GUID,
-      paidDate: "2026-08-16T12:00:00-0500",
-      paidBusinessDate: BUSINESS_DATE,
-      type: "CASH",
-      amount: 10,
-      tipAmount: 1,
-      paymentStatus: "CAPTURED",
-      refundStatus: "FULL",
-      refund: {
-        refundAmount: 2,
-        tipRefundAmount: 0.5,
-        refundDate: "2026-08-16T16:00:00-0500",
-        refundBusinessDate: BUSINESS_DATE,
-      },
-      voidInfo: {
-        voidDate: "2026-08-16T17:00:00-0500",
-        voidBusinessDate: BUSINESS_DATE,
-      },
-      customer: { email: "must-not-leak@example.invalid" },
-      first6Digits: "123456",
-      last4Digits: "7890",
-      tenderTransactionGuid: "must-not-leak",
-    }, "fixture-payment-detail");
-  }
-
-  return undefined;
+  return handlePaymentRoute(url, headers, {
+    assertRestaurantHeader,
+    assertBusinessDataAllowed,
+  });
 }
 
 function assertSingleConfigSuccess(pathname: string): void {
