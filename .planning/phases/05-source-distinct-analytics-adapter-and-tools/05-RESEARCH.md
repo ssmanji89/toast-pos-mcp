@@ -300,22 +300,23 @@ return Object.freeze([...requestedRestaurantGuids].sort());
 | A2 | A private credential identity plus canonical validated restaurant set is the correct state key when Toast does not return a management-group GUID. | No-Assumption Items | Cache, limiter, or later job state could cross group boundaries. |
 | A3 | T5-002 must decide the active/test/archived inclusion policy per endpoint. | No-Assumption Items | A future report could include an unsupported restaurant state. |
 
-## Open Questions
+## Resolved Questions and Explicit T5-002 Deferrals
 
-1. **Which Analytics credential variables form the public local configuration contract?**
-   - What we know: Analytics credentials must be separate. [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsOverview.html]
-   - What's unclear: The existing package has no Analytics configuration naming convention. [VERIFIED: src/config.ts]
-   - Recommendation: Add optional, explicit Analytics-only configuration in T5-001. Preserve Standard startup when it is absent. [ASSUMED]
+1. **Which Analytics credential variables form the public local configuration contract? — Resolved for T5-001.**
+   - The optional, all-or-nothing Analytics configuration is `TOAST_ANALYTICS_API_HOSTNAME`, `TOAST_ANALYTICS_ACCESS_TYPE`, `TOAST_ANALYTICS_CLIENT_ID`, and `TOAST_ANALYTICS_CLIENT_SECRET`.
+   - The hostname and access type come from the Analytics credential page's API access URL and API access type. The client ID and secret come from the same separate Analytics credential set. [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsAccessCreatingCredentials.html] [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsOverview.html]
+   - These package-local names are an explicit local contract. Toast does not prescribe package environment names. [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsOverview.html]
+   - When all four variables are absent, Standard startup is unchanged. When any variable is absent or invalid, the Analytics authority is unavailable and fails closed. The adapter must never use Standard API host, access type, client ID, or client secret values as a substitute. [VERIFIED: src/config.ts] [VERIFIED: AGENTS.md]
 
-2. **Which restaurant statuses can each future Analytics dataset include?**
-   - What we know: The location source reports `active`, `testMode`, and `archived`. [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsRestaurantInfoGetRestaurantList.html]
-   - What's unclear: The consulted source does not define every dataset's status policy.
-   - Recommendation: Retain all statuses now. Gate T5-002 request construction on the specific dataset documentation. [ASSUMED]
+2. **Which restaurant statuses can each future Analytics dataset include? — Deferred to T5-002 only.**
+   - T5-001 retains `active`, `testMode`, and `archived` as validated source facts. It does not choose a status inclusion policy.
+   - T5-002 must verify the target dataset contract before it constructs a job request or selects statuses. [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsRestaurantInfoGetRestaurantList.html]
 
-3. **Where do official endpoint documents define 202 and 409 behavior?**
-   - What we know: The roadmap requires it, and Toast documents the base POST/GET/404 lifecycle. [VERIFIED: ROADMAP.md] [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsUnderstandingProcess.html]
-   - What's unclear: The consulted public pages do not state the required 202/409 policy.
-   - Recommendation: Treat the T5-002 roadmap contract as binding while locating the endpoint-specific official response reference. Do not implement it in T5-001.
+3. **Where do official endpoint documents define 202 and 409 behavior? — Deferred to T5-002 only.**
+   - T5-001 makes no report-job request. It does not implement polling or replacement.
+   - T5-002 must cite the endpoint-specific official response contract before it implements the roadmap-required 202 pending and 409 replacement behavior. [VERIFIED: ROADMAP.md] [CITED: https://doc.toasttab.com/doc/devguide/apiAnalyticsUnderstandingProcess.html]
+
+**Resolution status:** No open question blocks T5-001 planning. The two remaining questions are explicit T5-002-only research and implementation gates.
 
 ## Environment Availability
 
