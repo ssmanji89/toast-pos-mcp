@@ -23,6 +23,7 @@ key-files:
     - test/cash-report.test.ts
     - test/cash-report-fold.test.ts
     - test/cash-report-r3.test.ts
+    - test/cash-report-r4.test.ts
     - test/support/cash-report-fixtures.ts
   modified:
     - src/cash-report-source.ts
@@ -32,6 +33,7 @@ key-files:
     - test/cash-report.test.ts
     - test/cash-report-fold.test.ts
     - test/cash-report-r3.test.ts
+    - test/cash-report-r4.test.ts
     - test/support/cash-report-fixtures.ts
 key-decisions:
   - "Cash entries and deposits remain source-distinct Cash Management facts, not guest cash payments or expected deposits."
@@ -66,6 +68,8 @@ status: complete
 - Corrected Deposit reversal treatment, removed unsupported drawer-to-Deposit attribution, and recorded absent drawers as an explicit completeness fact.
 - Canonicalized Cash Management GUID identity in the fold and rejected duplicate canonical Entry and Deposit records.
 - Bounded source records, open type values, aggregate type keys, and aggregate reference keys with fail-closed denials.
+- Stripped unknown fields from all cash ingress records and GUID references before the report fold retains them.
+- Denied configuration page aggregates above the source-record limit before later configuration sources can start.
 
 ## Task Commits
 
@@ -83,6 +87,8 @@ status: complete
    - `a0e67a4` `fix(04-01): harden cash source identity`
 5. **Third independent review corrections**
    - `ec359e1` `fix(04-01): bound cash source processing`
+6. **Fourth independent review corrections**
+   - `3bc2767` `fix(t4-001-04): bound cash source ingress`
 
 ## Verification
 
@@ -179,6 +185,16 @@ DOX: no durable public contract changed. This plan still does not register the c
 - **Result:** `npm run build:test && node --test dist-test/test/cash-report.test.js` passed 15/15 after every mutation was restored.
 - **Review status:** This correction set is not self-approved. It requires a fresh independent review.
 
+## Independent Review Round R4
+
+- **Review input:** PR #46 independent-review comment `5443024630` on head `7494be58b56da5cb306ae9d1d12cca5662eeac0a`.
+- **Source minimization:** Cash Entry, Deposit, Drawer, No Sale Reason, Payout Reason, and nested GUID-reference schemas now explicitly use Zod strip behavior. Direct parse tests prove each invented raw field is removed before the fold receives the record.
+- **Aggregate limit timing:** Configuration pages accumulate one page at a time. The builder denies when the combined count exceeds 1,000 before it starts the next configuration source.
+- **Endpoint boundaries:** Each configuration endpoint accepts two synthetic pages of 500 records. Each endpoint denies 501 plus 500 records. Call-order assertions prove later sources do not start after the denial.
+- **Mutation checks:** Changing a GUID-reference schema to passthrough fails the direct parse test. Changing the aggregate condition to reject the boundary fails the 500 plus 500 test. Both mutations were restored.
+- **Result:** The focused suite passed 19/19. `npm run check` passed 32 discovered test files, 320 tests, and the package dry-run on Node 25.9.0. Node 20 and Node 22 executables are not available in this worktree, so their required integration gates remain deferred.
+- **Review status:** This correction set is not self-approved. It requires a fresh independent review.
+
 ## Evidence Limits
 
 - Synthetic fixtures are implementation evidence only.
@@ -192,4 +208,4 @@ Plan 04-02 can proceed independently. Plan 04-03 can register this builder throu
 ## Self-Check: PASSED
 
 - Confirmed all eight implementation and focused test artifacts and this summary exist.
-- Confirmed all nine TDD, implementation, correction, and refactor commits exist in the repository history.
+- Confirmed all ten TDD, implementation, correction, and refactor commits exist in the repository history.
