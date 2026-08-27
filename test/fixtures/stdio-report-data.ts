@@ -79,123 +79,149 @@ export function syntheticOrder(primaryItemGroup: object | null = { guid: ITEM_GR
     excessFood: false,
     deleted: false,
     voided: false,
-    checks: [
-      {
-        guid: CHECK_GUID,
-        amount: 10,
-        taxAmount: 0.8,
-        totalAmount: 10.8,
-        taxExempt: false,
-        deleted: false,
-        voided: false,
-        paymentStatus: "CLOSED",
-        selections: [
-          {
-            guid: SELECTION_GUID,
-            item: { guid: ITEM_GUID },
-            ...(primaryItemGroup === null ? {} : { itemGroup: primaryItemGroup }),
-            salesCategory: { guid: SALES_CATEGORY_GUID },
-            diningOption: { guid: DINING_OPTION_GUID },
-            quantity: 0.5,
-            unitOfMeasure: "LB",
-            selectionType: "NONE",
-            price: 8,
-            preDiscountPrice: 9,
-            tax: 0.8,
-            deferred: false,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [
-              {
-                guid: MODIFIER_GUID,
-                item: { guid: ITEM_GUID },
-                quantity: 1,
-                unitOfMeasure: "NONE",
-                selectionType: "NONE",
-                price: 1,
-                preDiscountPrice: 1,
-                tax: 0,
-                deferred: false,
-                voided: false,
-                appliedDiscounts: [],
-                modifiers: [
-                  {
-                    guid: NESTED_MODIFIER_GUID,
-                    item: { guid: ITEM_GUID },
-                    quantity: 1,
-                    unitOfMeasure: "NONE",
-                    selectionType: "NONE",
-                    price: 0.5,
-                    preDiscountPrice: 0.5,
-                    tax: 0,
-                    deferred: false,
-                    voided: false,
-                    appliedDiscounts: [],
-                    modifiers: [],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            guid: SECOND_SELECTION_GUID,
-            item: { guid: SECOND_ITEM_GUID },
-            itemGroup: { guid: ITEM_GROUP_GUID },
-            salesCategory: { guid: SALES_CATEGORY_GUID },
-            diningOption: { guid: DINING_OPTION_GUID },
-            quantity: 1,
-            unitOfMeasure: "NONE",
-            selectionType: "NONE",
-            price: 2,
-            preDiscountPrice: 2,
-            tax: 0,
-            deferred: false,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [],
-          },
-          {
-            guid: DEFERRED_GUID,
-            quantity: 1,
-            unitOfMeasure: "NONE",
-            selectionType: "HOUSE_ACCOUNT_PAY_BALANCE",
-            price: 1,
-            preDiscountPrice: 1,
-            tax: 0,
-            deferred: true,
-            voided: false,
-            appliedDiscounts: [],
-            modifiers: [],
-          },
-        ],
-        payments: [
-          {
-            guid: PAYMENT_GUID,
-            type: "CASH",
-            amount: 10,
-            tipAmount: 1,
-            paidBusinessDate: BUSINESS_DATE,
-            paymentStatus: "CAPTURED",
-            refundStatus: "FULL",
-            refund: {
-              refundAmount: 2,
-              tipRefundAmount: 0.5,
-              refundBusinessDate: BUSINESS_DATE,
-            },
-          },
-        ],
-        appliedServiceCharges: [
-          {
-            guid: SERVICE_CHARGE_GUID,
-            chargeAmount: 1,
-            serviceCharge: { guid: SERVICE_CHARGE_CONFIG_GUID },
-            gratuity: false,
-            serviceChargeCategory: "FUNDRAISING_CAMPAIGN",
-          },
-        ],
-        appliedDiscounts: [],
-      },
-    ],
+    checks: [syntheticCheck(primaryItemGroup)],
+  };
+}
+
+function syntheticCheck(primaryItemGroup: object | null): object {
+  return {
+    guid: CHECK_GUID,
+    amount: 10,
+    taxAmount: 0.8,
+    totalAmount: 10.8,
+    taxExempt: false,
+    deleted: false,
+    voided: false,
+    paymentStatus: "CLOSED",
+    selections: syntheticSelections(primaryItemGroup),
+    payments: [syntheticPayment()],
+    appliedServiceCharges: [syntheticServiceCharge()],
+    appliedDiscounts: [],
+  };
+}
+
+function syntheticSelections(primaryItemGroup: object | null): readonly object[] {
+  return [
+    syntheticPrimarySelection(primaryItemGroup),
+    syntheticSecondSelection(),
+    syntheticDeferredSelection(),
+  ];
+}
+
+function syntheticPrimarySelection(primaryItemGroup: object | null): object {
+  return {
+    guid: SELECTION_GUID,
+    item: { guid: ITEM_GUID },
+    ...(primaryItemGroup === null ? {} : { itemGroup: primaryItemGroup }),
+    salesCategory: { guid: SALES_CATEGORY_GUID },
+    diningOption: { guid: DINING_OPTION_GUID },
+    quantity: 0.5,
+    unitOfMeasure: "LB",
+    selectionType: "NONE",
+    price: 8,
+    preDiscountPrice: 9,
+    tax: 0.8,
+    deferred: false,
+    voided: false,
+    appliedDiscounts: [],
+    modifiers: [syntheticModifier()],
+  };
+}
+
+function syntheticModifier(): object {
+  return {
+    guid: MODIFIER_GUID,
+    item: { guid: ITEM_GUID },
+    quantity: 1,
+    unitOfMeasure: "NONE",
+    selectionType: "NONE",
+    price: 1,
+    preDiscountPrice: 1,
+    tax: 0,
+    deferred: false,
+    voided: false,
+    appliedDiscounts: [],
+    modifiers: [syntheticNestedModifier()],
+  };
+}
+
+function syntheticNestedModifier(): object {
+  return {
+    guid: NESTED_MODIFIER_GUID,
+    item: { guid: ITEM_GUID },
+    quantity: 1,
+    unitOfMeasure: "NONE",
+    selectionType: "NONE",
+    price: 0.5,
+    preDiscountPrice: 0.5,
+    tax: 0,
+    deferred: false,
+    voided: false,
+    appliedDiscounts: [],
+    modifiers: [],
+  };
+}
+
+function syntheticSecondSelection(): object {
+  return {
+    guid: SECOND_SELECTION_GUID,
+    item: { guid: SECOND_ITEM_GUID },
+    itemGroup: { guid: ITEM_GROUP_GUID },
+    salesCategory: { guid: SALES_CATEGORY_GUID },
+    diningOption: { guid: DINING_OPTION_GUID },
+    quantity: 1,
+    unitOfMeasure: "NONE",
+    selectionType: "NONE",
+    price: 2,
+    preDiscountPrice: 2,
+    tax: 0,
+    deferred: false,
+    voided: false,
+    appliedDiscounts: [],
+    modifiers: [],
+  };
+}
+
+function syntheticDeferredSelection(): object {
+  return {
+    guid: DEFERRED_GUID,
+    quantity: 1,
+    unitOfMeasure: "NONE",
+    selectionType: "HOUSE_ACCOUNT_PAY_BALANCE",
+    price: 1,
+    preDiscountPrice: 1,
+    tax: 0,
+    deferred: true,
+    voided: false,
+    appliedDiscounts: [],
+    modifiers: [],
+  };
+}
+
+function syntheticPayment(): object {
+  return {
+    guid: PAYMENT_GUID,
+    type: "CASH",
+    amount: 10,
+    tipAmount: 1,
+    paidBusinessDate: BUSINESS_DATE,
+    paymentStatus: "CAPTURED",
+    refundStatus: "FULL",
+    refund: {
+      refundAmount: 2,
+      tipRefundAmount: 0.5,
+      refundBusinessDate: BUSINESS_DATE,
+    },
+  };
+}
+
+function syntheticServiceCharge(): object {
+  return {
+    guid: SERVICE_CHARGE_GUID,
+    chargeAmount: 1,
+    serviceCharge: { guid: SERVICE_CHARGE_CONFIG_GUID },
+    gratuity: false,
+    serviceChargeCategory: "FUNDRAISING_CAMPAIGN",
   };
 }
 
