@@ -116,7 +116,36 @@ npm run build:test && node --test dist-test/test/orders-normalization.test.js di
 
 Review-fix mutation checks passed. Removing job exclusion, withholding, payment-level totals, or half-up rounding each caused the focused labor test to fail. The implementation was restored before final verification.
 
+## Review Round 2 Fixes
+
+The independent review at `b10f4e2` found four blockers. Commit `7f77963` resolves them.
+
+1. The builder collects distinct TimeEntry job GUIDs and reads Jobs by `jobIds` in batches of at most 100.
+   Every referenced job must return, including a deleted job, before the builder applies reporting exclusions.
+   Missing job references deny the report with no fabricated aggregate.
+2. The Orders fold now uses `SalesCrossPageIdentityGuard` for every normalized Order.
+   A repeated Order, check, or payment identity across pages denies the report before duplicated values enter aggregates.
+3. Tip withholding now uses only eligible credit-card tip minor units as its basis.
+   The report retains total tips, withholding basis, withheld amount, and net tips.
+4. The tests assert the exact closeout-hour interval across the fall DST change.
+   They assert all required scope denials perform no business request.
+   They assert each labor, configuration, and Orders request uses the selected restaurant GUID.
+   They assert the caller cancellation signal reaches each staged source and stops later reads.
+
+The builder functions are split to at most 100 TypeScript source lines each.
+
+Review-round-two verification passed:
+
+```text
+npm run build:test && node --test dist-test/test/orders-normalization.test.js dist-test/test/labor-report.test.js
+18 tests passed.
+```
+
+Targeted mutation checks passed. Removing unresolved-job rejection, cross-page identity checking, card-tip withholding basis, or closeout-hour bounds each caused its focused test to fail. The implementation was restored before final verification.
+
+DOX: updated this plan summary because the report's withholding basis and source-validation rules are durable output-contract facts.
+
 ## Self-Check: PASSED
 
 - Source, report, and focused test files exist.
-- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, and review-fix commit `f4c9f12` exist.
+- Task commits `86d3414`, `2e9ffb3`, `f89a1ff`, `ececd13`, `f4c9f12`, and review-fix commit `7f77963` exist.
