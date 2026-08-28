@@ -388,19 +388,39 @@ Required:
 
 Owner: T6-003.
 
-Required release gates:
+**Observed local package evidence:** T6-003 is MERGED through PR #53 at
+`f2ea7627c006907b5026079d62b861d8cda52dfe`. Candidate
+`d5c47f39321f13c991d2abe6fcf3c035a020c9d2` restored the committed lockfile
+and passed `npm run check` on Node 20.20.2 and Node 22.22.2. The candidate's
+real tarballs had 151 paths and SHA-256
+`2e319e3e13be48907508dc0e3d46b673e6b5721b1021906b3ae4e9d1374f2be0`. An
+empty consumer used the installed package bin for MCP 2026-07-28 negotiation,
+tool discovery, an invented Standard schema-version-1 `complete` envelope,
+and the constrained body-free Analytics `denied` envelope. Independent review
+was CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2`. Post-merge Node
+22.22.2 passed committed restore, full check, and package dry-run with 43
+discovered files, 411 normal tests, one installed-artifact test, and 151 paths.
 
-- exact-head clean install on supported Node floor and compatibility runtime;
-- package dry-run/install smoke from the actual artifact;
-- stdio host smoke using the packaged executable;
-- #28 Standard location-source live compatibility resolved;
-- #32 rate-limit reset-header semantics resolved;
-- no unresolved HIGH/BLOCKER review finding;
-- package contents contain intended runtime/docs only;
-- publication/signing remains a human/external gate when credentials/signing are required.
-- T5-003-G01 requires a corrected current Toast Analytics retrieval contract;
-- live Analytics compatibility requires authorized access and documented
+This is MERGED local synthetic package evidence. It is not publication
+readiness, live compatibility, consent, approval, signing, or legal
+sufficiency.
+
+**Remaining external, vendor, and human gates:**
+
+- #4/T6-003 first-tool-request cancellation remains open. The npm registry
+  reports MCP server and client 2.0.0 as current latest releases, so no local
+  MCP 2.0.0 dependency-upgrade path exists.
+- T5-003-G01 requires a corrected Toast retrieval contract or written vendor
+  confirmation before a complete Analytics result contract can be claimed.
+- #28 requires owner-authorized live Standard evidence for credential-wide
+  location discovery.
+- Live Analytics compatibility requires authorized access and documented
   Merchant consent under `AGENTS.md`.
+- Signing and publication require authorized human credentials.
+- Terms, brand, consent, provider, logging, retention, and legal sufficiency
+  require the applicable external or human authority.
+
+DOX: updated.
 
 ---
 
