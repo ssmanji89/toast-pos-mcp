@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `09a925c3f502f03a4bbd73b33d8b482c88ea83d1`
+**Observed `main`:** `0c6de53760b64b38b5cae30717117c551aca7e1d`
 
 ## Canonical campaign position
 
@@ -17,7 +17,7 @@ milestone_name: Public local Toast reporting MCP
 - T2-002 capability preflight is CLOSED after PR #12 merged and passed its Node 20/22 gates;
 - T3-001, T3-002, and T3-003 are CLOSED on `main`;
 - T4 is CLOSED after PR #48 merged with production stdio evidence;
-- T5-001 is CLOSED; T5-002 and T5-003 remain open;
+- T5-001 and T5-002 are CLOSED; T5-003 remains open;
 - T6-001 is closed out of sequence; T6-002/T6-003 remain open.
 
 ## Campaign work observed
@@ -39,6 +39,7 @@ milestone_name: Public local Toast reporting MCP
 | T4 cash source/report | PR #46 | merged as `b52f3949d585435d19bab1fcc2c452fc1326d3ac` | CLOSED source slice after CLEAN review; rebuilt main suite passed 342 tests |
 | T4 labor source/report | PR #47 | merged as `428cca196aba6497d72e942f7dd7cb021ae49e77` | CLOSED source slice after CLEAN review; rebuilt main suite passed 319 tests |
 | T4 shared MCP integration | PR #48 | merged as `9f145c287bafc3817ba79767e59c965353e544ce` | CLOSED; independent review CLEAN at `3909f10732cf7b1a8f42109b1b9c79d4c6362f3c`; rebuilt Node 22 `npm run check` passed 364 tests and child-process report-tool stdio tests passed 43/43 |
+| T5-002 Analytics job lifecycle | PR #50 | merged as `0c6de53760b64b38b5cae30717117c551aca7e1d`; reviewed at `e3d07868ed0c5fa18f5bbcfdc2aa52bc912661ee` | CLOSED; Node 20/22 candidate evidence passed 399 tests, 15 focused lifecycle tests, 16/16 mutations, and package validation; rebuilt Node 22 main passed; synthetic internal lifecycle only, with G01-G05 and T5-003 MCP wiring open |
 
 ## Current executor capability
 
@@ -48,7 +49,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- plan and execute T5-001 on the closed T4 main base;
+- plan and execute T5-003 on the closed T5-002 main base;
 - retain the external release gates without converting synthetic evidence into live proof.
 
 ### Human/external gates
@@ -59,7 +60,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Plan and execute T5-001 without mixing Analytics and Standard sources.
+1. Plan and execute T5-003 without mixing Analytics and Standard sources.
 2. Keep #4/T6-003, #28, and T6 publication/signing as owned external gates.
 
 ## Refresh rule

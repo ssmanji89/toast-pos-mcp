@@ -62,7 +62,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T4-001 | T4 | Implement cash-entry and deposit summaries | T3-002 CLOSED | CLOSED |
 | T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | CLOSED |
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | CLOSED |
-| T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | OPEN |
+| T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | CLOSED |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
@@ -79,6 +79,15 @@ The server must support operators using their own authorized Toast credentials, 
 - DOX: updated during T0; post-merge closure changes workflow state only.
 
 ## Current slice
+
+T5-002 is CLOSED on `main` at `0c6de53760b64b38b5cae30717117c551aca7e1d`.
+PR #50 merged after independent CLEAN review of
+`e3d07868ed0c5fa18f5bbcfdc2aa52bc912661ee`.
+Both Node 20.20.2 and Node 22.22.2 candidate runs passed authentic clean
+dependency restoration, 399 tests, the 15-test lifecycle suite, 16/16
+semantic mutations, and package validation. Rebuilt `main` passed the Node 22
+equivalent gate. This is synthetic internal-lifecycle evidence only. T5-003
+retains MCP presentation and source-result-contract ownership.
 
 T4 is CLOSED on `main` at `9f145c287bafc3817ba79767e59c965353e544ce`.
 T4-001 / PR #46 merged as `b52f394` after a CLEAN review of `f34c083`.
@@ -429,9 +438,9 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T5-002. Implement the bounded Analytics report-job lifecycle
-  on the closed T5-001 base.
-- **Required action:** preserve source separation, the closed Analytics access
-  boundary, and guest-payment exclusion. Do not register an Analytics tool.
+- **Next slice:** T5-003. Plan the source-distinct Analytics reporting tools
+  from the closed T5-002 base.
+- **Required action:** preserve source separation, guest-payment exclusion,
+  closed report-job operations, G01-G05 gates, and the actual MCP runtime path.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
   Toast compatibility, and T6 packaging/signing/publication remain open.
