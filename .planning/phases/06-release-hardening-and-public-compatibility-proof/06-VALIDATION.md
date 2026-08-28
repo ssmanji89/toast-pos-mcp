@@ -99,7 +99,8 @@ The second command is review output, not proof of an external gate. Review it ag
 `docs/architecture/report-contract.md`, `docs/architecture/public-use-boundary.md`,
 `docs/architecture/threat-model.md`, `test/public-operator-docs.test.ts`, and
 this validation map changed. Reviewed registrations: `src/report-tools.ts` and
-`src/analytics-report-tools.ts`.
+`src/analytics-report-tools.ts`. The PR also carries four phase records:
+`06-CONTEXT.md`, `06-RESEARCH.md`, `06-01-PLAN.md`, and `06-01-SUMMARY.md`.
 
 **Synthetic validation:** The RED command failed as expected before public
 documentation existed. The focused GREEN command passed 5 of 5 tests.
@@ -118,7 +119,7 @@ notice, change package metadata, or establish release evidence.
 **Terms and documentation evidence:** The documentation records the observed
 2026-06-23 Terms date and direct `https://pos.toasttab.com/api-terms-of-use`
 link. It records issue #22 and `DOX: updated`. The changed-path and diff scan
-found only the seven owned paths. It found no secret, Merchant Data, copied
+found seven implementation paths plus four phase records. It found no secret, Merchant Data, copied
 Toast documentation, approval record, package artifact, package-metadata
 change, or control-plane change.
 

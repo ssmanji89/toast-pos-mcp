@@ -39,7 +39,7 @@ status: complete
 - **Started:** 2026-08-28T02:53:51Z
 - **Completed:** 2026-08-28T02:59:57Z
 - **Tasks:** 3
-- **Files modified:** 8
+- **Files modified:** 11 (seven implementation paths and four phase records)
 
 ## Accomplishments
 
@@ -63,6 +63,7 @@ status: complete
 - `docs/architecture/threat-model.md` - current T5-003 safety state and release limits.
 - `test/public-operator-docs.test.ts` - source-to-documentation regression contract.
 - `.planning/phases/06-release-hardening-and-public-compatibility-proof/06-VALIDATION.md` - complete Nyquist map and observed evidence.
+- `.planning/phases/06-release-hardening-and-public-compatibility-proof/06-CONTEXT.md`, `06-RESEARCH.md`, `06-01-PLAN.md`, and this summary - phase records.
 
 ## Decisions Made
 
@@ -106,7 +107,7 @@ status: complete
 - RED: `npm run build:test && ! node --test --enable-source-maps dist-test/test/public-operator-docs.test.js` failed as expected before public documentation existed.
 - GREEN: `npm run build:test && node --test --enable-source-maps dist-test/test/public-operator-docs.test.js` passed 5 of 5 tests.
 - Full: `npm ci --no-audit --no-fund && npm run check` passed on `467d6e9536c138c6c1bb0b742c6f6ccf169204b8`, with 42 discovered files and 411 passing tests.
-- Diff scan: only the seven owned plan paths changed. No secret, Merchant Data, copied Toast Terms, approval record, package artifact, package metadata, or control-plane change appeared.
+- Diff scan: seven implementation paths and four phase records changed. No secret, Merchant Data, copied Toast Terms, approval record, package artifact, package metadata, or control-plane change appeared.
 
 ## External Gates
 

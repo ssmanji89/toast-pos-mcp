@@ -14,25 +14,34 @@ const publicDocuments = [readme, catalog, operatorGuide, publicBoundary, threatM
 const standardRegistration = read("src/report-tools.ts");
 const analyticsRegistration = read("src/analytics-report-tools.ts");
 
-const standardTools = [
-  "toast_sales_summary",
-  "toast_payment_summary",
-  "toast_item_sales_summary",
-  "toast_cash_summary",
-  "toast_labor_summary",
-] as const;
-const analyticsTool = "toast_analytics_metrics_day";
+function registeredToolNames(registration: string): string[] {
+  return [...registration.matchAll(/server\.registerTool\(\s*(?:"([^"]+)"|([A-Z][A-Z0-9_]*))/gu)].map((match) => {
+    if (match[1] !== undefined) {
+      return match[1];
+    }
+
+    const definition = registration.match(new RegExp(`const\\s+${match[2]}\\s*=\\s*"([^"]+)"`, "u"));
+    assert.ok(definition?.[1], `missing literal definition for ${match[2]}`);
+    return definition[1];
+  });
+}
+
+const registeredTools = [standardRegistration, analyticsRegistration].flatMap(registeredToolNames);
 
 test("public documentation catalogs every registered report tool", () => {
-  for (const tool of standardTools) {
-    assert.match(standardRegistration, new RegExp(`"${tool}"`, "u"));
+  assert.deepEqual(registeredTools.sort(), [
+    "toast_analytics_metrics_day",
+    "toast_cash_summary",
+    "toast_item_sales_summary",
+    "toast_labor_summary",
+    "toast_payment_summary",
+    "toast_sales_summary",
+  ]);
+
+  for (const tool of registeredTools) {
     assert.match(catalog, new RegExp(`\\b${tool}\\b`, "u"));
     assert.match(readme, new RegExp(`\\b${tool}\\b`, "u"));
   }
-
-  assert.match(analyticsRegistration, new RegExp(`"${analyticsTool}"`, "u"));
-  assert.match(catalog, new RegExp(`\\b${analyticsTool}\\b`, "u"));
-  assert.match(readme, new RegExp(`\\b${analyticsTool}\\b`, "u"));
 });
 
 test("public documentation preserves source and Analytics result boundaries", () => {
@@ -42,6 +51,10 @@ test("public documentation preserves source and Analytics result boundaries", ()
   assert.match(catalog, /`denied` or `incomplete`/u);
   assert.match(catalog, /analytics_result_schema_unverified/u);
   assert.match(publicDocuments, /informational and non-GAAP/u);
+  assert.match(threatModel, /five Standard API report tools/u);
+  assert.match(threatModel, /body-free lifecycle boundary/u);
+  assert.doesNotMatch(threatModel, /zero registered MCP tools/u);
+  assert.doesNotMatch(threatModel, /no normalization, report calculation, or Analytics adapter code/u);
 });
 
 test("operator duties and evidence limits appear before configuration guidance", () => {
