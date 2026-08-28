@@ -110,18 +110,24 @@ reports `@modelcontextprotocol/server@2.0.0` and
 `@modelcontextprotocol/client@2.0.0` as current latest releases, so #4 has no
 local dependency-upgrade action. DOX: updated.
 
-Plan 06-04 / PR #55 is OPEN at source candidate
-`cdba72a5dfbc2527d5317a0ad419b5c0c650646e`. It repairs retained legacy
+Plan 06-04 / PR #55 is MERGED on `main` at
+`bcd819fb7c423d4e19274448417829b9821173ee`. It repairs retained legacy
 public-runtime wiring and Standard output schemas only. Node 20.20.2 and
-Node 22.22.2 each restored the committed lockfile and passed `npm run check`
-with 414 normal tests and one installed-artifact test. The compiled
-legacy/modern public-wiring suite passed 35 tests, and all 14 isolated
-compiling mutations were caught in bounded batches. Independent exact-head
-review was CLEAN at `cdba72a5dfbc2527d5317a0ad419b5c0c650646e`. This is
-synthetic implementation and review evidence only. The metadata commit after
-that source candidate requires fresh review. It does not close #4/T6-003,
-T5-003-G01, #28, live Standard or Analytics compatibility, signing,
-publication, consent, Terms, or brand approval. DOX: updated.
+Node 22.22.2 candidate gates each restored the committed lockfile and passed
+`npm run check` with 414 normal tests and one installed-artifact test. The
+compiled legacy/modern public-wiring suite passed 35 tests, and all 14
+isolated compiling mutations were caught in bounded batches. GitHub has no
+independent final exact-head review for
+`db1270e963850aef3fb5bbb5c6fad402fdb212e2`; that review is
+unverified/pending. Post-merge Node 22.22.2 ran
+`source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit
+--no-fund && npm run check` on the merge SHA and passed: 43 discovered test
+files, 414 normal tests, and one installed-artifact test. Reviewer-pending
+disposition: pending. Current GitHub evidence cannot satisfy the `AGENTS.md`
+independent exact-head review requirement for this merged PR. This is
+synthetic implementation and local validation evidence only. It does not
+close #4/T6-003, T5-003-G01, #28, live Standard or Analytics compatibility,
+signing, publication, consent, Terms, or brand approval. DOX: updated.
 
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
