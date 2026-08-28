@@ -1,6 +1,6 @@
 # Public Report Contract
 
-**Scope:** current local source registration contract.  
+**Scope:** current local source registration contract.
 **Evidence:** implemented source and synthetic repository tests only.
 
 ## Evidence state
