@@ -51,13 +51,16 @@ try {
       throw new Error(`Guard ${id} needs one unique source marker.`);
     }
     await writeFile(path, original.replace(before, after));
-    const build = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" });
-    if (build.status !== 0) throw new Error(`Guard mutation broke TypeScript compilation: ${id}`);
-    const focused = spawnSync("node", ["--test", "--test-name-pattern", `^${escapeRegularExpression(testName)}$`, focusedTest], { encoding: "utf8" });
-    const output = `${focused.stdout}\n${focused.stderr}`;
-    if (!output.includes(testName)) throw new Error(`Guard ${id} did not run its named behavioral test.`);
-    if (focused.status === 0) throw new Error(`Guard mutation survived: ${id}`);
-    await writeFile(path, original);
+    try {
+      const build = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" });
+      if (build.status !== 0) throw new Error(`Guard mutation broke TypeScript compilation: ${id}`);
+      const focused = spawnSync("node", ["--test", "--test-name-pattern", `^${escapeRegularExpression(testName)}$`, focusedTest], { encoding: "utf8" });
+      const output = `${focused.stdout}\n${focused.stderr}`;
+      if (!output.includes(testName)) throw new Error(`Guard ${id} did not run its named behavioral test.`);
+      if (focused.status === 0) throw new Error(`Guard mutation survived: ${id}`);
+    } finally {
+      await writeFile(path, original);
+    }
   }
 } finally {
   for (const [href, original] of originals) await writeFile(new URL(href), original);
@@ -70,8 +73,7 @@ const finalBuild = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" })
 if (finalBuild.status !== 0) throw new Error("Restored candidate did not compile.");
 const finalTest = spawnSync("node", ["--test", focusedTest], { encoding: "utf8" });
 if (finalTest.status !== 0) throw new Error("Restored candidate did not pass its focused suite.");
-const refreshIndex = spawnSync("git", ["update-index", "--refresh"], { encoding: "utf8" });
-if (refreshIndex.status !== 0) throw new Error("T5-003 mutation harness could not refresh the Git index.");
+spawnSync("git", ["update-index", "--refresh"], { encoding: "utf8" });
 const sourceDiff = spawnSync("git", ["diff", "--exit-code", "--", "src/analytics-report-tools.ts", "src/server.ts", "test/fixtures/stdio-analytics-report-server.ts"], { encoding: "utf8" });
 if (sourceDiff.status !== 0) throw new Error("T5-003 mutation harness left a candidate source diff.");
 console.log(`T5-003 mutation harness caught ${selectedGuards.length} compiling behavioral mutations and restored the source.`);
