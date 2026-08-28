@@ -60,6 +60,7 @@ for (const era of ["legacy", "modern"] as const) {
           assert.ok(transport.outboundBefore("server/discover", "tools/call"), "modern discovery must precede the first tools/call");
           assert.equal(firstRequestId, 0, "modern first tools/call must use numeric ID zero");
         }
+        const immediateStarted = await stderr.waitFor("gate60-orders-started:20260815", immediateCursor);
         await client.notification({
           method: "notifications/cancelled",
           params: { requestId: firstRequestId, reason: "invented immediate cancellation" },
@@ -69,7 +70,6 @@ for (const era of ["legacy", "modern"] as const) {
           "the executable test must send tools/call and cancellation as consecutive stdio frames",
         );
         assert.equal(transport.lastCancellationRequestId(), firstRequestId, "the first cancellation notification must target its matching request ID");
-        const immediateStarted = await stderr.waitFor("gate60-orders-started:20260815", immediateCursor);
         const immediateResult = await immediate.result as { readonly isError?: boolean };
         assert.equal(immediateResult.isError, true, "the immediate cancellation must retain the denied report boundary");
         const immediateAborted = await stderr.waitFor("gate60-orders-aborted:20260815", immediateStarted.sequence);
