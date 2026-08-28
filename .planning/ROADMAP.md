@@ -7,8 +7,8 @@
 ## v1.0 — Public local Toast reporting MCP
 
 - [x] **Phase 0: Product and safety foundation**
-- [ ] **Phase 1: Local runtime and Standard transport foundation**
-- [ ] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
+- [x] **Phase 1: Local runtime and Standard transport foundation**
+- [x] **Phase 2: Production authority, location isolation, capability integrity, and provenance**
 - [x] **Phase 3: Core Standard reporting and real MCP tool wiring**
 - [x] **Phase 4: Cash and labor reporting**
 - [ ] **Phase 5: Source-distinct Analytics adapter and tools**
@@ -58,6 +58,10 @@ A public, local, structurally read-only Toast reporting MCP has a reviewed produ
 
 **Goal:** Prove the local MCP v2 stdio runtime and read-only Standard transport across supported Node versions and unresolved external semantics.
 
+**Status:** CLOSED for local implementation. The runtime, transport, pagination,
+rate-limit, and local stdio cancellation evidence are merged. Live Standard
+compatibility, legal approval, signing, and publication remain Phase 6 gates.
+
 ### Outcome
 
 One local `stdio` process can load non-persistent configuration, fail closed on missing consent/configuration, acquire OAuth tokens in memory, issue structurally read-only Standard API requests, honor bounded retry/rate-limit behavior, and traverse both Standard pagination families.
@@ -90,6 +94,10 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 ## Phase 2: Production authority, location isolation, capability integrity, and provenance
 
 **Goal:** Complete one location-bound authority, capability, cancellation, page-fold, rate-limit, and provenance chain before report registration.
+
+**Status:** CLOSED for local implementation. The location, capability,
+provenance, page-fold, and cancellation chain is merged and consumed by Phase
+3 tools. Issue #28 remains an external Phase 6 live-compatibility gate.
 
 ### Outcome
 
