@@ -401,16 +401,20 @@ was CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2`. Post-merge Node
 22.22.2 passed committed restore, full check, and package dry-run with 43
 discovered files, 411 normal tests, one installed-artifact test, and 151 paths.
 
-**Observed public-runtime repair evidence:** PR #55 is OPEN at source candidate
-`cdba72a5dfbc2527d5317a0ad419b5c0c650646e`. It proves the compiled 2025
+**Observed public-runtime repair evidence:** PR #55 is MERGED on `main` at
+`bcd819fb7c423d4e19274448417829b9821173ee`. It proves the compiled 2025
 legacy and pinned 2026 stdio processes use one `ApplicationRuntime`, and it
 proves Standard output schemas cover complete, denied, and labor-incomplete
-results. Node 20.20.2 and 22.22.2 each passed committed restore, `npm run
-check` (414 normal tests plus one installed-artifact test), 35 focused
-compiled tests, and 14 caught mutations. Independent review was CLEAN at the
-source candidate. This is synthetic code evidence only. The metadata commit
-after that source candidate requires fresh review. It does not update package
-release evidence or external authority.
+results. Node 20.20.2 and 22.22.2 candidate gates each passed committed
+restore, `npm run check` (414 normal tests plus one installed-artifact test),
+35 focused compiled tests, and 14 caught mutations. The final metadata head
+received an independent CLEAN review at
+`db1270e963850aef3fb5bbb5c6fad402fdb212e2`. Post-merge Node 22.22.2 passed
+`source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit
+--no-fund && npm run check`: 43 discovered test files, 414 normal tests, and
+one installed-artifact test. Reviewer-pending disposition: none. This is
+synthetic code, review, and local validation evidence only. It does not
+update package-release evidence or external authority.
 
 This is MERGED local synthetic package evidence. It is not publication
 readiness, live compatibility, consent, approval, signing, or legal

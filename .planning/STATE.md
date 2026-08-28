@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `f2ea7627c006907b5026079d62b861d8cda52dfe`
+**Observed `main`:** `bcd819fb7c423d4e19274448417829b9821173ee`
 
 ## Canonical campaign position
 
@@ -45,7 +45,7 @@ milestone_name: Public local Toast reporting MCP
 | T5-003 Analytics MCP boundary | PR #51 | merged as `ff39d1d79dd4b7532d0314279ec62df1727f21ff`; reviewed CLEAN at `55ab1e2d35c80c0de596bc390f292b39fff1d143` | SAFE MCP WIRING MERGED; Node 20/22 candidate evidence passed 406 tests, focused stdio 7/7, 18/18 isolated mutations, and package validation; rebuilt Node 22 main passed. The one tool is denied/incomplete only. G01 blocks any complete result parser or report claim. |
 | T6-002 operator documentation | #22 / PR #52 | merged as `bfda1c905c58b7821658cb400a95053d58cdc805`; reviewed CLEAN at `5a1b4ddbe8616284ce7755d2b53ecccb110ebecc` | CLOSED; Node 22 rebuilt main passed public documentation 5/5, 42 files / 411 tests, and package validation. This is documentation and synthetic evidence only. |
 | T6-003 installed package evidence | #22 / PR #53 | merged as `f2ea7627c006907b5026079d62b861d8cda52dfe`; reviewed CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2` | MERGED local synthetic package evidence. Candidate `d5c47f39321f13c991d2abe6fcf3c035a020c9d2` passed Node 20.20.2 and 22.22.2 committed restores and checks. Post-merge Node 22.22.2 passed committed restore, full check, and package dry-run: 43 files, 411 normal tests, one installed-artifact test, and 151 paths. This does not make the package release-ready. |
-| T6 public runtime/output schemas (Plan 06-04) | PR #55 | source candidate `cdba72a5dfbc2527d5317a0ad419b5c0c650646e` | OPEN. Independent source review was CLEAN at that SHA. Node 20.20.2 and 22.22.2 clean gates passed 414 normal tests plus one installed-artifact test, 35 focused compiled tests, and 14/14 caught mutations. This is synthetic implementation evidence only. The metadata head requires fresh review. All external gates remain open. |
+| T6 public runtime/output schemas (Plan 06-04) | PR #55 | merged as `bcd819fb7c423d4e19274448417829b9821173ee`; reviewed CLEAN at `db1270e963850aef3fb5bbb5c6fad402fdb212e2` | MERGED synthetic public-runtime/output repair. Node 20.20.2 and 22.22.2 candidate gates passed 414 normal tests plus one installed-artifact test, 35 focused compiled tests, and 14/14 caught mutations. Post-merge Node 22.22.2 passed `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit --no-fund && npm run check`: 43 discovered files, 414 normal tests, and one installed-artifact test. Reviewer-pending disposition: none. All external gates remain open. |
 
 ## Current executor capability
 
@@ -56,8 +56,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 ### Executable now
 
 - no further local T6-003 package-evidence work is implied by its MERGED state;
-- PR #55 has a reviewed synthetic public-runtime/output repair, pending fresh
-  metadata-head review; it does not close a release gate;
+- PR #55 merged its reviewed synthetic public-runtime/output repair; it does
+  not close a release gate;
 - retain T5-003-G01 and all external release gates without converting synthetic
   evidence into live proof.
 
