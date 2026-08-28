@@ -65,6 +65,8 @@ function manifest(rows: string[]): string {
   return [
     "# Required Leaf Manifest",
     "",
+    `**Canonical source commit:** \`${sourceCommit}\``,
+    "",
     "| Domain | Canonical source | Source anchor | Requirement ID prefix | Expected leaf count | Leaf digest |",
     "| --- | --- | --- | --- | --- | --- |",
     `| Fixture domain | ${source} | ${anchor} | REQ- | ${rows.length} | ${digest} |`,
@@ -242,6 +244,16 @@ test("audit rejects synchronized leaf, matrix, and manifest fingerprint mutation
   const result = runProjectAudit(alteredRequirements, alteredMatrix, alteredManifest, documents.requiredSourceCommit);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Product contract: canonical source domain (expected leaf count|leaf digest) mismatch/u);
+});
+
+test("audit rejects redirected inventory, manifest, and CLI source revisions", () => {
+  const documents = projectDocuments();
+  const redirectedCommit = "1111111111111111111111111111111111111111";
+  const alteredRequirements = documents.requirements.replace(documents.requiredSourceCommit, redirectedCommit);
+  const alteredManifest = documents.requiredLeaves.replace(documents.requiredSourceCommit, redirectedCommit);
+  const result = runProjectAudit(alteredRequirements, documents.evidenceMatrix, alteredManifest, redirectedCommit);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /canonical source commit argument must equal 761cba89b70c3da96f71cb84b3eaa4ef849438c5/u);
 });
 
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {

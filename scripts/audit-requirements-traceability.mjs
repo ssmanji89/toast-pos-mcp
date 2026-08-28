@@ -13,6 +13,8 @@ const mandatoryGates = [
   "Signing and publication",
 ];
 
+const canonicalSourceCommit = "761cba89b70c3da96f71cb84b3eaa4ef849438c5";
+
 const canonicalLeafDomains = [
   { Domain: "Product contract", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Product contract", "Requirement ID prefix": "REQ-CONTRACT-", "Expected leaf count": "10", "Leaf digest": "f98c522fa3c58d205d330874768a6a0a0988543c6366bb5186ee8993e3918bb7" },
   { Domain: "Binding safety rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Binding safety rules", "Requirement ID prefix": "REQ-PROD-", "Expected leaf count": "52", "Leaf digest": "60e877284047d74a36cbd3350ba5e1639750bd936b839611401e5f32779ee50c" },
@@ -115,9 +117,17 @@ function anchoredSection(source, anchor) {
 
 function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSourceCommit, fixture) {
   const diagnostics = [];
+  const sourceCommit = fixture ? requiredSourceCommit : canonicalSourceCommit;
   const inventoryCommit = inventoryMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
-  if (inventoryCommit !== requiredSourceCommit) {
-    diagnostics.push(`stale source commit: expected ${requiredSourceCommit}, found ${inventoryCommit ?? "missing"}`);
+  const manifestCommit = manifestMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
+  if (!fixture && requiredSourceCommit !== canonicalSourceCommit) {
+    diagnostics.push(`canonical source commit argument must equal ${canonicalSourceCommit}`);
+  }
+  if (inventoryCommit !== sourceCommit) {
+    diagnostics.push(`stale inventory source commit: expected ${sourceCommit}, found ${inventoryCommit ?? "missing"}`);
+  }
+  if (manifestCommit !== sourceCommit) {
+    diagnostics.push(`stale manifest source commit: expected ${sourceCommit}, found ${manifestCommit ?? "missing"}`);
   }
 
   const inventoryRows = table(inventoryMarkdown, "ID");
@@ -180,16 +190,16 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
       continue;
     }
     try {
-      const sourceText = sourceAtRevision(requiredSourceCommit, source, sourceCache);
+      const sourceText = sourceAtRevision(sourceCommit, source, sourceCache);
       const quote = exactText(row["Canonical quote"]);
       const section = anchoredSection(sourceText, row["Source anchor"]);
       if (section === undefined) {
-        diagnostics.push(`${id}: source anchor is absent from ${source} at ${requiredSourceCommit}`);
+        diagnostics.push(`${id}: source anchor is absent from ${source} at ${sourceCommit}`);
       } else if (!exactText(section).includes(quote)) {
-        diagnostics.push(`${id}: canonical quote is absent from ${source} section ${row["Source anchor"]} at ${requiredSourceCommit}`);
+        diagnostics.push(`${id}: canonical quote is absent from ${source} section ${row["Source anchor"]} at ${sourceCommit}`);
       }
     } catch {
-      diagnostics.push(`${id}: cannot read ${source} at ${requiredSourceCommit}`);
+      diagnostics.push(`${id}: cannot read ${source} at ${sourceCommit}`);
     }
   }
 
