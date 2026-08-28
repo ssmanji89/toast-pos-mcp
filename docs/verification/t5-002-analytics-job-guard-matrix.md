@@ -19,6 +19,7 @@ This matrix defines local synthetic behavioral proof. It does not prove live Toa
 | G02 inactive option | `Analytics report jobs use exactly the six reviewed create and retrieval routes` | Send a non-empty inactive exclusion list. | The closed request-body assertion fails. |
 | Safe provenance | `Analytics lifecycle maps poll and replacement failures without retaining source bodies` | Drop the safe request ID. | The safe provenance assertion fails. |
 | Failed POST safe provenance | `Analytics lifecycle retains safe IDs from failed create and replacement turns` | Stop recording a safe create response ID. | The initial and replacement failure provenance assertion fails. |
+| Nonempty request ID | `Analytics lifecycle omits empty upstream request IDs from failure provenance` | Accept an empty normalized request ID. | The empty-ID provenance assertion fails. |
 
 ## Open vendor-contract gates
 

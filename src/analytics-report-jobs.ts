@@ -477,7 +477,10 @@ function retryAfterMilliseconds(value: string | null, now: number): number | und
 
 function safeRequestId(response: Response): string | undefined {
   const value = response.headers?.get("x-request-id") ?? response.headers?.get("toast-request-id") ?? undefined;
-  return value !== undefined && value.length <= MAX_REPORT_REQUEST_ID_LENGTH ? value : undefined;
+  const requestId = value?.trim();
+  return requestId !== undefined && requestId.length > 0 && requestId.length <= MAX_REPORT_REQUEST_ID_LENGTH
+    ? requestId
+    : undefined;
 }
 
 function recordSafeRequestId(response: Response, responseRequestIds: string[]): void {

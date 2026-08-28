@@ -20,6 +20,7 @@ const guards = [
   ["g02-inactive-option", "Analytics report jobs use exactly the six reviewed create and retrieval routes", "excludedRestaurantIds: [] as const,", "excludedRestaurantIds: [\"inactive\"] as const,"],
   ["safe-request-id", "Analytics lifecycle maps poll and replacement failures without retaining source bodies", "const requestId = safeRequestId(response);\n      return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });", "const requestId = undefined;\n      return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });"],
   ["failed-post-safe-request-id", "Analytics lifecycle retains safe IDs from failed create and replacement turns", "if (requestId !== undefined) responseRequestIds.push(requestId);", "if (requestId !== undefined) void requestId;"],
+  ["empty-request-id", "Analytics lifecycle omits empty upstream request IDs from failure provenance", "requestId.length > 0", "requestId.length >= 0"],
 ];
 
 if (new Set(guards.map(([id]) => id)).size !== guards.length) {
