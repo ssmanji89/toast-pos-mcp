@@ -66,7 +66,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - T1-001 through T1-006 — closed in `LOOP.md`
 - #32 / PR #37 — closed with exact-head rate-limit evidence
-- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete. Issue #60 owns the separate first-tool-request T6-003 release gate.
+- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete. The separate first-tool-request T6-003 gate closed through PR #69, merged as `8d1c659` after CLEAN review at `52df015`.
 
 ### Implemented/wired evidence
 
@@ -81,8 +81,8 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 ### Production proof still required
 
-- #60/T6-003 — resolve first-tool-request handler cancellation through an SDK correction or separately reviewed local runtime correction before release claims;
-- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence; retain the distinct #60 first-tool-request handler gate;
+- #60/T6-003 — CLOSED by PR #69 as `8d1c659` after CLEAN independent findings-only review at `52df015`; the merged local runtime correction proves first-tool cancellation through the compiled stdio path;
+- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence;
 - #28 and Phase 6 — retain owner-authorized live Standard compatibility, terms, packaging, signing, and publication gates.
 
 ---
@@ -175,7 +175,7 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 - #16 is CLEAN/merged and T2-002 is rebased onto the corrected location authority;
 - #15 provenance is merged; #31 page-fold primitives remain required on the same production transport;
 - #17 SDK v2 migration is exact-head validated, independently reviewed, merged, and closed;
-- #4's protocol compatibility work is closed; #60 owns the explicit bounded first-tool-request cancellation release follow-up;
+- #4's protocol compatibility work and #60's first-tool-request cancellation follow-up are closed; PR #69 provides the latter's exact-head evidence;
 - all paths use the same runtime identities rather than reconstructed lookalikes.
 
 ---
@@ -187,7 +187,7 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 **Status:** CLOSED on `main`. T3-001 merged as `1ab7cb7`, T3-002 as
 `291cda2`, and T3-003 as `e0effdb`. The merged evidence proves the local
 production chain against synthetic fixtures. It does not satisfy live Toast,
-first-tool-request cancellation (#60/T6-003), signing, or publication gates.
+signing, or publication gates.
 
 ### Outcome
 
@@ -451,17 +451,12 @@ sufficiency.
 
 **Remaining external, vendor, and human gates:**
 
-- #60/T6-003 first-tool-request cancellation remains open. The npm registry
-  reports `@modelcontextprotocol/server@2.0.0` and
-  `@modelcontextprotocol/client@2.0.0` as current latest releases, so no local
-  MCP dependency-upgrade path exists. Actual compiled stdio evidence records
-  legacy `initialize` ID 0 then first `tools/call` ID 1, while pinned modern
-  `2026-07-28` records first `tools/call` ID 0. Plan 06-07 uses the corrected
-  contract: modern ID 0 is the defect proof; legacy ID 1 is regression proof.
-  Plan 06-08 retains cleanup, registration, mutation, Node 20/22, and
-  independent exact-head review gates. Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210`
-  retains duplicate-active-ID rejection and makes the first-request proof deterministic.
-  Both Node gates passed. Both runtimes ran all 13 isolated mutations. The independent exact-head review remains pending.
+- #60/T6-003 first-tool-request cancellation is CLOSED. PR #69 merged as
+  `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f` after a CLEAN independent
+  findings-only review at `52df015876f9277255edba30262fa58eec0c95f9`.
+  Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` retains
+  duplicate-active-ID rejection and deterministic first-request cancellation.
+  Both Node gates and all 13 isolated mutations passed on both runtimes.
 - T5-003-G01 requires a corrected Toast retrieval contract or written vendor
   confirmation before a complete Analytics result contract can be claimed.
 - #28 requires owner-authorized live Standard evidence for credential-wide

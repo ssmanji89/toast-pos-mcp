@@ -79,7 +79,7 @@ local evidence does not close an external gate.
 | Formal Phase 06 requirement coverage | merged local evidence; findings-only review recorded | PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` as `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent findings-only CLEAN comment exists. GitHub reports `reviews: []`, so no GitHub-attributable approval exists. This does not close any external gate. |
 | PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
 | PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
-| #60/T6-003 first-tool-request cancellation | GitHub issue OPEN; substantive gate open | Issue #60 was reopened after PR #63 auto-closed it by reference. It owns this SDK/runtime release gate. Local synthetic tests do not close it. Current `@modelcontextprotocol/server@2.0.0` and `@modelcontextprotocol/client@2.0.0` leave no local dependency-upgrade action. |
+| #60/T6-003 first-tool-request cancellation | CLOSED | PR #69 merged as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f`. The independent findings-only review was CLEAN at final PR head `52df015876f9277255edba30262fa58eec0c95f9`. Issue #60 closed after merge. |
 | T5-003-G01 | open | The complete Analytics retrieval response contract remains unverified. |
 | #28 live Standard compatibility | open | Owner-authorized live Standard credentials are required. |
 | Live Analytics compatibility | open | Authorized access and documented Merchant consent are required. |
@@ -94,7 +94,7 @@ Node `20.20.2` with npm `10.8.2` restored the committed lockfile, passed `npm ru
 
 Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the same 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
-Issue #60 remains OPEN. Independent findings-only review is pending. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
+PR #69 merged this candidate as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f`. An independent findings-only review was CLEAN at final PR head `52df015876f9277255edba30262fa58eec0c95f9`. Issue #60 is CLOSED. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
 
 ## Safety Boundaries
 
