@@ -3,7 +3,7 @@ phase: 06
 slug: release-hardening-and-public-compatibility-proof
 status: incomplete
 nyquist_compliant: false
-execution_status: 06-06-requirements-audit-local-evidence-review-pending-external-gates
+execution_status: 06-06-requirements-audit-merged-findings-only-review-external-gates
 created: 2026-08-27
 updated: 2026-08-28
 ---
@@ -39,6 +39,15 @@ An independent agent recorded CLEAN for the exact candidate. GitHub currently
 reports an empty reviews array for PR #58. This is local evidence only, and
 the GitHub-attributable exact-head review remains reviewer-pending.
 
+PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` into
+`main` at `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent
+findings-only review comment recorded CLEAN for that exact candidate. GitHub
+reports `reviews: []` for PR #63. The empty array means no GitHub-attributable
+approval exists. The findings-only comment remains independent review evidence,
+not an approval. Post-merge Node 22 passed `npm run check` with 431 normal
+tests and one installed-artifact test. The structural audit passed. This merged
+local evidence does not close an external gate.
+
 ## Test Commands
 
 | Scope | Command |
@@ -67,7 +76,7 @@ the GitHub-attributable exact-head review remains reviewer-pending.
 
 | Gate | State | Reason |
 | --- | --- | --- |
-| Formal Phase 06 requirement coverage | local structural audit passed; review pending | `.planning/REQUIREMENTS.md`, the evidence matrix, the required-leaf manifest, and the deterministic audit now exist. The final candidate still needs independent exact-head review. This local result does not close any external gate. |
+| Formal Phase 06 requirement coverage | merged local evidence; findings-only review recorded | PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` as `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent findings-only CLEAN comment exists. GitHub reports `reviews: []`, so no GitHub-attributable approval exists. This does not close any external gate. |
 | PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
 | PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
 | #60/T6-003 first-tool-request cancellation | open | Issue #60 owns this SDK/runtime release gate. Local synthetic tests do not close it. Current `@modelcontextprotocol/server@2.0.0` and `@modelcontextprotocol/client@2.0.0` leave no local dependency-upgrade action. |

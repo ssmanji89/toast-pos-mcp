@@ -145,6 +145,19 @@ GitHub-attributable review, #60/T6-003 first-tool-request cancellation,
 T5-003-G01, #28, live Standard and Analytics compatibility, signing,
 publication, consent, Terms, and brand approval remain open. DOX: updated.
 
+Plan 06-06 / PR #63 is MERGED on `main` at
+`b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61` from candidate
+`9fb060b24819a0373465675fc63c1e4c15ee130d`. The candidate's independent
+findings-only review comment recorded CLEAN. GitHub reports `reviews: []` for
+PR #63. That empty array means GitHub has no attributable approval. The
+findings-only comment remains independent review evidence, not approval.
+Post-merge Node 22 passed `npm run check` with 431 normal tests and one
+installed-artifact test, and the requirements traceability audit passed. This
+is MERGED local control-plane evidence only. It does not close #60/T6-003,
+T5-003-G01, #28, legacy PR #55 or PR #58 GitHub-review gaps, Merchant consent,
+live Standard or Analytics compatibility, Terms or brand approval, signing, or
+publication. DOX: updated.
+
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
 reviewed CLEAN head was `55ab1e2d35c80c0de596bc390f292b39fff1d143`.
