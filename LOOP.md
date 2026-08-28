@@ -65,7 +65,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | CLOSED |
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
-| T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
+| T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | CLOSED |
 | T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
 
 ## Completed slice
@@ -79,6 +79,14 @@ The server must support operators using their own authorized Toast credentials, 
 - DOX: updated during T0; post-merge closure changes workflow state only.
 
 ## Current slice
+
+T6-002 is CLOSED on `main` at `bfda1c905c58b7821658cb400a95053d58cdc805`.
+PR #52 merged after independent CLEAN review of
+`5a1b4ddbe8616284ce7755d2b53ecccb110ebecc`. Rebuilt Node 22 `main` passed
+the 5-test public-documentation contract, 42 discovered test files, 411 tests,
+and package validation. This closes the documentation checkpoint only. It does
+not close live compatibility, installed-artifact smoke, signing, publication,
+or human Terms and brand gates.
 
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
@@ -442,15 +450,14 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T6-002. Plan the terms, branding, and public operator
-  documentation checkpoint independently from the unresolved Analytics result
-  contract.
-- **Required action:** keep published operator guidance consistent with the
-  body-free incomplete-only Analytics tool and all consent, credential, and
-  no-endorsement requirements.
+- **Next slice:** T6-003. Plan and execute only the dependency-ready package
+  and installed-artifact evidence work.
+- **Required action:** retain the current public documentation contract while
+  proving the actual package tarball and stdio executable path. Do not publish
+  or sign a package without the required human authority.
 - **Blocking gate:** T5-003-G01 requires a corrected current Toast OpenAPI or
   written vendor confirmation of the retrieval response top-level shape before
   any complete Analytics result parser or report claim can be implemented.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
-  Standard compatibility, live Analytics compatibility, signing, install
-  smoke, and publication remain open.
+  Standard compatibility, T5-003-G01, live Analytics compatibility, signing,
+  publication, and human Terms and brand approvals remain open.

@@ -371,6 +371,12 @@ Owner: T6-001 — existing, refreshed whenever merged behavior changes trust bou
 
 Owner: T6-002.
 
+Status: closed on `main` by PR #52. The current public documentation names the
+six registered tools, records the observed Terms date and direct link, and
+separates implemented behavior, synthetic validation, and external gates. It
+does not grant or claim Toast, legal, Merchant, provider, or publication
+approval.
+
 Required:
 
 - current Toast terms/branding checkpoint;

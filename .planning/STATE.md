@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-27
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `ff39d1d79dd4b7532d0314279ec62df1727f21ff`
+**Observed `main`:** `bfda1c905c58b7821658cb400a95053d58cdc805`
 
 ## Canonical campaign position
 
@@ -19,7 +19,7 @@ milestone_name: Public local Toast reporting MCP
 - T4 is CLOSED after PR #48 merged with production stdio evidence;
 - T5-001 and T5-002 are CLOSED; T5-003 safe MCP wiring is merged, but its
   complete result contract remains open behind G01;
-- T6-001 is closed out of sequence; T6-002/T6-003 remain open.
+- T6-001 and T6-002 are CLOSED; T6-003 remains open.
 
 ## Campaign work observed
 
@@ -42,6 +42,7 @@ milestone_name: Public local Toast reporting MCP
 | T4 shared MCP integration | PR #48 | merged as `9f145c287bafc3817ba79767e59c965353e544ce` | CLOSED; independent review CLEAN at `3909f10732cf7b1a8f42109b1b9c79d4c6362f3c`; rebuilt Node 22 `npm run check` passed 364 tests and child-process report-tool stdio tests passed 43/43 |
 | T5-002 Analytics job lifecycle | PR #50 | merged as `0c6de53760b64b38b5cae30717117c551aca7e1d`; reviewed at `e3d07868ed0c5fa18f5bbcfdc2aa52bc912661ee` | CLOSED; Node 20/22 candidate evidence passed 399 tests, 15 focused lifecycle tests, 16/16 mutations, and package validation; rebuilt Node 22 main passed; synthetic internal lifecycle only, with G01-G05 and T5-003 MCP wiring open |
 | T5-003 Analytics MCP boundary | PR #51 | merged as `ff39d1d79dd4b7532d0314279ec62df1727f21ff`; reviewed CLEAN at `55ab1e2d35c80c0de596bc390f292b39fff1d143` | SAFE MCP WIRING MERGED; Node 20/22 candidate evidence passed 406 tests, focused stdio 7/7, 18/18 isolated mutations, and package validation; rebuilt Node 22 main passed. The one tool is denied/incomplete only. G01 blocks any complete result parser or report claim. |
+| T6-002 operator documentation | #22 / PR #52 | merged as `bfda1c905c58b7821658cb400a95053d58cdc805`; reviewed CLEAN at `5a1b4ddbe8616284ce7755d2b53ecccb110ebecc` | CLOSED; Node 22 rebuilt main passed public documentation 5/5, 42 files / 411 tests, and package validation. This is documentation and synthetic evidence only. |
 
 ## Current executor capability
 
@@ -51,7 +52,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- plan and execute T6-002 terms, branding, and operator documentation work;
+- plan and execute T6-003 internal package and installed-artifact evidence;
 - retain T5-003-G01 and the external release gates without converting synthetic
   evidence into live proof.
 
@@ -66,8 +67,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Plan and execute T6-002 without implying Toast endorsement or complete
-   Analytics reporting.
+1. Plan and execute T6-003 without publication, signing, live credentials, or
+   a release-ready claim.
 2. Keep T5-003-G01, #4/T6-003, #28, live Analytics compatibility, and T6
    publication/signing as owned external gates.
 
