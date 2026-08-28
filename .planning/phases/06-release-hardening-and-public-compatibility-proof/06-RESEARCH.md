@@ -247,12 +247,11 @@ This wording follows the implemented tool schema. [VERIFIED: `src/analytics-repo
 
 Toast, legal, and owner approval remain external gates before public Toast Brand Feature use or publication. [CITED: https://pos.toasttab.com/api-terms-of-use; VERIFIED: GitHub issue #22]
 
-## Open Questions
+### Report formula catalog
 
-1. **Which single document owns the report formula catalog?**
-   - What we know: Formula and schema facts are currently distributed across source modules and several architecture documents. [VERIFIED: codebase graph; VERIFIED: `docs/architecture/`] 
-   - What's unclear: No current top-level catalog maps every public tool to its source, formula, schema, freshness, and exclusion contract. [VERIFIED: codebase grep]
-   - Recommendation: Create one catalog and link every public guide to it. [ASSUMED]
+**Resolution:** `docs/architecture/report-contract.md` will be the single owner for the public report formula, source, schema, freshness, completeness, exclusions, and limitations catalog. [VERIFIED: T6-002 planning decision]
+
+The README and operator guide must link to this catalog instead of duplicating tool-contract facts. [VERIFIED: T6-002 planning decision]
 
 ## Environment Availability
 
