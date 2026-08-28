@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const BUSINESS_DATES = {
+  immediateCancellation: 20260815,
   firstCancellation: 20260816,
   laterCancellation: 20260817,
   resolve: 20260818,
@@ -13,6 +14,7 @@ const BUSINESS_DATES = {
   reuse: 20260820,
 } as const;
 const PROTOCOL_TIMEOUT_MS = 10_000;
+const CLEANUP_SNAPSHOT = "gate60-cancellation-snapshot:activeControllers=0 earlyCancellations=0 relayListeners=0";
 const PRODUCTION_SERVER_PATH = path.resolve(process.cwd(), "dist", "index.js");
 const PRELOAD_PATH = path.resolve(
   process.cwd(),
@@ -46,8 +48,9 @@ for (const era of ["legacy", "modern"] as const) {
         await client.connect(transport);
         transport.observeInboundMessages();
 
-        const first = callTool(client, "toast_sales_summary", BUSINESS_DATES.firstCancellation);
-        await stderr.waitFor("gate60-orders-started:20260816");
+        const immediateCursor = stderr.cursor();
+        const immediate = callTool(client, "toast_sales_summary", BUSINESS_DATES.immediateCancellation);
+        await waitUntil(() => transport.firstToolCallId() !== undefined, "missing first tools/call request ID");
         const firstRequestId = transport.firstToolCallId();
         if (era === "legacy") {
           assert.equal(transport.firstOutboundId("initialize"), 0, "legacy initialize must use numeric ID zero");
@@ -56,37 +59,71 @@ for (const era of ["legacy", "modern"] as const) {
           assert.ok(transport.outboundBefore("server/discover", "tools/call"), "modern discovery must precede the first tools/call");
           assert.equal(firstRequestId, 0, "modern first tools/call must use numeric ID zero");
         }
-        first.controller.abort("invented request-zero cancellation");
-        await assert.rejects(first.result);
-        await stderr.waitFor("gate60-orders-aborted:20260816");
+        await client.notification({
+          method: "notifications/cancelled",
+          params: { requestId: firstRequestId, reason: "invented immediate cancellation" },
+        });
+        assert.ok(
+          transport.outboundImmediatelyAfter("tools/call", "notifications/cancelled"),
+          "the executable test must send tools/call and cancellation as consecutive stdio frames",
+        );
         assert.equal(transport.lastCancellationRequestId(), firstRequestId, "the first cancellation notification must target its matching request ID");
+        const immediateStarted = await stderr.waitFor("gate60-orders-started:20260815", immediateCursor);
+        const immediateResult = await immediate.result as { readonly isError?: boolean };
+        assert.equal(immediateResult.isError, true, "the immediate cancellation must retain the denied report boundary");
+        const immediateAborted = await stderr.waitFor("gate60-orders-aborted:20260815", immediateStarted.sequence);
         await transport.waitForDeniedResponse(firstRequestId);
-        await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
+        await stderr.waitFor(CLEANUP_SNAPSHOT, immediateAborted.sequence);
 
+        assert.equal(typeof firstRequestId, "number", "the official client must allocate numeric request IDs");
+        const earlyCursor = stderr.cursor();
+        const preRegisteredRequestId = firstRequestId + 1;
+        await client.notification({
+          method: "notifications/cancelled",
+          params: { requestId: preRegisteredRequestId, reason: "invented pre-registration cancellation" },
+        });
+        const earlyCancellation = await stderr.waitFor(
+          "gate60-cancellation-snapshot:activeControllers=0 earlyCancellations=1 relayListeners=0",
+          earlyCursor,
+        );
+        const preRegistered = callTool(client, "toast_sales_summary", BUSINESS_DATES.firstCancellation);
+        await waitUntil(() => transport.lastToolCallId() === preRegisteredRequestId, "missing pre-registered tools/call request ID");
+        const preRegisteredResult = await preRegistered.result as { readonly isError?: boolean };
+        assert.equal(preRegisteredResult.isError, true, "the retained early cancellation must abort the matching report request");
+        await transport.waitForDeniedResponse(preRegisteredRequestId);
+        await stderr.waitFor(CLEANUP_SNAPSHOT, earlyCancellation.sequence);
+
+        const laterCursor = stderr.cursor();
         const later = callTool(client, "toast_payment_summary", BUSINESS_DATES.laterCancellation);
-        await stderr.waitFor("gate60-payments-started:20260817");
+        const laterStarted = await stderr.waitFor("gate60-payments-started:20260817", laterCursor);
         const laterRequestId = transport.lastToolCallId();
         assert.notEqual(laterRequestId, 0, "the later tools/call must use a nonzero JSON-RPC ID");
         later.controller.abort("invented nonzero cancellation");
         await assert.rejects(later.result);
-        await stderr.waitFor("gate60-payments-aborted:20260817");
+        const laterAborted = await stderr.waitFor("gate60-payments-aborted:20260817", laterStarted.sequence);
         assert.equal(transport.lastCancellationRequestId(), laterRequestId, "the later cancellation notification must target its matching request ID");
         await transport.waitForDeniedResponse(laterRequestId);
-        await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
+        await stderr.waitFor(CLEANUP_SNAPSHOT, laterAborted.sequence);
 
-        const resolved = await client.callTool({
+        const resolveCursor = stderr.cursor();
+        const resolvedPromise = client.callTool({
           name: "toast_sales_summary",
           arguments: { businessDate: BUSINESS_DATES.resolve },
         });
+        const sourceResolved = await stderr.waitFor("gate60-orders-resolved:20260818", resolveCursor);
+        const resolved = await resolvedPromise;
         assert.notEqual(resolved.isError, true);
-        await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
+        await stderr.waitFor(CLEANUP_SNAPSHOT, sourceResolved.sequence);
 
-        const rejected = await client.callTool({
+        const rejectCursor = stderr.cursor();
+        const rejectedPromise = client.callTool({
           name: "toast_sales_summary",
           arguments: { businessDate: BUSINESS_DATES.reject },
         });
+        const sourceRejected = await stderr.waitFor("gate60-orders-rejected:20260819", rejectCursor);
+        const rejected = await rejectedPromise;
         assert.equal(rejected.isError, true, "an invented source rejection must retain the denied report boundary");
-        await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
+        await stderr.waitFor(CLEANUP_SNAPSHOT, sourceRejected.sequence);
 
         const reused = await client.callTool({
           name: "toast_sales_summary",
@@ -171,6 +208,11 @@ class ObservedStdioClientTransport extends StdioClientTransport {
       < this.#outboundMessages.findIndex((message) => message.method === secondMethod);
   }
 
+  outboundImmediatelyAfter(firstMethod: string, secondMethod: string): boolean {
+    const firstIndex = this.#outboundMessages.map((message) => message.method).lastIndexOf(firstMethod);
+    return firstIndex >= 0 && this.#outboundMessages[firstIndex + 1]?.method === secondMethod;
+  }
+
   lastCancellationRequestId(): unknown {
     const cancellation = this.#outboundMessages.filter((message) => message.method === "notifications/cancelled").at(-1);
     return (cancellation?.params as { readonly requestId?: unknown } | undefined)?.requestId;
@@ -199,20 +241,41 @@ function executableTestEnvironment(): Record<string, string> {
   };
 }
 
-function observeStderr(transport: StdioClientTransport): { waitFor(marker: string): Promise<void>; stop(): void } {
+interface StderrMarker {
+  readonly sequence: number;
+  readonly text: string;
+}
+
+function observeStderr(transport: StdioClientTransport): {
+  cursor(): number;
+  waitFor(marker: string, afterSequence?: number): Promise<StderrMarker>;
+  stop(): void;
+} {
   const stream = transport.stderr;
   assert.ok(stream !== null, "the production executable must expose stderr");
+  const markers: StderrMarker[] = [];
   let output = "";
+  let nextSequence = 1;
   let wake: (() => void) | undefined;
   const onData = (chunk: Buffer | string): void => {
     output += chunk.toString();
+    let newlineIndex = output.indexOf("\n");
+    while (newlineIndex >= 0) {
+      markers.push({ sequence: nextSequence, text: output.slice(0, newlineIndex) });
+      nextSequence += 1;
+      output = output.slice(newlineIndex + 1);
+      newlineIndex = output.indexOf("\n");
+    }
     wake?.();
     wake = undefined;
   };
   stream.on("data", onData);
   return {
-    waitFor: async (marker) => {
-      while (!output.includes(marker)) {
+    cursor: () => nextSequence - 1,
+    waitFor: async (marker, afterSequence = 0) => {
+      while (true) {
+        const found = markers.find((candidate) => candidate.sequence > afterSequence && candidate.text.includes(marker));
+        if (found !== undefined) return found;
         await Promise.race([
           new Promise<void>((resolve) => { wake = resolve; }),
           new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(`missing test marker ${marker}`)), PROTOCOL_TIMEOUT_MS)),

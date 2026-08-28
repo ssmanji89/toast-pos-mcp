@@ -85,11 +85,13 @@ function json(value: unknown): Response {
 }
 
 function executableOrdersRoute(businessDate: string, signal: AbortSignal | null | undefined): Promise<Response> {
+  if (businessDate === "20260815") return waitForAbort("gate60-orders", businessDate, signal);
   if (businessDate === "20260816") return waitForAbort("gate60-orders", businessDate, signal);
   if (businessDate === "20260819") {
     console.error("gate60-orders-rejected:20260819");
     throw new Error("gate60 invented source rejection");
   }
+  console.error(`gate60-orders-resolved:${businessDate}`);
   return Promise.resolve(json([inventedOrder(Number(businessDate))]));
 }
 
