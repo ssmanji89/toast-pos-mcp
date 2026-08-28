@@ -24,7 +24,13 @@ The current SDK exposes the two public seams needed for a local correction:
 The bridge must track only active registered report-tool requests. It must use
 the exact JSON-RPC request ID as the map key. It must recognize zero as a valid
 key. It must compose its local signal with the SDK signal and remove all map
-and event-listener state after each tool settles.
+and event-listener state after resolve, source rejection, and cancellation.
+
+The correction needs a typed optional observer for deterministic lifecycle
+proof. It reports count-only snapshots of active controllers and bridge-created
+abort relays. Normal package execution has no observer. The compiled
+executable test enables it only with invented test configuration. This observes
+the real bridge. It does not replace the server, runtime, transport, or source.
 
 ## Required production path
 
@@ -40,11 +46,15 @@ official Client + StdioClientTransport
   -> active invented upstream fetch
 ```
 
-The executable test must call a Standard tool immediately after connection. A
-passive subclass of the installed official client transport may observe the
-outbound JSON-RPC message. It must prove that the first `tools/call` message
-uses ID `0`. It must not write JSON-RPC frames, replace the SDK transport, or
-run a fixture server in place of `dist/index.js` or the installed package bin.
+The executable test must run both retained protocol eras. It uses the official
+client legacy negotiation mode for the 2025 legacy era. It uses the official
+client pinned `2026-07-28` mode for the modern era. Each era must call a
+Standard tool immediately after connection. A passive subclass of the installed
+official client transport may observe the outbound JSON-RPC message. It must
+prove that the first `tools/call` message uses ID `0`. It must then cancel a
+later nonzero request. It must not write JSON-RPC frames, replace the SDK
+transport, or run a fixture server in place of `dist/index.js` or the installed
+package bin.
 
 The synthetic preload may provide invented HTTP responses and an abortable
 Orders response. It is an upstream isolation fixture only. It cannot replace
@@ -70,11 +80,15 @@ The new bridge must meet all of these rules.
 1. Register its cancellation notification handler through the public official
    server API.
 2. Use `requestId !== undefined` to accept numeric zero and string IDs.
-3. Register every Standard and Analytics report callback with the bridge.
+3. Maintain an explicit registration matrix for exactly these callbacks:
+   `toast_sales_summary`, `toast_payment_summary`,
+   `toast_item_sales_summary`, `toast_cash_summary`, `toast_labor_summary`,
+   and `toast_analytics_metrics_day`.
 4. Use one per-request bridge controller and a combined signal for each
    callback. Keep the existing SDK signal in that combination.
-5. Remove the active controller and all abort relays after the callback
-   resolves, rejects, or is cancelled.
+5. Remove the active controller and all bridge-created abort relays after the
+   callback resolves, rejects, or is cancelled. An injected count-only observer
+   must show zero controllers and zero relays for each terminal state.
 6. Ignore a late cancellation notification that has no active matching map
    entry. Do not abort an unrelated active request.
 7. Preserve the process-owned runtime, location isolation, capability checks,
@@ -101,14 +115,21 @@ packages. It must start the compiled production executable or a clean
 consumer-installed package bin. It must use the existing test-only preload
 with invented data. The test must observe all of these facts:
 
-1. The first `tools/call` request has JSON-RPC ID `0`.
+1. Each retained era has a first `tools/call` request with JSON-RPC ID `0`.
 2. The first Standard handler reaches the configured abortable Orders fetch.
-3. Client abort sends the official cancellation notification.
+3. Client abort sends the official cancellation notification in each era.
 4. The matching request-zero bridge controller aborts the runtime signal.
-5. The upstream fetch sees its signal abort and no later page or retry begins.
-6. The cancelled handler produces the existing fail-closed denial behavior.
-7. The same process serves a later report and then closes without an orphan
-   handler, retained map entry, hanging stream, or secret-bearing output.
+5. A later nonzero Standard request also reaches the source and aborts through
+   the same bridge in each era.
+6. The upstream fetch sees its signal abort and no later page or retry begins.
+7. The cancelled handler produces the existing fail-closed denial behavior.
+8. Resolve, source rejection, and both cancellation cases each report zero
+   active controllers and zero bridge-created relay listeners.
+9. The registration matrix proves every named Standard and Analytics callback
+   uses the bridge. A separate compiling mutation for each matrix entry fails.
+10. The same process serves a later report and then closes without an orphan
+    handler, retained map entry, relay listener, hanging stream, or
+    secret-bearing output.
 
 The Node 20.20.2 and Node 22.22.2 detached-clean-worktree gates must run the
 same immutable candidate. Both gates must restore only the committed lockfile,
@@ -125,6 +146,8 @@ REQ | #60 | Corrected SDK or reviewed local correction proves request-zero cance
 RESEARCH | SDK 2.0.0 | The installed truthiness guard drops numeric zero. | 06-07 Task 1 | COVERED
 RESEARCH | Public SDK API | The context ID and notification handler support a local bridge without SDK internals. | 06-07 Task 2 | COVERED
 RESEARCH | Existing report chain | Runtime, queue, fetch, and report paths already carry an abort signal. | 06-07 Tasks 1-2 | COVERED
+RESEARCH | Retained eras | Both official legacy and modern stdio paths require executable cancellation evidence. | 06-07 Task 1, 06-08 Tasks 1-2 | COVERED
+RESEARCH | Lifecycle cleanup | Zero active controllers and relays require observer-backed terminal-state evidence. | 06-07 Tasks 1-2, 06-08 Tasks 1-2 | COVERED
 CONTEXT | D-01 | State implementation, synthetic evidence, and external gates separately. | 06-08 Task 2 | COVERED
 CONTEXT | D-02, D-03 | Do not claim approval, publication, consent, or legal sufficiency. | 06-08 Task 2 | COVERED
 CONTEXT | D-04, D-05, D-06 | Preserve consent, credential, no-training, and excluded-data limits. | 06-07 Tasks 1-2 | COVERED
@@ -136,8 +159,8 @@ CONTEXT | D-09 | Keep #60, G01, live compatibility, signing, and publication exp
 | Failure | Early control |
 | --- | --- |
 | A fixture path replaces production wiring. | Focused test starts `dist/index.js` or the consumer-installed bin through the official stdio transport. |
-| The bridge fixes ID zero but regresses nonzero IDs or Analytics cancellation. | Every registered report handler uses the same bridge, and mutations remove either ID-zero recognition or handler registration. |
-| Cancellation leaks an active controller or hangs shutdown. | The test reuses and closes the process after cancellation, and the harness mutates cleanup. |
+| The bridge fixes ID zero but regresses nonzero IDs or one callback. | Both eras cancel ID zero and nonzero requests, the matrix names all six callbacks, and each registration has a separate bypass mutation. |
+| Cancellation leaks an active controller or relay listener. | Terminal-state observer snapshots must show zero counts after resolve, rejection, and cancellation, and cleanup mutations must fail. |
 
 ## Gate status
 
