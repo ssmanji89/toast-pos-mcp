@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `8578254a0a320e8ece2db8e974bbede349c7adbb`
+**Observed `main`:** `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`
 
 ## Canonical campaign position
 
@@ -73,9 +73,12 @@ This executor can complete authentic registry-backed `npm ci` and package valida
   action: the npm registry reports `@modelcontextprotocol/server@2.0.0` and
   `@modelcontextprotocol/client@2.0.0` as the current latest releases;
 - T5-003-G01 requires a corrected current Toast retrieval response contract;
-- Formal Phase 06 requirements inventory, evidence matrix, and deterministic
-  structural audit now exist as local evidence. Independent exact-head review
-  remains pending, and no external gate is closed;
+- Formal Phase 06 requirements inventory, evidence matrix, required-leaf
+  manifest, and deterministic structural audit are merged local evidence.
+  PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` as
+  `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent findings-only
+  CLEAN comment exists, while GitHub `reviews: []` means no attributable
+  approval exists. No external gate is closed;
 - GitHub-attributable independent review remains pending for PR #55 and PR #58;
 - live Analytics compatibility requires authorized access and documented
   Merchant consent;

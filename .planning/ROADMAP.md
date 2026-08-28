@@ -435,6 +435,16 @@ Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
 This is local synthetic validation evidence. It does not close formal
 requirements coverage, PR #55 GitHub-attributable review, or any release gate.
 
+**Observed requirements-control evidence:** Plan 06-06 / PR #63 is MERGED on
+`main` at `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61` from candidate
+`9fb060b24819a0373465675fc63c1e4c15ee130d`. The independent findings-only
+review comment recorded CLEAN for that exact candidate. GitHub reports
+`reviews: []` for PR #63. This means GitHub records no attributable approval;
+the comment is independent findings-only review evidence, not approval.
+Post-merge Node 22 passed `npm run check` with 431 normal tests and one
+installed-artifact test. The structural audit passed. This is merged local
+control-plane evidence only.
+
 This is MERGED local synthetic package evidence. It is not publication
 readiness, live compatibility, consent, approval, signing, or legal
 sufficiency.
@@ -451,9 +461,11 @@ sufficiency.
   location discovery.
 - Live Analytics compatibility requires authorized access and documented
   Merchant consent under `AGENTS.md`.
-- Formal Phase 06 requirements inventory, evidence matrix, and deterministic
-  structural audit are local evidence only. The final 06-06 candidate needs
-  independent exact-head review. This does not close any external gate.
+- Formal Phase 06 requirements inventory, evidence matrix, required-leaf
+  manifest, and deterministic structural audit are merged local evidence.
+  PR #63 has an independent findings-only CLEAN comment for its exact candidate,
+  but GitHub `reviews: []` means no GitHub-attributable approval exists. This
+  does not close any external gate.
 - GitHub-attributable independent review remains pending for PR #55 and PR #58.
 - Signing and publication require authorized human credentials.
 - Terms, brand, consent, provider, logging, retention, and legal sufficiency
