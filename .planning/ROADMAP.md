@@ -454,7 +454,12 @@ sufficiency.
 - #60/T6-003 first-tool-request cancellation remains open. The npm registry
   reports `@modelcontextprotocol/server@2.0.0` and
   `@modelcontextprotocol/client@2.0.0` as current latest releases, so no local
-  MCP dependency-upgrade path exists.
+  MCP dependency-upgrade path exists. Actual compiled stdio evidence records
+  legacy `initialize` ID 0 then first `tools/call` ID 1, while pinned modern
+  `2026-07-28` records first `tools/call` ID 0. Plan 06-07 uses the corrected
+  contract: modern ID 0 is the defect proof; legacy ID 1 is regression proof.
+  Plan 06-08 retains cleanup, registration, mutation, Node 20/22, and
+  independent exact-head review gates.
 - T5-003-G01 requires a corrected Toast retrieval contract or written vendor
   confirmation before a complete Analytics result contract can be claimed.
 - #28 requires owner-authorized live Standard evidence for credential-wide
