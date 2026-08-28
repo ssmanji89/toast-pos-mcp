@@ -56,6 +56,23 @@ Before an AI tool or service processes Toast Merchant Data, the operator must:
 
 The package may require an acknowledgment, but it cannot establish legal sufficiency. Consent evidence stays outside the repository. A provider's “no training” setting does not resolve logging, retention, human-review, residency, or subprocessor obligations.
 
+## Current public-use gates
+
+The observed Toast API Terms date is 2026-06-23. Operators must read the
+current [Toast API Terms](https://pos.toasttab.com/api-terms-of-use) directly.
+This document does not grant or record Toast approval. Public brand-feature
+use, name use, and public distribution approval remain human or Toast gates.
+
+`TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED=true` is an operator acknowledgment.
+It is not proof of legal sufficiency, documented Merchant consent,
+third-party-provider approval, or Toast approval. Local stdio does not alter
+these duties.
+
+The source contract is implemented and synthetic validation exercises local
+fixtures. T5-003-G01, #4/T6-003, #28, live Standard compatibility, live
+Analytics compatibility, installed-artifact smoke, signing, and publication
+remain external gates.
+
 ## Credential and capability model
 
 Runtime configuration includes:
