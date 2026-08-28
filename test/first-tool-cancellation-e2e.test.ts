@@ -203,6 +203,63 @@ test(
   },
 );
 
+test(
+  "duplicate active report IDs are dropped before a second handler and cancellation cleans the first request",
+  { timeout: PROTOCOL_TIMEOUT_MS * 4 },
+  async () => {
+    const child = spawn(process.execPath, [PRODUCTION_SERVER_PATH], {
+      cwd: process.cwd(),
+      env: executableTestEnvironment(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stderr = observeStderr(child.stderr);
+    const stdout = observeJsonMessages(child.stdout);
+
+    try {
+      writeRawMessages(child.stdin, [{
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "toast-duplicate-report-id-test", version: "0.0.0" },
+        },
+      }]);
+      await stdout.waitFor((message) => hasResponseId(message, 0), "missing legacy initialize response");
+
+      const sourceCursor = stderr.cursor();
+      const duplicateRequest = {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "toast_sales_summary",
+          arguments: { businessDate: BUSINESS_DATES.immediateCancellation },
+        },
+      };
+      writeRawMessages(child.stdin, [
+        { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+        duplicateRequest,
+        duplicateRequest,
+      ]);
+      const firstSource = await stderr.waitFor("gate60-orders-started:20260815", sourceCursor);
+      await stderr.assertAbsentFor("gate60-orders-started:20260815", firstSource.sequence);
+      writeRawMessages(child.stdin, [{
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: 1, reason: "invented duplicate ID cancellation" },
+      }]);
+      const aborted = await stderr.waitFor("gate60-orders-aborted:20260815", firstSource.sequence);
+      await stderr.waitFor(CLEANUP_SNAPSHOT, aborted.sequence);
+    } finally {
+      stderr.stop();
+      stdout.stop();
+      if (child.exitCode === null) child.kill();
+    }
+  },
+);
+
 for (const [name, arguments_] of [
   ["toast_sales_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
   ["toast_payment_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
