@@ -1,10 +1,10 @@
 ---
 phase: 06
 slug: release-hardening-and-public-compatibility-proof
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
-execution_status: task_1_red_pending
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
+execution_status: task_3_complete
 created: 2026-08-27
 ---
 
@@ -93,6 +93,40 @@ The second command is review output, not proof of an external gate. Review it ag
 - Do not add a client secret, bearer token, raw credential payload, Merchant Data, copied Toast Terms text, approval record, package artifact, package-metadata change, or control-plane change.
 - Allow direct Terms links, an observed Terms date, explicit denials, and explicit statements that external gates remain open.
 
+## Observed Execution Evidence
+
+**Implementation:** `README.md`, `docs/operator-guide.md`,
+`docs/architecture/report-contract.md`, `docs/architecture/public-use-boundary.md`,
+`docs/architecture/threat-model.md`, `test/public-operator-docs.test.ts`, and
+this validation map changed. Reviewed registrations: `src/report-tools.ts` and
+`src/analytics-report-tools.ts`.
+
+**Synthetic validation:** The RED command failed as expected before public
+documentation existed. The focused GREEN command passed 5 of 5 tests.
+`npm ci --no-audit --no-fund && npm run check` passed on unchanged candidate
+`467d6e9536c138c6c1bb0b742c6f6ccf169204b8`, with 42 discovered test files
+and 411 passing tests. The command used Node `v25.9.0` and npm `11.12.1`.
+It used only the committed lockfile. `npm pack --dry-run` ran inside the
+repository gate; no tarball install, signing, publication, live credential, or
+Merchant Data activity occurred.
+
+**Read-only license checkpoint:** `LICENSE` begins with `Apache License`.
+`package.json` and the root `package-lock.json` declare `Apache-2.0`. `NOTICE`
+does not exist. This records current metadata only. It does not create a
+notice, change package metadata, or establish release evidence.
+
+**Terms and documentation evidence:** The documentation records the observed
+2026-06-23 Terms date and direct `https://pos.toasttab.com/api-terms-of-use`
+link. It records issue #22 and `DOX: updated`. The changed-path and diff scan
+found only the seven owned paths. It found no secret, Merchant Data, copied
+Toast documentation, approval record, package artifact, package-metadata
+change, or control-plane change.
+
+**External gates:** T5-003-G01, #4/T6-003, #28, live Standard compatibility,
+live Analytics compatibility, installed-artifact smoke, signing, publication,
+and human brand and Terms approvals remain open. This evidence does not claim
+reviewer approval, legal approval, publication authorization, or live proof.
+
 ---
 
 ## Wave 0 Requirements
@@ -126,8 +160,8 @@ Task 1 owns this Wave 0 dependency. Task 2 cannot be green before it exists and 
 - [x] The claims scan and precise negative boundaries are defined.
 - [x] No watch-mode command exists.
 - [x] Task 1 RED result recorded: `npm run build:test && ! node --test --enable-source-maps dist-test/test/public-operator-docs.test.js` exited 0 on 2026-08-27 because the new contract test failed as expected. The missing `docs/architecture/report-contract.md` caused the deliberate initial failure. The prior no-dependency compile failure was corrected by authentic `npm ci --no-audit --no-fund`; no test assertion changed.
-- [ ] Task 2 GREEN result recorded.
-- [ ] Task 3 full-gate result and candidate SHA recorded.
-- [ ] `nyquist_compliant: true` set after the observed final checks pass.
+- [x] Task 2 GREEN result recorded: `npm run build:test && node --test --enable-source-maps dist-test/test/public-operator-docs.test.js` passed 5 of 5 tests.
+- [x] Task 3 full-gate result and candidate SHA recorded: `467d6e9536c138c6c1bb0b742c6f6ccf169204b8` remained unchanged before and after `npm ci --no-audit --no-fund && npm run check`; 42 files and 411 tests passed.
+- [x] `nyquist_compliant: true` set after the observed final checks pass.
 
-**Approval:** draft — pending Task 3 observed results and independent review.
+**Approval:** implementation evidence complete — independent review remains required.
