@@ -457,6 +457,55 @@ test("Analytics lifecycle retries a bounded 429 create turn using Retry-After", 
   assert.deepEqual(sleeps, [2_000]);
 });
 
+test("Analytics lifecycle maps poll and replacement failures without retaining source bodies", async () => {
+  const { access, selection } = await createSelection();
+  const pollFailure = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async (_url, init) => init?.method === "POST"
+      ? new Response(JSON.stringify("opaque-poll-failure"), { status: 200 })
+      : new Response(JSON.stringify(RESULT_MARKER), { status: 500, headers: { "x-request-id": "safe-poll-id" } }),
+  });
+  const pollResult = await pollFailure.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(pollResult, "failed_or_incomplete", 0, 0);
+  assert.deepEqual(pollResult.provenance.responseRequestIds, ["safe-poll-id"]);
+  assert.equal(JSON.stringify(pollResult).includes(RESULT_MARKER), false);
+
+  const replacementFailure = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async (_url, init) => {
+      if (init?.method === "GET") return unreadableResponse(409);
+      return new Response(JSON.stringify("opaque-first"), { status: 200 });
+    },
+  });
+  const replacementResult = await replacementFailure.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(replacementResult, "replacement_exhausted", 0, 1);
+});
+
+test("Analytics lifecycle enforces all documented endpoint windows atomically", async () => {
+  const { access, selection } = await createSelection();
+  let now = 0;
+  const sleeps: number[] = [];
+  const adapter = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    now: () => now,
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); now += milliseconds; },
+    fetch: async (_url, init) => init?.method === "POST"
+      ? new Response(JSON.stringify(`opaque-window-${now}`), { status: 200 })
+      : unreadableCompleteResponse(),
+  });
+  for (let index = 0; index < 11; index += 1) await adapter.create(selection, createInput("metrics"));
+  assert.deepEqual(sleeps, [60_000]);
+});
+
 function unreadableCompleteResponse(): Response {
   return unreadableResponse(200);
 }
