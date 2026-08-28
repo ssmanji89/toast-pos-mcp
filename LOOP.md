@@ -507,6 +507,11 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Release frontier
 
+- **Formal requirements control:** The source-traceable inventory, evidence
+  matrix, and deterministic structural audit exist as local evidence for Plan
+  06-06. The final candidate requires independent exact-head review. This work
+  does not close #60, #28, T5-003-G01, PR #55 review, PR #58 review, consent,
+  Terms or brand approval, signing, publication, or live compatibility.
 - **T6-003 state:** PR #53 merged the reviewed local package-evidence slice.
   PR #58 merged fixture-proved nested Standard schemas and truthful local
   validation evidence. No further local package-evidence work is implied by

@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`
+**Observed `main`:** `8578254a0a320e8ece2db8e974bbede349c7adbb`
 
 ## Canonical campaign position
 
@@ -73,8 +73,9 @@ This executor can complete authentic registry-backed `npm ci` and package valida
   action: the npm registry reports `@modelcontextprotocol/server@2.0.0` and
   `@modelcontextprotocol/client@2.0.0` as the current latest releases;
 - T5-003-G01 requires a corrected current Toast retrieval response contract;
-- Formal Phase 06 requirements coverage is pending because
-  `.planning/REQUIREMENTS.md` is absent;
+- Formal Phase 06 requirements inventory, evidence matrix, and deterministic
+  structural audit now exist as local evidence. Independent exact-head review
+  remains pending, and no external gate is closed;
 - GitHub-attributable independent review remains pending for PR #55 and PR #58;
 - live Analytics compatibility requires authorized access and documented
   Merchant consent;

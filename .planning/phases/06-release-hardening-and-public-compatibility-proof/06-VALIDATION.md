@@ -3,7 +3,7 @@ phase: 06
 slug: release-hardening-and-public-compatibility-proof
 status: incomplete
 nyquist_compliant: false
-execution_status: 06-05-merged-local-evidence-reviewer-pending-external-gates
+execution_status: 06-06-requirements-audit-local-evidence-review-pending-external-gates
 created: 2026-08-27
 updated: 2026-08-28
 ---
@@ -18,7 +18,7 @@ signing, publication, or legal sufficiency.
 
 1. The final candidate uses the committed lockfile on Node 20.20.2 and Node 22.22.2.
 2. The final candidate SHA stays unchanged before and after each gate.
-3. Final command output belongs in the 06-05 PR only.
+3. Final command output belongs in the 06-06 PR only.
 4. No tracked file changes after either final candidate gate.
 
 ## Merged Execution Evidence
@@ -48,6 +48,7 @@ the GitHub-attributable exact-head review remains reviewer-pending.
 | Public runtime | `npm run build:test && node --test --enable-source-maps dist-test/test/server.test.js` |
 | Standard schemas | `npm run build:test && node --test --enable-source-maps dist-test/test/report-tools-e2e.test.js` |
 | Mutation batches | `T6_PUBLIC_WIRING_GUARD_BATCH=first|second|third node scripts/verify-t6-public-wiring-mutations.mjs` |
+| Requirements traceability | `npm run build:test && node --test dist-test/test/requirements-traceability-audit.test.js && node scripts/audit-requirements-traceability.mjs --inventory .planning/REQUIREMENTS.md --matrix docs/verification/phase-06-requirements-evidence-matrix.md --manifest docs/verification/phase-06-required-leaf-manifest.md --required-source-commit 761cba89b70c3da96f71cb84b3eaa4ef849438c5` |
 
 ## Validation Map
 
@@ -66,7 +67,7 @@ the GitHub-attributable exact-head review remains reviewer-pending.
 
 | Gate | State | Reason |
 | --- | --- | --- |
-| Formal Phase 06 requirement coverage | pending | `.planning/REQUIREMENTS.md` is absent. The owner reference is `T6-003`, but no formal all-requirements coverage claim is available. |
+| Formal Phase 06 requirement coverage | local structural audit passed; review pending | `.planning/REQUIREMENTS.md`, the evidence matrix, the required-leaf manifest, and the deterministic audit now exist. The final candidate still needs independent exact-head review. This local result does not close any external gate. |
 | PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
 | PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
 | #60/T6-003 first-tool-request cancellation | open | Issue #60 owns this SDK/runtime release gate. Local synthetic tests do not close it. Current `@modelcontextprotocol/server@2.0.0` and `@modelcontextprotocol/client@2.0.0` leave no local dependency-upgrade action. |

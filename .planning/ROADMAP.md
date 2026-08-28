@@ -451,8 +451,9 @@ sufficiency.
   location discovery.
 - Live Analytics compatibility requires authorized access and documented
   Merchant consent under `AGENTS.md`.
-- Formal Phase 06 requirements coverage is pending because
-  `.planning/REQUIREMENTS.md` is absent.
+- Formal Phase 06 requirements inventory, evidence matrix, and deterministic
+  structural audit are local evidence only. The final 06-06 candidate needs
+  independent exact-head review. This does not close any external gate.
 - GitHub-attributable independent review remains pending for PR #55 and PR #58.
 - Signing and publication require authorized human credentials.
 - Terms, brand, consent, provider, logging, retention, and legal sufficiency
