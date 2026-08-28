@@ -7,44 +7,45 @@ requires:
   - phase: 06-06
     provides: "Current public MCP SDK v2 runtime baseline and release-gate plan"
 provides:
-  - "Public-SDK bridge for numeric-zero and nonzero active report request cancellation"
-  - "Executable legacy and modern stdio cancellation proof with sequence-specific terminal cleanup observation"
+  - "Public-SDK cancellation bridge for accepted numeric-zero and nonzero report calls"
+  - "Executable modern source-abort and coalesced legacy pre-handler cancellation evidence"
 affects: [06-08, issue-60, mcp-runtime]
 tech-stack:
   added: []
-  patterns: ["Public notification-handler bridge", "active-request-only cancellation", "sequence-numbered count-only executable lifecycle observer"]
+  patterns: ["Official stdio transport decorator", "accepted-request-only cancellation", "sequence-numbered count-only executable observer"]
 key-files:
-  created: [src/mcp-request-cancellation.ts, test/first-tool-cancellation-e2e.test.ts]
-  modified: [src/index.ts, src/server.ts, src/report-tools.ts, src/analytics-report-tools.ts, test/fixtures/installed-artifact-fetch-preload.ts, test/server.test.ts, test/package-artifact-e2e.test.ts]
+  created: [src/mcp-request-cancellation.ts, src/accepted-request-transport.ts, test/first-tool-cancellation-e2e.test.ts]
+  modified: [src/index.ts, src/server.ts, src/stdio.ts, test/fixtures/stdio-report-server.ts, test/fixtures/stdio-analytics-report-server.ts, test/server.test.ts, test/package-artifact-e2e.test.ts]
 key-decisions:
-  - "Preserve the official client request allocation: legacy initialize is ID 0 and first tool is ID 1; modern first tool is ID 0."
-  - "Use one local bridge with public SDK APIs and no SDK, transport, or package modification."
+  - "Retain official request allocation: legacy initialize ID 0 then tool ID 1; modern first tool ID 0."
+  - "Use the documented serveStdio transport option and official StdioServerTransport without custom framing."
+  - "Cancel only report IDs that the official entry accepted; unknown, late, and future IDs remain inert."
 patterns-established:
-  - "Wrap every reviewed report callback through the explicit registration matrix."
-  - "Remove bridge controllers and relays in one callback finalization path."
+  - "Pass accepted-request state from startStdioServer to every createServer factory."
+  - "Remove bridge controllers, relays, and accepted IDs in terminal callback paths."
 requirements-completed: []
-duration: 32min
+duration: 48min
 completed: 2026-08-28
 status: complete
 ---
 
 # Phase 06 Plan 07: First stdio tool-request cancellation bridge Summary
 
-**Public SDK cancellation bridge for modern request ID zero, legacy request ID one, and later report requests through the compiled stdio executable.**
+**Accepted-request cancellation bridge preserves official stdio framing and covers modern ID zero plus coalesced legacy cancellation.**
 
 ## Performance
 
-- **Duration:** 32 min
+- **Duration:** 48 min
 - **Tasks:** 2
-- **Files modified:** 9
-- **Validation:** Clean-install `npm run check` passed on Node `20.20.2` and Node `22.22.2`. Each run reported 45 discovered test files, 433 normal tests, and one installed-artifact test.
+- **Files modified:** 10
+- **Validation:** Clean-install `npm run check` passed on Node `20.20.2` and Node `22.22.2`. Each run reported 45 discovered test files, 434 normal tests, and one installed-artifact test.
 
 ## Accomplishments
 
-- Added a public notification-handler bridge that tracks exact request IDs, including numeric zero.
-- Ignores unknown, late, and future cancellation IDs. The bridge stores only active report callback IDs.
-- Forwarded the combined bridge and SDK signal to all five Standard tools and the constrained Analytics tool.
-- Added executable legacy and modern tests for consecutive `tools/call` and cancellation frames, source aborts, unknown-ID isolation, sequence-specific cleanup, reuse, and shutdown.
+- Decorated the official `StdioServerTransport` through the documented `serveStdio` transport option. The decorator does not parse or serialize frames.
+- Retained cancellation state only for accepted report calls. Unknown, late, and future notification IDs cannot affect later calls.
+- Proved modern first-tool ID `0` cancellation reaches the invented Orders source. Proved a coalesced legacy initialized, tool ID `1`, and cancellation sequence aborts before handler or Orders source access.
+- Preserved later nonzero Standard and Analytics cancellation, result boundaries, cleanup, process reuse, and installed-artifact behavior.
 
 ## Task Commits
 
@@ -53,57 +54,46 @@ status: complete
 3. **Corrected protocol contract** - `ad4d54c` (test)
 4. **Independent-review race and cleanup repair** - `68803f6` (fix)
 5. **Independent-review unknown-ID isolation repair** - `bb3f4b3` (fix)
+6. **Accepted-request race repair** - `5617d3e` (fix)
 
 ## Files Created/Modified
 
-- `src/mcp-request-cancellation.ts` - Owns active request controllers, signal relays, cleanup, and the six-tool matrix.
-- `src/index.ts` and `src/server.ts` - Enable the count-only observer only for the executable test process.
-- `src/report-tools.ts` and `src/analytics-report-tools.ts` - Register all report callbacks through the bridge.
-- `test/first-tool-cancellation-e2e.test.ts` - Uses official stdio clients against `dist/index.js` for both protocol eras.
-- `test/fixtures/installed-artifact-fetch-preload.ts` - Supplies opt-in invented abortable upstream routes.
+- `src/accepted-request-transport.ts` - Records report calls after official entry dispatch and releases accepted IDs after output responses.
+- `src/stdio.ts` - Supplies the registry to the server factory through the official `serveStdio` boundary.
+- `src/mcp-request-cancellation.ts` - Uses accepted IDs for bridge cancellation and cleans terminal state.
+- `src/index.ts` and `src/server.ts` - Pass the process registry into the production server composition.
+- `test/first-tool-cancellation-e2e.test.ts` - Uses official client behavior and raw coalesced legacy frames against `dist/index.js`.
+- `test/fixtures/stdio-report-server.ts` and `test/fixtures/stdio-analytics-report-server.ts` - Pass the registry through executable test composition.
+- `test/package-artifact-e2e.test.ts` - Includes the new compiled bridge module in the strict artifact manifest.
 
 ## Decisions Made
 
-- Legacy official stdio allocates initialize ID `0` and first `tools/call` ID `1`.
-- Modern pinned `2026-07-28` discovery precedes its first `tools/call` ID `0`.
-- The local bridge replaces only report callback cancellation dispatch and keeps existing report result boundaries.
-- The executable observer records counts and sequence-local stderr markers only. It does not retain stderr or report data.
+- Legacy official stdio uses initialize ID `0` and first `tools/call` ID `1`.
+- Modern pinned `2026-07-28` discovery precedes the first `tools/call` ID `0`.
+- Coalesced legacy cancellation is a pre-handler proof. It must show no Orders source start, not a source abort.
+- The executable observer reports only active-controller and relay-listener counts. It does not retain stderr or report data.
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 1 - Test guard] Kept the startup-runtime guard aligned with the explicit observer gate.**
-- **Found during:** Task 2
-- **Issue:** The existing source-shape test rejected the required test-only observer wiring.
-- **Fix:** The guard now requires both the shared runtime factory and the explicit observer gate.
-- **Files modified:** `test/server.test.ts`
-- **Verification:** `npm run check`
-- **Committed in:** `ad4d54c`
-
-**2. [Rule 1 - Package-artifact expectation] Added the bridge module to the artifact manifest test.**
-- **Found during:** Task 2
-- **Issue:** The strict package artifact test needed the new compiled module listed.
-- **Fix:** Added `mcp-request-cancellation` to its expected artifact modules.
-- **Files modified:** `test/package-artifact-e2e.test.ts`
-- **Verification:** `npm run check`
-- **Committed in:** `f4a6291`
-
-**Total deviations:** 4 auto-fixed issues.
-
-**3. [Rule 1 - Cancellation race] Removed retained cancellation IDs that could poison a future request.**
-- **Found during:** Independent review repair.
-- **Issue:** Retaining an inactive cancellation ID could deny a later valid request with that ID.
-- **Fix:** The bridge now aborts only an active matching callback. The executable test sends unknown, late, and exact-future cancellation notifications, then proves the later matching report resolves.
-- **Files modified:** `src/mcp-request-cancellation.ts`, `src/index.ts`, `test/first-tool-cancellation-e2e.test.ts`, `test/fixtures/installed-artifact-fetch-preload.ts`
+**1. [Rule 1 - Cancellation race] Used accepted-request tracking for cancellation that arrives before callback registration.**
+- **Found during:** Independent review repair
+- **Issue:** An active-only map ignored a valid cancellation in a coalesced legacy input sequence.
+- **Fix:** Decorated the official transport to register only accepted report calls, then consumed cancellation state when the callback registers.
+- **Files modified:** `src/accepted-request-transport.ts`, `src/stdio.ts`, `src/mcp-request-cancellation.ts`, `src/server.ts`, `src/index.ts`, `test/first-tool-cancellation-e2e.test.ts`
 - **Verification:** Node `20.20.2` and Node `22.22.2` clean-install `npm run check`
+- **Committed in:** `5617d3e`
 
-**4. [Rule 1 - Cleanup proof] Replaced accumulated stderr substring checks with sequence-specific marker checks.**
-- **Found during:** Independent review repair.
-- **Issue:** A prior cleanup marker could satisfy a later terminal-path assertion.
-- **Fix:** The executable test records line occurrences with monotonic sequence numbers. It proves fresh zero cleanup after later cancellation, successful resolution, and source rejection.
-- **Files modified:** `test/first-tool-cancellation-e2e.test.ts`, `test/fixtures/installed-artifact-fetch-preload.ts`
+**2. [Rule 3 - Blocking] Passed accepted-request state through executable fixtures and updated the package manifest test.**
+- **Found during:** Full-gate validation
+- **Issue:** Fixture factories created a separate registry, and the strict package list omitted the new compiled module.
+- **Fix:** Passed the factory registry to both fixture servers and added `accepted-request-transport` to the expected artifact list.
+- **Files modified:** `test/fixtures/stdio-report-server.ts`, `test/fixtures/stdio-analytics-report-server.ts`, `test/server.test.ts`, `test/package-artifact-e2e.test.ts`
 - **Verification:** Node `20.20.2` and Node `22.22.2` clean-install `npm run check`
+- **Committed in:** `5617d3e`
+
+**Total deviations:** 2 auto-fixed issues. The repairs retain the public SDK boundary and do not change report contracts.
 
 ## Known Stubs
 
@@ -111,9 +101,9 @@ None.
 
 ## Next Phase Readiness
 
-Plan 06-08 must run the isolated mutation harness and dual-runtime immutable-candidate validation. Issue #60 remains open. This plan provides local implementation and synthetic executable evidence only. It does not establish independent review, live compatibility, Merchant consent, Toast approval, signing, or publication.
+Plan 06-08 can run its independent mutation and immutable-candidate validation. Issue #60 remains open. This plan is local synthetic implementation evidence only. It does not establish independent review, live compatibility, Merchant consent, Toast approval, signing, or publication. DOX: no durable change.
 
 ## Self-Check: PASSED
 
-- Task commits `ce5ed72`, `f4a6291`, `ad4d54c`, `68803f6`, and `bb3f4b3` exist.
-- The bridge and executable test files exist.
+- Task commits `ce5ed72`, `f4a6291`, `ad4d54c`, `68803f6`, `bb3f4b3`, and `5617d3e` exist.
+- The accepted-request transport, bridge, executable test, and fixture wiring files exist.
