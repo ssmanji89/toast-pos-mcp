@@ -92,7 +92,7 @@ Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` retains duplicate-active-ID
 
 Node `20.20.2` with npm `10.8.2` restored the committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
-Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the same 40-test focused executable suite and the duplicate-active-ID mutation guard. The prior 12 isolated mutations remain recorded for the unchanged bridge paths. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
+Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the same 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
 Issue #60 remains OPEN. Independent findings-only review is pending. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
 
