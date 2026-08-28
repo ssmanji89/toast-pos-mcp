@@ -15,7 +15,22 @@ import {
 
 const STDIO_CONNECT_TIMEOUT_MS = 10_000;
 const DIST_INDEX_PATH = path.resolve(process.cwd(), "dist", "index.js");
+const INSTALLED_ARTIFACT_PRELOAD_PATH = path.resolve(
+  process.cwd(),
+  "dist-test",
+  "test",
+  "fixtures",
+  "installed-artifact-fetch-preload.js",
+);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const PUBLIC_TOOL_NAMES = [
+  "toast_analytics_metrics_day",
+  "toast_cash_summary",
+  "toast_item_sales_summary",
+  "toast_labor_summary",
+  "toast_payment_summary",
+  "toast_sales_summary",
+];
 
 test("constructs a server without starting process IO", async () => {
   const server = createServer();
@@ -25,7 +40,7 @@ test("constructs a server without starting process IO", async () => {
 });
 
 test(
-  "serves retained legacy 2025 requests without report tools",
+  "serves retained legacy 2025 requests through the production report runtime",
   { timeout: STDIO_CONNECT_TIMEOUT_MS },
   async () => {
     const connection = createLegacyConnection();
@@ -47,16 +62,28 @@ test(
       const listed = await connection.request({
         jsonrpc: "2.0", id: 2, method: "tools/list", params: {},
       });
-      assert.ok(
-        "error" in listed || (Array.isArray(listed.result?.tools) && listed.result.tools.length === 0),
-        "legacy tools/list must not expose report tools",
-      );
+      assert.deepEqual(listed.result?.tools.map((tool: { name: string }) => tool.name).sort(), PUBLIC_TOOL_NAMES);
 
       const call = await connection.request({
         jsonrpc: "2.0", id: 3, method: "tools/call",
         params: { name: "toast_sales_summary", arguments: { businessDate: 20260816 } },
       });
-      assert.ok("error" in call, "legacy report call must be denied");
+      assertPublicSalesComplete(call.result.structuredContent);
+
+      const denied = await connection.request({
+        jsonrpc: "2.0", id: 4, method: "tools/call",
+        params: {
+          name: "toast_sales_summary",
+          arguments: {
+            businessDate: 20260816,
+            restaurantGuid: "00000000-0000-4000-8000-000000009999",
+          },
+        },
+      });
+      assert.equal(denied.result.isError, true);
+      assert.equal(denied.result.structuredContent.status, "denied");
+      assert.equal(denied.result.structuredContent.denial.code, "runtime_restaurant_inaccessible");
+      assert.equal("combined" in denied.result.structuredContent, false);
     } finally {
       connection.close();
     }
@@ -76,6 +103,21 @@ test(
       // assertions therefore proves that this executable served the modern
       // 2026-07-28 era rather than silently using the legacy handshake.
       await assertReportServerIdentity(connection.client);
+      const complete = await connection.client.callTool({
+        name: "toast_sales_summary",
+        arguments: { businessDate: 20260816 },
+      });
+      assertPublicSalesComplete(complete.structuredContent);
+      const denied = await connection.client.callTool({
+        name: "toast_sales_summary",
+        arguments: {
+          businessDate: 20260816,
+          restaurantGuid: "00000000-0000-4000-8000-000000009999",
+        },
+      });
+      assert.equal(denied.isError, true);
+      assert.equal((denied.structuredContent as { status: string }).status, "denied");
+      assert.equal("combined" in (denied.structuredContent as object), false);
       await proveRetainedProcessRequests(connection, "modern", pid);
     } finally {
       await closeWithTimeout(connection);
@@ -158,7 +200,7 @@ function createLegacyConnection(): {
 } {
   const child = spawn(process.execPath, [DIST_INDEX_PATH], {
     cwd: process.cwd(),
-    env: { PATH: process.env.PATH ?? "", ...SYNTHETIC_VALID_RUNTIME_ENV },
+    env: publicRuntimeEnvironment(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pending = new Map<number, (message: any) => void>();
@@ -202,7 +244,7 @@ function createStdioClient(era: "modern"): TestConnection {
     args: [DIST_INDEX_PATH],
     cwd: process.cwd(),
     stderr: "pipe",
-    env: { ...SYNTHETIC_VALID_RUNTIME_ENV },
+    env: publicRuntimeEnvironment(),
   });
   const client = new Client(
     {
@@ -279,15 +321,28 @@ async function assertReportServerIdentity(client: Client): Promise<void> {
   const listed = await client.listTools();
   assert.deepEqual(
     listed.tools.map((tool) => tool.name).sort(),
-    [
-      "toast_analytics_metrics_day",
-      "toast_cash_summary",
-      "toast_item_sales_summary",
-      "toast_labor_summary",
-      "toast_payment_summary",
-      "toast_sales_summary",
-    ],
+    PUBLIC_TOOL_NAMES,
   );
+}
+
+function publicRuntimeEnvironment(): Record<string, string> {
+  return {
+    PATH: process.env.PATH ?? "",
+    ...SYNTHETIC_VALID_RUNTIME_ENV,
+    NODE_OPTIONS: `--import=${INSTALLED_ARTIFACT_PRELOAD_PATH}`,
+  };
+}
+
+function assertPublicSalesComplete(value: unknown): void {
+  assert.ok(value !== null && typeof value === "object");
+  const output = value as Record<string, unknown>;
+  assert.equal(output.schemaVersion, 1);
+  assert.equal(output.status, "complete");
+  assert.equal(output.report, "sales_summary");
+  assert.equal(output.source, "standard_api");
+  assert.equal(output.restaurantGuid, "00000000-0000-4000-8000-000000000002");
+  assert.ok(output.contextProvenance !== undefined);
+  assert.ok(output.provenance !== undefined);
 }
 
 interface RunResult {

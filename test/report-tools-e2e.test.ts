@@ -25,6 +25,71 @@ import {
   textContent,
   type FixtureScenario,
 } from "./support/report-tools-e2e-support.js";
+
+test(
+  "tools/list advertises only the real Standard result branches",
+  { timeout: 20_000 },
+  async () => {
+    const connection = createConnection("modern", "success");
+    try {
+      await connectWithTimeout(connection);
+      const listed = await connection.client.listTools();
+      for (const contract of [
+        ["toast_sales_summary", "sales_summary", ["complete", "denied"]],
+        ["toast_payment_summary", "payment_summary", ["complete", "denied"]],
+        ["toast_item_sales_summary", "item_sales_summary", ["complete", "denied"]],
+        ["toast_cash_summary", "cash_summary", ["complete", "denied"]],
+        ["toast_labor_summary", "labor_summary", ["complete", "incomplete", "denied"]],
+      ] as const) {
+        const [name, report, statuses] = contract;
+        const tool = listed.tools.find((candidate) => candidate.name === name);
+        assert.ok(tool, `expected ${name} in tools/list`);
+        const schema = structured(tool.outputSchema);
+        const branches = Array.isArray(schema.anyOf)
+          ? schema.anyOf.map(structured)
+          : Array.isArray(schema.oneOf)
+            ? schema.oneOf.map(structured)
+            : [];
+        assert.ok(branches.length > 0, `${name} must advertise a result union`);
+        assert.deepEqual(
+          branches.map((branch) => schemaLiteral(structured(branch.properties).status)).sort(),
+          [...statuses].sort(),
+        );
+        for (const branch of branches) {
+          const properties = structured(branch.properties);
+          const required = new Set(branch.required as string[]);
+          assert.equal(schemaLiteral(properties.report), report);
+          for (const field of [
+            "schemaVersion", "status", "report", "source", "businessDate",
+            "requestedBusinessDate", "generatedAtEpochMs", "formulaNotes", "warnings",
+          ]) assert.ok(required.has(field), `${name} ${schemaLiteral(properties.status)} requires ${field}`);
+          if (schemaLiteral(properties.status) === "denied") {
+            for (const field of [
+              "denial", "missingScopes", "missingProvisionedScopes",
+              "missingConnectionScopes", "excludedScopes",
+            ]) assert.ok(required.has(field), `${name} denied requires ${field}`);
+          } else {
+            for (const field of ["contextFreshness", "contextProvenance", "provenance"]) {
+              assert.ok(required.has(field), `${name} ${schemaLiteral(properties.status)} requires ${field}`);
+            }
+          }
+          if (name === "toast_item_sales_summary") {
+            assert.ok(required.has("dimension"), "item output requires its requested dimension");
+          }
+        }
+      }
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+function schemaLiteral(value: unknown): string {
+  const property = structured(value);
+  if (typeof property.const === "string") return property.const;
+  if (Array.isArray(property.enum) && typeof property.enum[0] === "string") return property.enum[0];
+  throw new Error("expected JSON-schema literal");
+}
 test(
   "historical item absent from current menu remains a distinct unresolved sales fact",
   { timeout: 20_000 },
