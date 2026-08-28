@@ -20,9 +20,10 @@ separate, body-free lifecycle boundary. It returns only `denied` or
 unresolved. It exposes no completed Analytics body, formula, or report.
 
 The source is implemented and repository tests use independently invented
-fixtures. This is not live Toast compatibility, Merchant consent, Terms
-approval, brand approval, installed-artifact evidence, signing, or publication
-evidence.
+fixtures. One local installed-artifact test creates a tarball, installs it in
+an empty temporary consumer, and uses the installed stdio bin with an external
+invented-fetch preload. This is not live Toast compatibility, Merchant consent,
+Terms approval, brand approval, signing, or publication evidence.
 
 ## Assets and trust boundaries
 
@@ -78,9 +79,9 @@ This repository does not claim Toast approval, endorsement, certification,
 partnership, or public-distribution authorization.
 
 T5-003-G01, #4/T6-003 first-tool-request cancellation, #28 live Standard
-compatibility, live Analytics compatibility, installed-artifact smoke, signing,
-publication, and human brand and Terms approvals remain open. No synthetic
-test closes these gates.
+compatibility, live Analytics compatibility, signing, publication, and human
+brand and Terms approvals remain open. The local installed-artifact test does
+not close these gates.
 
 ## Revisit triggers
 

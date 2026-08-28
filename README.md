@@ -19,14 +19,17 @@ and the [operator guide](docs/operator-guide.md).
 ### Synthetic validation
 
 Repository tests use independently invented fixtures. They validate local
-source and stdio paths. They do not prove live Toast compatibility, Merchant
-consent, legal sufficiency, Toast approval, or a released artifact.
+source and stdio paths. The local installed-artifact test creates a real npm
+tarball, installs it in an empty temporary consumer, and calls only its
+installed stdio bin. This is synthetic local evidence only. It does not prove
+live Toast compatibility, Merchant consent, legal sufficiency, Toast approval,
+signing, publication, or a released artifact.
 
 ### External gates
 
 T5-003-G01, #4/T6-003, #28, live Standard compatibility, live Analytics
-compatibility, installed-artifact smoke, signing, publication, and human brand
-and Terms approvals remain open.
+compatibility, signing, publication, and human brand and Terms approvals remain
+open.
 
 ## Tool catalog
 

@@ -166,3 +166,34 @@ Task 1 owns this Wave 0 dependency. Task 2 cannot be green before it exists and 
 - [x] `nyquist_compliant: true` set after the observed final checks pass.
 
 **Approval:** implementation evidence complete — independent review remains required.
+
+## T6-003 observed exact-head evidence
+
+The focused RED command ran on 2026-08-27 in America/Chicago (CDT) and passed
+because the installed child could not emit `installed-artifact-fetch-preload-ready`
+before the external test-only preload existed. The unchanged contract created the real tarball and empty
+consumer first. GREEN used `NODE_OPTIONS --import` to load the copied external
+preload before the installed bin constructed its runtime.
+
+Candidate `d5c47f39321f13c991d2abe6fcf3c035a020c9d2` remained unchanged before
+and after both clean gates. Each gate used `npm ci --no-audit --no-fund && npm
+run check` in a detached worktree. Each run discovered 43 test files, passed
+411 normal tests and one installed-artifact test, and passed package inspection.
+
+| ID | Behavior | Wave 0 state | Evidence |
+| --- | --- | --- | --- |
+| T6-003-PKG-01 | Exact package path allowlist and checksum | complete | Both real tarballs had 151 exact paths and SHA-256 `2e319e3e13be48907508dc0e3d46b673e6b5721b1021906b3ae4e9d1374f2be0`. |
+| T6-003-PKG-02 | Empty consumer installed-bin modern MCP path | complete | The real tarball installed into a new temporary consumer. Its absolute `node_modules/.bin/toast-pos-mcp` completed pinned `2026-07-28` negotiation. |
+| T6-003-PKG-03 | Standard completion and constrained Analytics envelope | complete | The installed bin listed six tools, returned Standard schema version 1 with `complete`, and returned only the existing body-free Analytics `denied` boundary. |
+| T6-003-PKG-04 | Preload runtime identity and unmatched-route rejection | complete | The external preload emitted its fixed runtime marker through `NODE_OPTIONS`; unmatched routes throw the non-secret rejection marker. |
+| T6-003-PKG-05 | Node 20.20.2 exact-head gate | complete | Node `v20.20.2`, npm `10.8.2`; committed restore and full check passed. |
+| T6-003-PKG-06 | Node 22.22.2 exact-head gate | complete | Node `v22.22.2`, npm `10.9.7`; committed restore and full check passed. |
+| T6-003-PKG-07 | Dependency, license, and advisory inspection | complete | Root `toast-pos-mcp@0.0.0` is Apache-2.0. Production dependencies are `@modelcontextprotocol/server@2.0.0` MIT and `zod@4.4.3` MIT. Audit totals were low 0, moderate 0, high 0, critical 0. |
+| T6-003-PKG-08 | Evidence keeps external gates open | complete | README, threat model, documentation contract, and LOOP distinguish local synthetic artifact evidence from retained external gates. |
+
+`nyquist_compliant: true` applies to the implemented local package evidence.
+It does not resolve T5-003-G01, #4/T6-003 first-tool-request cancellation, #28,
+live Standard or Analytics compatibility, signing, publication, or human/Toast
+brand and Terms gates. DOX: updated. Issue #22 remains the documentation and
+Terms checkpoint record. No publication, signature, live credential, Merchant
+Data, external approval, or gate-resolution action occurred.

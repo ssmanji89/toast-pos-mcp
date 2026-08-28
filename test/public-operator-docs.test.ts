@@ -90,12 +90,15 @@ test("operator duties and evidence limits appear before configuration guidance",
 });
 
 test("public documentation rejects unsupported release and Analytics claims", () => {
+  assert.match(readme, /local installed-artifact test/u);
+  assert.match(threatModel, /local installed-artifact test/u);
   for (const forbidden of [
     /Toast-approved/u,
     /Toast certification/u,
     /published package/u,
     /live-compatible/u,
     /complete Analytics report/u,
+    /installed-artifact (?:test|evidence)[^.\n]*(?:release-ready|publish|sign|live.compatib|approval)/iu,
   ]) {
     assert.doesNotMatch(publicDocuments, forbidden);
   }
@@ -105,7 +108,6 @@ test("public documentation rejects unsupported release and Analytics claims", ()
     "#4/T6-003",
     "#28",
     "live Analytics compatibility",
-    "installed-artifact smoke",
     "signing",
     "publication",
     "brand",

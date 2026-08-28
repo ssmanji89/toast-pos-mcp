@@ -66,7 +66,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | CLOSED |
-| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
+| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | BUILT — local synthetic artifact evidence recorded; independent review and external gates remain open |
 
 ## Completed slice
 
@@ -87,6 +87,21 @@ the 5-test public-documentation contract, 42 discovered test files, 411 tests,
 and package validation. This closes the documentation checkpoint only. It does
 not close live compatibility, installed-artifact smoke, signing, publication,
 or human Terms and brand gates.
+
+T6-003 is BUILT at candidate
+`d5c47f39321f13c991d2abe6fcf3c035a020c9d2`. Detached Node 20.20.2 and
+22.22.2 worktrees each restored the committed lockfile and passed `npm run
+check`: 43 compiled files, 411 normal tests, and one installed-artifact test.
+The real tarball had 151 exact paths and SHA-256
+`2e319e3e13be48907508dc0e3d46b673e6b5721b1021906b3ae4e9d1374f2be0` on both
+runtimes. The empty-consumer installed bin negotiated MCP 2026-07-28, listed
+the five Standard tools plus `toast_analytics_metrics_day`, returned the
+invented Standard schema-version-1 complete envelope, and returned only the
+body-free Analytics denial boundary. This is local synthetic package evidence.
+It does not close T5-003-G01, #4/T6-003 first-tool-request cancellation, #28,
+live Standard or Analytics compatibility, signing, publication, or human/Toast
+brand and Terms gates. Independent exact-head review remains required. DOX:
+updated.
 
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
