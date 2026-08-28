@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -51,12 +52,22 @@ function matrix(requirementRows: string[], gateRows = requiredGates.map((gate) =
 }
 
 function manifest(rows: string[]): string {
+  const parsed = rows.map((row) => row.split("|").slice(1, -1).map((value) => value.trim()));
+  const first = parsed[0];
+  if (!first) {
+    throw new Error("manifest requires at least one row");
+  }
+  const source = first[1] ?? "";
+  const anchor = first[2] ?? "";
+  const digest = createHash("sha256")
+    .update(parsed.map((row) => [row[0], row[1], row[2], row[3]].join("\u001f")).sort().join("\u001e"))
+    .digest("hex");
   return [
     "# Required Leaf Manifest",
     "",
-    "| Requirement ID | Canonical source | Source anchor | Canonical quote |",
-    "| --- | --- | --- | --- |",
-    ...rows,
+    "| Domain | Canonical source | Source anchor | Requirement ID prefix | Expected leaf count | Leaf digest |",
+    "| --- | --- | --- | --- | --- | --- |",
+    `| Fixture domain | ${source} | ${anchor} | REQ- | ${rows.length} | ${digest} |`,
     "",
   ].join("\n");
 }
@@ -64,7 +75,7 @@ function manifest(rows: string[]): string {
 const validRequirement = "| REQ-ONE | AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external |";
 const validMatrixRow = "| REQ-ONE | `src/server.ts` | `test/server.test.ts` | unverified | production-wired | synthetic-tested | external |";
 
-function runAudit(requirements: string, evidenceMatrix: string, requiredLeaves = manifest(["| REQ-ONE | AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.` |"])) {
+function runAudit(requirements: string, evidenceMatrix: string, requiredLeaves = manifest([validRequirement])) {
   const directory = mkdtempSync(join(tmpdir(), "toast-traceability-audit-"));
   const inventoryPath = join(directory, "REQUIREMENTS.md");
   const matrixPath = join(directory, "matrix.md");
@@ -146,7 +157,34 @@ test("audit rejects removal of a source-derived required leaf", () => {
   const requiredLeaves = manifest(["| REQ-PROD-001E | AGENTS.md | AGENTS.md > Binding safety rules | any other Toast write operation in the reporting server. |"]);
   const result = runAudit(inventory([validRequirement]), matrix([validMatrixRow]), requiredLeaves);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /missing required leaf: REQ-PROD-001E/u);
+  assert.match(result.stderr, /Fixture domain: required leaf (count|digest) mismatch/u);
+});
+
+test("audit rejects removal from every required source domain", () => {
+  const projectInventory = readFileSync(new URL(".planning/REQUIREMENTS.md", root), "utf8");
+  const projectMatrix = readFileSync(new URL("docs/verification/phase-06-requirements-evidence-matrix.md", root), "utf8");
+  const projectManifest = readFileSync(new URL("docs/verification/phase-06-required-leaf-manifest.md", root), "utf8");
+  const requiredSourceCommit = projectInventory.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
+  assert.ok(requiredSourceCommit);
+
+  for (const id of ["REQ-CONTRACT-001A", "REQ-PROD-001A", "REQ-ARCH-001", "REQ-DEL-001"]) {
+    const alteredInventory = projectInventory.replace(new RegExp(`^\\| ${id} \\|.*\\n`, "mu"), "");
+    const alteredMatrix = projectMatrix.replace(new RegExp(`^\\| ${id} \\|.*\\n`, "mu"), "");
+    const directory = mkdtempSync(join(tmpdir(), "toast-traceability-domain-"));
+    const inventoryPath = join(directory, "REQUIREMENTS.md");
+    const matrixPath = join(directory, "matrix.md");
+    const manifestPath = join(directory, "manifest.md");
+    writeFileSync(inventoryPath, alteredInventory);
+    writeFileSync(matrixPath, alteredMatrix);
+    writeFileSync(manifestPath, projectManifest);
+    try {
+      const result = spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", requiredSourceCommit], { encoding: "utf8" });
+      assert.notEqual(result.status, 0, id);
+      assert.match(result.stderr, /required leaf (count|digest) mismatch/u, id);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {

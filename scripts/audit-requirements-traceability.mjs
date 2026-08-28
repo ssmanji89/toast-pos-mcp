@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const mandatoryGates = [
@@ -68,6 +69,14 @@ function exactText(value) {
   return value.replaceAll("**", "").replaceAll("`", "").replace(/\s+/gu, " ").trim();
 }
 
+function leafDigest(rows) {
+  const value = rows
+    .map((row) => [row.ID, row["Canonical source"], row["Source anchor"], row["Canonical quote"]].join("\u001f"))
+    .sort()
+    .join("\u001e");
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function anchoredSection(source, anchor) {
   const lines = source.split(/\r?\n/u);
   const headings = [];
@@ -104,11 +113,11 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
 
   const inventoryRows = table(inventoryMarkdown, "ID");
   const matrixRows = table(matrixMarkdown, "Requirement ID");
-  const manifestRows = table(manifestMarkdown, "Requirement ID");
+  const manifestRows = table(manifestMarkdown, "Domain");
   const gateRows = table(matrixMarkdown.slice(matrixMarkdown.indexOf("## Mandatory external gates")), "Gate ID");
   const inventoryIds = new Set();
   const matrixIds = new Set();
-  const manifestIds = new Set();
+  const manifestDomains = new Set();
   const inventoryById = new Map();
   const sourceCache = new Map();
   const allowedSources = new Set([
@@ -205,23 +214,36 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
     }
   }
 
-  for (const row of manifestRows) {
-    const id = row["Requirement ID"];
-    if (manifestIds.has(id)) {
-      diagnostics.push(`duplicate required leaf: ${id}`);
+  const coveredIds = new Set();
+  for (const domain of manifestRows) {
+    const name = domain.Domain;
+    if (manifestDomains.has(name)) {
+      diagnostics.push(`duplicate required leaf domain: ${name}`);
       continue;
     }
-    manifestIds.add(id);
-
-    const inventoryRow = inventoryById.get(id);
-    if (!inventoryRow) {
-      diagnostics.push(`missing required leaf: ${id}`);
-      continue;
+    manifestDomains.add(name);
+    const rows = inventoryRows.filter((row) =>
+      row.ID.startsWith(domain["Requirement ID prefix"])
+      && row["Canonical source"] === domain["Canonical source"]
+      && row["Source anchor"] === domain["Source anchor"],
+    );
+    for (const row of rows) {
+      coveredIds.add(row.ID);
     }
-    for (const column of ["Canonical source", "Source anchor", "Canonical quote"]) {
-      if (inventoryRow[column] !== row[column]) {
-        diagnostics.push(`${id}: required leaf ${column.toLowerCase()} does not match inventory`);
-      }
+    const expectedCount = Number(domain["Expected leaf count"]);
+    if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) {
+      diagnostics.push(`${name}: invalid expected leaf count: ${domain["Expected leaf count"]}`);
+    } else if (rows.length !== expectedCount) {
+      diagnostics.push(`${name}: required leaf count mismatch: expected ${expectedCount}, found ${rows.length}`);
+    }
+    const digest = leafDigest(rows);
+    if (digest !== domain["Leaf digest"]) {
+      diagnostics.push(`${name}: required leaf digest mismatch`);
+    }
+  }
+  for (const row of inventoryRows) {
+    if (!coveredIds.has(row.ID)) {
+      diagnostics.push(`${row.ID}: canonical inventory leaf is not covered by the required leaf manifest`);
     }
   }
 
