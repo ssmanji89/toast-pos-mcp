@@ -489,6 +489,42 @@ test("Analytics lifecycle maps poll and replacement failures without retaining s
   assertLifecycleResult(replacementResult, "replacement_exhausted", 0, 1);
 });
 
+test("Analytics lifecycle retains safe IDs from failed create and replacement turns", async () => {
+  const { access, selection } = await createSelection();
+  const initialPostFailure = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => new Response(JSON.stringify(RESULT_MARKER), { status: 500, headers: { "x-request-id": "safe-initial-post-id" } }),
+  });
+  const initialResult = await initialPostFailure.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(initialResult, "failed_or_incomplete", 0, 0);
+  assert.deepEqual(initialResult.provenance.responseRequestIds, ["safe-initial-post-id"]);
+  assert.equal(JSON.stringify(initialResult).includes(RESULT_MARKER), false);
+
+  const responses = [
+    new Response(JSON.stringify("opaque-replace-id"), { status: 200, headers: { "x-request-id": "safe-create-id" } }),
+    new Response(JSON.stringify(RESULT_MARKER), { status: 409, headers: { "x-request-id": "safe-conflict-id" } }),
+    new Response(JSON.stringify(RESULT_MARKER), { status: 500, headers: { "x-request-id": "safe-replacement-post-id" } }),
+  ];
+  const replacementPostFailure = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => responses.shift()!,
+  });
+  const replacementResult = await replacementPostFailure.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(replacementResult, "failed_or_incomplete", 0, 1);
+  assert.deepEqual(replacementResult.provenance.responseRequestIds, [
+    "safe-create-id",
+    "safe-conflict-id",
+    "safe-replacement-post-id",
+  ]);
+  assert.equal(JSON.stringify(replacementResult).includes(RESULT_MARKER), false);
+});
+
 test("Analytics lifecycle enforces all documented endpoint windows atomically", async () => {
   const { access, selection } = await createSelection();
   let now = 0;
