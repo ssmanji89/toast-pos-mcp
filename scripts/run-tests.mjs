@@ -30,27 +30,57 @@ const files = readdirSync(TEST_ROOT, { recursive: true })
   .map((entry) => path.join(TEST_ROOT, entry))
   .sort();
 
+const artifactTest = path.join(TEST_ROOT, "package-artifact-e2e.test.js");
+const normalFiles = files.filter((file) => file !== artifactTest);
+
 // A build or discovery regression must fail the gate rather than presenting an
-// empty run as a pass.
-if (files.length === 0) {
+// empty run as a pass. The artifact test runs last because npm prepack removes
+// dist-test while it creates the real tarball.
+if (normalFiles.length === 0) {
   console.error(`no compiled test files discovered under ${TEST_ROOT}`);
   process.exit(1);
 }
 
-console.log(`discovered ${files.length} test file(s):`);
-for (const file of files) {
-  console.log(`  ${file}`);
-}
-
-const result = spawnSync(
-  process.execPath,
-  ["--test", "--enable-source-maps", ...files],
-  { stdio: "inherit" },
-);
-
-if (result.error) {
-  console.error(`failed to start the test runner: ${result.error.message}`);
+if (!files.includes(artifactTest)) {
+  console.error(`required compiled artifact test ${artifactTest} does not exist`);
   process.exit(1);
 }
 
-process.exit(result.status ?? 1);
+console.log(`discovered ${files.length} test file(s); running ${normalFiles.length} normal file(s) before the artifact test:`);
+for (const file of normalFiles) {
+  console.log(`  ${file}`);
+}
+
+const normalResult = spawnSync(
+  process.execPath,
+  ["--test", "--enable-source-maps", ...normalFiles],
+  { stdio: "inherit" },
+);
+
+if (normalResult.error) {
+  console.error(`failed to start the normal test runner: ${normalResult.error.message}`);
+  process.exit(1);
+}
+
+if (normalResult.status !== 0) process.exit(normalResult.status ?? 1);
+
+const artifactResult = spawnSync(
+  process.execPath,
+  ["--test", "--enable-source-maps", artifactTest],
+  { stdio: "inherit" },
+);
+
+if (artifactResult.error) {
+  console.error(`failed to start the artifact test runner: ${artifactResult.error.message}`);
+  process.exit(1);
+}
+
+if (artifactResult.status !== 0) process.exit(artifactResult.status ?? 1);
+
+const rebuildResult = spawnSync("npm", ["run", "build:test"], { stdio: "inherit" });
+if (rebuildResult.error) {
+  console.error(`failed to rebuild compiled tests after artifact packaging: ${rebuildResult.error.message}`);
+  process.exit(1);
+}
+
+process.exit(rebuildResult.status ?? 1);
