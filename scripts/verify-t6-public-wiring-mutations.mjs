@@ -49,7 +49,7 @@ try {
     try {
       run("npm", ["run", "build"], mutationRoot);
       run("npm", ["run", "build:test"], mutationRoot);
-      const focusedTest = file === indexPath || file === serverPath
+      const focusedTest = id === "request-signal" || file === indexPath || file === serverPath
         ? focusedServerTest
         : focusedReportToolsTest;
       const result = spawnSync(
