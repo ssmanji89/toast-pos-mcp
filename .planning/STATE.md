@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`
+**Observed `main`:** `b8a84b8e715e7aeb3d43b0f462a6977b4a3789c7`
 
 ## Canonical campaign position
 
