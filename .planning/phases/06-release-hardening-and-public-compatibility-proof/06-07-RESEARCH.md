@@ -47,14 +47,17 @@ official Client + StdioClientTransport
 ```
 
 The executable test must run both retained protocol eras. It uses the official
-client legacy negotiation mode for the 2025 legacy era. It uses the official
-client pinned `2026-07-28` mode for the modern era. Each era must call a
-Standard tool immediately after connection. A passive subclass of the installed
-official client transport may observe the outbound JSON-RPC message. It must
-prove that the first `tools/call` message uses ID `0`. It must then cancel a
-later nonzero request. It must not write JSON-RPC frames, replace the SDK
-transport, or run a fixture server in place of `dist/index.js` or the installed
-package bin.
+client legacy negotiation mode for the 2025 legacy era. Legacy initialize uses
+numeric ID `0`, and its first `tools/call` uses numeric ID `1`. It uses the
+official client pinned `2026-07-28` mode for the modern era. Modern discovery
+precedes the first `tools/call`, which uses numeric ID `0`. Each era must call
+a Standard tool immediately after connection. A passive subclass of the
+installed official client transport may observe the outbound JSON-RPC message.
+It must prove the actual per-era ID allocation and matching cancellation
+notification. Modern ID zero is the defect proof. Legacy ID one is regression
+proof. It must then cancel a later nonzero request. It must not write JSON-RPC
+frames, replace the SDK transport, or run a fixture server in place of
+`dist/index.js` or the installed package bin.
 
 The synthetic preload may provide invented HTTP responses and an abortable
 Orders response. It is an upstream isolation fixture only. It cannot replace
@@ -115,10 +118,13 @@ packages. It must start the compiled production executable or a clean
 consumer-installed package bin. It must use the existing test-only preload
 with invented data. The test must observe all of these facts:
 
-1. Each retained era has a first `tools/call` request with JSON-RPC ID `0`.
+1. The modern retained era has first `tools/call` JSON-RPC ID `0`, while legacy
+   initialize has ID `0` and its first `tools/call` has ID `1`.
 2. The first Standard handler reaches the configured abortable Orders fetch.
-3. Client abort sends the official cancellation notification in each era.
-4. The matching request-zero bridge controller aborts the runtime signal.
+3. Client abort sends the official cancellation notification with the matching
+   actual per-era request ID.
+4. The matching modern request-zero bridge controller aborts the runtime
+   signal, and legacy request-one cancellation remains a regression check.
 5. A later nonzero Standard request also reaches the source and aborts through
    the same bridge in each era.
 6. The upstream fetch sees its signal abort and no later page or retry begins.
@@ -159,7 +165,7 @@ CONTEXT | D-09 | Keep #60, G01, live compatibility, signing, and publication exp
 | Failure | Early control |
 | --- | --- |
 | A fixture path replaces production wiring. | Focused test starts `dist/index.js` or the consumer-installed bin through the official stdio transport. |
-| The bridge fixes ID zero but regresses nonzero IDs or one callback. | Both eras cancel ID zero and nonzero requests, the matrix names all six callbacks, and each registration has a separate bypass mutation. |
+| The bridge fixes modern ID zero but regresses legacy or later nonzero IDs, or one callback. | Modern first ID zero and legacy first ID one cancel through the executable, both eras cover later nonzero requests, the matrix names all six callbacks, and each registration has a separate bypass mutation. |
 | Cancellation leaks an active controller or relay listener. | Terminal-state observer snapshots must show zero counts after resolve, rejection, and cancellation, and cleanup mutations must fail. |
 
 ## Gate status

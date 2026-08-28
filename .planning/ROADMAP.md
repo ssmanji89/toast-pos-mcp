@@ -456,7 +456,7 @@ sufficiency.
   `@modelcontextprotocol/client@2.0.0` as current latest releases, so no local
   MCP dependency-upgrade path exists. Actual compiled stdio evidence records
   legacy `initialize` ID 0 then first `tools/call` ID 1, while pinned modern
-  `2026-07-28` records first `tools/call` ID 0. Plan 06-09 corrects the test
+  `2026-07-28` records first `tools/call` ID 0. Plan 06-07 uses the corrected
   contract: modern ID 0 is the defect proof; legacy ID 1 is regression proof.
   Plan 06-08 retains cleanup, registration, mutation, Node 20/22, and
   independent exact-head review gates.
