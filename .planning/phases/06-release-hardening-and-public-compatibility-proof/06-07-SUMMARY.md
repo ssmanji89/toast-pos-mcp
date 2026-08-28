@@ -7,12 +7,12 @@ requires:
   - phase: 06-06
     provides: "Current public MCP SDK v2 runtime baseline and release-gate plan"
 provides:
-  - "Public-SDK bridge for numeric-zero, nonzero, and bounded early report request cancellation"
+  - "Public-SDK bridge for numeric-zero and nonzero active report request cancellation"
   - "Executable legacy and modern stdio cancellation proof with sequence-specific terminal cleanup observation"
 affects: [06-08, issue-60, mcp-runtime]
 tech-stack:
   added: []
-  patterns: ["Public notification-handler bridge", "bounded early-cancellation retention", "sequence-numbered count-only executable lifecycle observer"]
+  patterns: ["Public notification-handler bridge", "active-request-only cancellation", "sequence-numbered count-only executable lifecycle observer"]
 key-files:
   created: [src/mcp-request-cancellation.ts, test/first-tool-cancellation-e2e.test.ts]
   modified: [src/index.ts, src/server.ts, src/report-tools.ts, src/analytics-report-tools.ts, test/fixtures/installed-artifact-fetch-preload.ts, test/server.test.ts, test/package-artifact-e2e.test.ts]
@@ -30,7 +30,7 @@ status: complete
 
 # Phase 06 Plan 07: First stdio tool-request cancellation bridge Summary
 
-**Public SDK cancellation bridge for modern request ID zero, legacy request ID one, bounded early cancellation, and later report requests through the compiled stdio executable.**
+**Public SDK cancellation bridge for modern request ID zero, legacy request ID one, and later report requests through the compiled stdio executable.**
 
 ## Performance
 
@@ -42,9 +42,9 @@ status: complete
 ## Accomplishments
 
 - Added a public notification-handler bridge that tracks exact request IDs, including numeric zero.
-- Retained at most 128 early cancellation IDs for 30 seconds, then consumed matching IDs before callback source work starts.
+- Ignores unknown, late, and future cancellation IDs. The bridge stores only active report callback IDs.
 - Forwarded the combined bridge and SDK signal to all five Standard tools and the constrained Analytics tool.
-- Added executable legacy and modern tests for consecutive `tools/call` and cancellation frames, source aborts, bounded early-ID consumption, sequence-specific cleanup, reuse, and shutdown.
+- Added executable legacy and modern tests for consecutive `tools/call` and cancellation frames, source aborts, unknown-ID isolation, sequence-specific cleanup, reuse, and shutdown.
 
 ## Task Commits
 
@@ -52,6 +52,7 @@ status: complete
 2. **Task 2: Add the public-SDK request-ID cancellation bridge** - `f4a6291` (feat)
 3. **Corrected protocol contract** - `ad4d54c` (test)
 4. **Independent-review race and cleanup repair** - `68803f6` (fix)
+5. **Independent-review unknown-ID isolation repair** - `bb3f4b3` (fix)
 
 ## Files Created/Modified
 
@@ -90,10 +91,10 @@ status: complete
 
 **Total deviations:** 4 auto-fixed issues.
 
-**3. [Rule 1 - Cancellation race] Retained bounded cancellation IDs received before callback registration.**
+**3. [Rule 1 - Cancellation race] Removed retained cancellation IDs that could poison a future request.**
 - **Found during:** Independent review repair.
-- **Issue:** A cancellation could arrive before the active-controller map held its matching callback ID.
-- **Fix:** The bridge retains only the request ID with a 128-entry and 30-second bound. The matching wrapper consumes it and aborts before source work. The executable test also proves consecutive request and cancellation frames abort an active source.
+- **Issue:** Retaining an inactive cancellation ID could deny a later valid request with that ID.
+- **Fix:** The bridge now aborts only an active matching callback. The executable test sends unknown, late, and exact-future cancellation notifications, then proves the later matching report resolves.
 - **Files modified:** `src/mcp-request-cancellation.ts`, `src/index.ts`, `test/first-tool-cancellation-e2e.test.ts`, `test/fixtures/installed-artifact-fetch-preload.ts`
 - **Verification:** Node `20.20.2` and Node `22.22.2` clean-install `npm run check`
 
@@ -114,5 +115,5 @@ Plan 06-08 must run the isolated mutation harness and dual-runtime immutable-can
 
 ## Self-Check: PASSED
 
-- Task commits `ce5ed72`, `f4a6291`, `ad4d54c`, and `68803f6` exist.
+- Task commits `ce5ed72`, `f4a6291`, `ad4d54c`, `68803f6`, and `bb3f4b3` exist.
 - The bridge and executable test files exist.
