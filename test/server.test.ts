@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -37,6 +38,15 @@ test("constructs a server without starting process IO", async () => {
 
   assert.ok(server instanceof McpServer);
   await server.close();
+});
+
+test("production factory shares one startup runtime across protocol eras", async () => {
+  const source = await readFile(path.resolve(process.cwd(), "src", "index.ts"), "utf8");
+  assert.equal((source.match(/createApplicationRuntime\(\)/gu) ?? []).length, 1);
+  assert.match(
+    source,
+    /createServer\(\{\s+runtime,\s+advertiseToolListChanged: era === "legacy",\s+\}\)/u,
+  );
 });
 
 test(
