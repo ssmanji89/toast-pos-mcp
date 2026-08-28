@@ -66,7 +66,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | CLOSED |
-| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | MERGED — PR #53 package evidence and PR #58 nested-schema/evidence reconciliation are merged; GitHub-attributable review and external release gates remain open |
+| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | MERGED — PR #53 package evidence and PR #58 nested-schema/evidence reconciliation are merged; independent exact-head findings-only reviews are recorded and external release gates remain open |
 
 ## Completed slice
 
@@ -116,16 +116,16 @@ public-runtime wiring and Standard output schemas only. Node 20.20.2 and
 Node 22.22.2 candidate gates each restored the committed lockfile and passed
 `npm run check` with 414 normal tests and one installed-artifact test. The
 compiled legacy/modern public-wiring suite passed 35 tests, and all 14
-isolated compiling mutations were caught in bounded batches. GitHub has no
-independent final exact-head review for
-`db1270e963850aef3fb5bbb5c6fad402fdb212e2`; that review is
-unverified/pending. Post-merge Node 22.22.2 ran
+isolated compiling mutations were caught in bounded batches. An independent
+findings-only review recorded CLEAN for final metadata head
+`db1270e963850aef3fb5bbb5c6fad402fdb212e2` in PR #55 comment
+`5453168167`. Post-merge Node 22.22.2 ran
 `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit
 --no-fund && npm run check` on the merge SHA and passed: 43 discovered test
-files, 414 normal tests, and one installed-artifact test. Reviewer-pending
-disposition: pending. Current GitHub evidence cannot satisfy the `AGENTS.md`
-independent exact-head review requirement for this merged PR. This is
-synthetic implementation and local validation evidence only. It does not
+files, 414 normal tests, and one installed-artifact test. The formal GitHub
+reviews array remains empty because the repository records findings-only
+reviews, not approvals. This is synthetic implementation and local validation
+evidence only. It does not
 close #60/T6-003, T5-003-G01, #28, live Standard or Analytics compatibility,
 signing, publication, consent, Terms, or brand approval. DOX: updated.
 
@@ -135,14 +135,15 @@ Plan 06-05 / PR #58 is MERGED on `main` at
 committed lockfile on Node 20.20.2 and Node 22.22.2. Each gate passed 43
 discovered test files, 415 normal tests, one installed-artifact test, package
 dry-run, 41 focused documentation/runtime/schema tests, and 25 isolated
-compiling behavioral mutations. An independent agent recorded CLEAN for the
-candidate. GitHub currently records an empty reviews array for PR #58, so its
-GitHub-attributable exact-head review remains reviewer-pending. Post-merge
+compiling behavioral mutations. An independent findings-only review recorded
+CLEAN for the candidate in PR #58 comment `5453239736`. The formal GitHub
+reviews array remains empty because the repository records findings-only
+reviews, not approvals. Post-merge
 Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
 43 discovered files, 415 normal tests, and one installed-artifact test. This
-merges local synthetic evidence only. Formal requirements coverage, PR #55
-GitHub-attributable review, #60/T6-003 first-tool-request cancellation,
-T5-003-G01, #28, live Standard and Analytics compatibility, signing,
+merges local synthetic evidence only. Formal requirements coverage,
+#60/T6-003 first-tool-request cancellation, T5-003-G01, #28, live Standard
+and Analytics compatibility, signing,
 publication, consent, Terms, and brand approval remain open. DOX: updated.
 
 Plan 06-06 / PR #63 is MERGED on `main` at
@@ -154,7 +155,7 @@ findings-only comment remains independent review evidence, not approval.
 Post-merge Node 22 passed `npm run check` with 431 normal tests and one
 installed-artifact test, and the requirements traceability audit passed. This
 is MERGED local control-plane evidence only. It does not close #60/T6-003,
-T5-003-G01, #28, legacy PR #55 or PR #58 GitHub-review gaps, Merchant consent,
+T5-003-G01, #28, Merchant consent,
 live Standard or Analytics compatibility, Terms or brand approval, signing, or
 publication. DOX: updated.
 
@@ -523,13 +524,13 @@ The threat model went stale twice during this slice — once because `main` move
 - **Formal requirements control:** The source-traceable inventory, evidence
   matrix, and deterministic structural audit exist as local evidence for Plan
   06-06. The final candidate requires independent exact-head review. This work
-  does not close #60, #28, T5-003-G01, PR #55 review, PR #58 review, consent,
+  does not close #60, #28, T5-003-G01, consent,
   Terms or brand approval, signing, publication, or live compatibility.
 - **T6-003 state:** PR #53 merged the reviewed local package-evidence slice.
   PR #58 merged fixture-proved nested Standard schemas and truthful local
   validation evidence. No further local package-evidence work is implied by
-  this state. PR #58 GitHub-attributable exact-head review remains
-  reviewer-pending.
+  this state. PR #55 and PR #58 each have a GitHub-recorded independent
+  findings-only CLEAN review for the exact candidate head.
 - **Blocking vendor gate:** T5-003-G01 requires a corrected current Toast
   OpenAPI or written vendor confirmation before any complete Analytics result
   parser or report claim can be implemented.
