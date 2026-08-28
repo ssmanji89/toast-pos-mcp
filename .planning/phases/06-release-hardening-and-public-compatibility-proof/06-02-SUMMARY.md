@@ -84,6 +84,12 @@ status: complete
 
 T5-003-G01, #4/T6-003 first-tool-request cancellation, #28, live Standard compatibility, live Analytics compatibility, signing, publication, and human or Toast brand and Terms approvals remain open. Independent exact-head review is pending.
 
+## Control Plane
+
+`LOOP.md` records the T6-003 BUILT state and exact evidence. `STATE.md` and
+`ROADMAP.md` remain unchanged because the plan and repository rules reserve
+their snapshot and outcome updates for an explicit control-plane slice.
+
 ## Known Stubs
 
 None. The fixture data is intentionally test-only and fully wired through the installed artifact boundary.
