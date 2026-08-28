@@ -31,6 +31,7 @@ test("Analytics tool registration exposes one fixed metrics-day tool", { timeout
 
 test("Analytics tool requires one UUID restaurant and one real numeric business date", { timeout: 20_000 }, async () => {
   const connection = createAnalyticsConnection();
+  const stderr = observeFixtureStderr(connection.transport);
   try {
     await connectAnalytics(connection);
     for (const arguments_ of [
@@ -42,8 +43,9 @@ test("Analytics tool requires one UUID restaurant and one real numeric business 
       const result = await connection.client.callTool({ name: "toast_analytics_metrics_day", arguments: arguments_ });
       assert.equal(result.isError, true);
     }
+    stderr.assertAbsent("analytics-fixture-request:");
   } finally {
-    await connection.client.close();
+    try { await connection.client.close(); } finally { stderr.stop(); }
   }
 });
 
@@ -87,7 +89,7 @@ test("Analytics tool preserves public lifecycle provenance and informational non
   assert.equal(structured(output.provenance).apiFamily, "analytics");
 });
 
-test("Analytics tool propagates nonzero MCP cancellation without publishing an envelope", { timeout: 20_000 }, async () => {
+test("Analytics tool propagates nonzero MCP cancellation without publishing an envelope", { timeout: 2_000 }, async () => {
   const connection = createAnalyticsConnection("cancel-active-analytics");
   const stderr = observeFixtureStderr(connection.transport);
   try {
@@ -124,15 +126,18 @@ test("Analytics tool propagates nonzero MCP cancellation without publishing an e
 
 async function callAnalytics(scenario: AnalyticsFixtureScenario): Promise<Record<string, unknown>> {
   const connection = createAnalyticsConnection(scenario);
+  const stderr = observeFixtureStderr(connection.transport);
   try {
     await connectAnalytics(connection);
     const result = await connection.client.callTool({
       name: "toast_analytics_metrics_day",
       arguments: { restaurantGuid: ANALYTICS_RESTAURANT_GUID, businessDate: ANALYTICS_BUSINESS_DATE },
     });
-    return structured(result.structuredContent);
+    const output = structured(result.structuredContent);
+    stderr.assertAbsent("toast-restaurant-external-id");
+    return output;
   } finally {
-    await connection.client.close();
+    try { await connection.client.close(); } finally { stderr.stop(); }
   }
 }
 

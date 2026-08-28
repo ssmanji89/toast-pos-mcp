@@ -66,6 +66,7 @@ export function structured(value: unknown): Record<string, unknown> {
 
 export function observeFixtureStderr(transport: StdioClientTransport): {
   readonly waitFor: (marker: string) => Promise<void>;
+  readonly assertAbsent: (marker: string) => void;
   readonly stop: () => void;
 } {
   const stream = transport.stderr;
@@ -81,9 +82,19 @@ export function observeFixtureStderr(transport: StdioClientTransport): {
   return {
     waitFor: async (marker: string): Promise<void> => {
       while (!output.includes(marker)) {
-        await new Promise<void>((resolve) => { resolveWaiter = resolve; });
+        await Promise.race([
+          new Promise<void>((resolve) => { resolveWaiter = resolve; }),
+          new Promise<never>((_resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error(`Timed out waiting for fixture marker ${marker}`)),
+              1_000,
+            );
+            timer.unref();
+          }),
+        ]);
       }
     },
+    assertAbsent: (marker: string): void => assert.equal(output.includes(marker), false, `fixture unexpectedly emitted ${marker}`),
     stop: () => stream.off("data", onData),
   };
 }
