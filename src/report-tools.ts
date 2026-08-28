@@ -104,16 +104,108 @@ const deniedStandardEnvelopeSchema = standardEnvelopeSchema.extend({
   excludedScopes: z.array(z.string()),
 });
 
+const salesSummaryBucketSchema = z.strictObject({
+  orderCount: z.number().int().nonnegative(),
+  checkCount: z.number().int().nonnegative(),
+  knownGuestCount: z.number().int().nonnegative(),
+  ordersWithKnownGuestCount: z.number().int().nonnegative(),
+  grossCheckAmountMinor: z.number().int(),
+  netOrderAmountMinor: z.number().int(),
+  netSalesMinor: z.number().int(),
+  taxAmountMinor: z.number().int(),
+  discountAmountMinor: z.number().int(),
+  serviceChargeAmountMinor: z.number().int(),
+  selectionExclusionAmountMinor: z.number().int(),
+  deferredSelectionAmountMinor: z.number().int(),
+  houseAccountBalancePaymentAmountMinor: z.number().int(),
+  fundraisingContributionAmountMinor: z.number().int(),
+  ordersEmbeddedRefundAmountMinor: z.number().int(),
+  taxExemptCheckCount: z.number().int().nonnegative(),
+});
+
+const salesSummaryExclusionsSchema = z.strictObject({
+  deletedOrders: z.number().int().nonnegative(),
+  voidedOrders: z.number().int().nonnegative(),
+  excessFoodOrders: z.number().int().nonnegative(),
+  deletedChecks: z.number().int().nonnegative(),
+  voidedChecks: z.number().int().nonnegative(),
+});
+
+const paymentPaidTotalsSchema = z.strictObject({
+  paymentCount: z.number().int().nonnegative(),
+  amountMinor: z.number().int(),
+  tipAmountMinor: z.number().int(),
+});
+
+const paymentRefundedTotalsSchema = z.strictObject({
+  paymentCount: z.number().int().nonnegative(),
+  refundAmountMinor: z.number().int(),
+  tipRefundAmountMinor: z.number().int(),
+});
+
+const paymentVoidedTotalsSchema = z.strictObject({
+  paymentCount: z.number().int().nonnegative(),
+  amountMinor: z.number().int(),
+});
+
+const paymentTypeTotalSchema = z.strictObject({
+  type: z.string().min(1),
+  paymentCount: z.number().int().nonnegative(),
+  amountMinor: z.number().int(),
+  tipAmountMinor: z.number().int(),
+});
+
+const paymentStatusCountSchema = z.strictObject({
+  status: z.string().min(1),
+  paymentCount: z.number().int().nonnegative(),
+});
+
+const itemSalesGroupSchema = z.strictObject({
+  key: z.string().min(1),
+  guid: z.string().min(1).optional(),
+  multiLocationId: z.string().min(1).optional(),
+  value: z.string().min(1).optional(),
+  displayName: z.string().min(1).optional(),
+  enrichmentState: z.enum(["current", "stale", "unresolved", "historical"]),
+  selectionCount: z.number().int().nonnegative(),
+  checkCount: z.number().int().nonnegative(),
+  quantity: z.string().min(1),
+  grossSelectionAmountMinor: z.number().int(),
+  netSelectionAmountMinor: z.number().int(),
+  observedSelectionRefundAmountMinor: z.number().int(),
+  selectionTaxAmountMinor: z.number().int(),
+  attributedCheckAmountMinor: z.number().int(),
+  currencyCode: z.string().regex(/^[A-Z]{3}$/u),
+});
+
+const cashEntryTypeTotalSchema = z.strictObject({
+  type: z.string().min(1),
+  entryCount: z.number().int().nonnegative(),
+  amountMinor: z.number().int(),
+});
+
+const cashDrawerReferenceSchema = z.strictObject({
+  drawerGuid: z.string().min(1),
+  entryCount: z.number().int().nonnegative(),
+  resolved: z.boolean(),
+});
+
+const cashReasonReferenceSchema = z.strictObject({
+  reasonGuid: z.string().min(1),
+  entryCount: z.number().int().nonnegative(),
+  resolved: z.boolean(),
+});
+
 const salesSummaryOutputSchema = z.union([
   completeStandardEnvelopeSchema.extend({
     report: z.literal("sales_summary"),
     closeoutHour: z.number().int(),
     pagesProcessed: z.number().int().nonnegative(),
     sourceOrdersProcessed: z.number().int().nonnegative(),
-    currentAndPast: z.object({}).passthrough(),
-    future: z.object({}).passthrough(),
-    combined: z.object({}).passthrough(),
-    exclusions: z.object({}).passthrough(),
+    currentAndPast: salesSummaryBucketSchema,
+    future: salesSummaryBucketSchema,
+    combined: salesSummaryBucketSchema,
+    exclusions: salesSummaryExclusionsSchema,
   }),
   deniedStandardEnvelopeSchema.extend({ report: z.literal("sales_summary") }),
 ]);
@@ -125,12 +217,12 @@ const paymentSummaryOutputSchema = z.union([
     eventListCount: z.literal(3),
     paymentDetailsProcessed: z.number().int().nonnegative(),
     uniquePaymentCount: z.number().int().nonnegative(),
-    paid: z.object({}).passthrough(),
-    refunded: z.object({}).passthrough(),
-    voided: z.object({}).passthrough(),
-    paidByType: z.array(z.object({}).passthrough()),
-    paymentStatusCounts: z.array(z.object({}).passthrough()),
-    refundStatusCounts: z.array(z.object({}).passthrough()),
+    paid: paymentPaidTotalsSchema,
+    refunded: paymentRefundedTotalsSchema,
+    voided: paymentVoidedTotalsSchema,
+    paidByType: z.array(paymentTypeTotalSchema),
+    paymentStatusCounts: z.array(paymentStatusCountSchema),
+    refundStatusCounts: z.array(paymentStatusCountSchema),
   }),
   deniedStandardEnvelopeSchema.extend({ report: z.literal("payment_summary") }),
 ]);
@@ -146,7 +238,7 @@ const itemSalesSummaryOutputSchema = z.union([
     modifierSelectionsTraversed: z.number().int().nonnegative(),
     unresolvedContributionCount: z.number().int().nonnegative(),
     dimensionContext: z.object({}).passthrough(),
-    groups: z.array(z.object({}).passthrough()),
+    groups: z.array(itemSalesGroupSchema),
   }),
   deniedStandardEnvelopeSchema.extend({
     report: z.literal("item_sales_summary"),
@@ -175,10 +267,10 @@ const cashSummaryOutputSchema = z.union([
     unresolvedCrossDateReversalCount: z.number().int().nonnegative(),
     observedDepositReversalCount: z.number().int().nonnegative(),
     unresolvedCrossDateDepositReversalCount: z.number().int().nonnegative(),
-    cashEntryTotalsByType: z.array(z.object({}).passthrough()),
-    cashDrawerReferences: z.array(z.object({}).passthrough()),
-    noSaleReasonReferences: z.array(z.object({}).passthrough()),
-    payoutReasonReferences: z.array(z.object({}).passthrough()),
+    cashEntryTotalsByType: z.array(cashEntryTypeTotalSchema),
+    cashDrawerReferences: z.array(cashDrawerReferenceSchema),
+    noSaleReasonReferences: z.array(cashReasonReferenceSchema),
+    payoutReasonReferences: z.array(cashReasonReferenceSchema),
   }),
   deniedStandardEnvelopeSchema.extend({ report: z.literal("cash_summary") }),
 ]);

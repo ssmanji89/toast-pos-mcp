@@ -175,7 +175,7 @@ test(
       assertFixedArrayItem(
         completeSchemas.get("toast_item_sales_summary"),
         "groups",
-        itemSalesGroupFields,
+        itemSalesGroupRequiredFields,
       );
       assertFixedArrayItem(
         completeSchemas.get("toast_cash_summary"),
@@ -226,7 +226,7 @@ test(
       const unknownTag = groupByGuid(item, TAG_UNKNOWN_GUID);
       assert.equal(unknownTag.displayName, "NEW_ENUM_TAG");
       assert.equal(typeof unknownTag.displayName, "string");
-      assertExactObjectFields(structured(item.groups[0]), itemSalesGroupFields);
+      assertObjectFieldsAreAllowed(structured(item.groups[0]), itemSalesGroupFields);
 
       const cash = structured((await connection.client.callTool({
         name: "toast_cash_summary",
@@ -252,6 +252,13 @@ const salesBucketFields = [
 
 const salesExclusionsFields = [
   "deletedOrders", "voidedOrders", "excessFoodOrders", "deletedChecks", "voidedChecks",
+];
+
+const itemSalesGroupRequiredFields = [
+  "key", "enrichmentState",
+  "selectionCount", "checkCount", "quantity", "grossSelectionAmountMinor",
+  "netSelectionAmountMinor", "observedSelectionRefundAmountMinor", "selectionTaxAmountMinor",
+  "attributedCheckAmountMinor", "currencyCode",
 ];
 
 const itemSalesGroupFields = [
@@ -289,6 +296,15 @@ function assertFixedObject(
 
 function assertExactObjectFields(value: Record<string, unknown>, fields: readonly string[]): void {
   assert.deepEqual(Object.keys(value).sort(), [...fields].sort());
+}
+
+function assertObjectFieldsAreAllowed(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+): void {
+  for (const field of Object.keys(value)) {
+    assert.ok(fields.includes(field), `unexpected field ${field}`);
+  }
 }
 test(
   "historical item absent from current menu remains a distinct unresolved sales fact",
