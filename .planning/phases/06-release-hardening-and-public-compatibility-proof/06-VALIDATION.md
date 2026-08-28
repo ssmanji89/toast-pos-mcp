@@ -35,9 +35,9 @@ gates. Post-merge Node 22.22.2 passed committed restore and `npm run check` at
 the merge SHA with 43 discovered test files, 415 normal tests, and one
 installed-artifact test.
 
-An independent agent recorded CLEAN for the exact candidate. GitHub currently
-reports an empty reviews array for PR #58. This is local evidence only, and
-the GitHub-attributable exact-head review remains reviewer-pending.
+An independent findings-only review recorded CLEAN for the exact candidate in
+PR #58 comment `5453239736`. The formal GitHub reviews array remains empty
+because the repository records findings-only reviews, not approvals.
 
 PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` into
 `main` at `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent
@@ -77,8 +77,8 @@ local evidence does not close an external gate.
 | Gate | State | Reason |
 | --- | --- | --- |
 | Formal Phase 06 requirement coverage | merged local evidence; findings-only review recorded | PR #63 merged candidate `9fb060b24819a0373465675fc63c1e4c15ee130d` as `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent findings-only CLEAN comment exists. GitHub reports `reviews: []`, so no GitHub-attributable approval exists. This does not close any external gate. |
-| PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
-| PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
+| PR #55 independent final metadata-head review | CLEAN | GitHub PR comment `5453168167` records an independent findings-only CLEAN review of metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`. The formal `reviews` array remains empty because the repository does not use approvals. |
+| PR #58 independent exact-head review | CLEAN | GitHub PR comment `5453239736` records an independent findings-only CLEAN review of candidate `9403bff75b677a97bcceae244efa755bee91778b`. The formal `reviews` array remains empty because the repository does not use approvals. |
 | #60/T6-003 first-tool-request cancellation | CLOSED | PR #69 merged as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f`. The independent findings-only review was CLEAN at final PR head `52df015876f9277255edba30262fa58eec0c95f9`. Issue #60 closed after merge. |
 | T5-003-G01 | open | The complete Analytics retrieval response contract remains unverified. |
 | #28 live Standard compatibility | open | Owner-authorized live Standard credentials are required. |
@@ -94,7 +94,7 @@ Node `20.20.2` with npm `10.8.2` restored the committed lockfile, passed `npm ru
 
 Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the same 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
-PR #69 merged this candidate as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f`. An independent findings-only review was CLEAN at final PR head `52df015876f9277255edba30262fa58eec0c95f9`. Issue #60 is CLOSED. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
+PR #69 merged this candidate as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f`. An independent findings-only review was CLEAN at final PR head `52df015876f9277255edba30262fa58eec0c95f9`. Issue #60 is CLOSED. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, or publication. DOX: updated.
 
 ## Safety Boundaries
 

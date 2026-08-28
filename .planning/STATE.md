@@ -46,8 +46,8 @@ milestone_name: Public local Toast reporting MCP
 | T5-003 Analytics MCP boundary | PR #51 | merged as `ff39d1d79dd4b7532d0314279ec62df1727f21ff`; reviewed CLEAN at `55ab1e2d35c80c0de596bc390f292b39fff1d143` | SAFE MCP WIRING MERGED; Node 20/22 candidate evidence passed 406 tests, focused stdio 7/7, 18/18 isolated mutations, and package validation; rebuilt Node 22 main passed. The one tool is denied/incomplete only. G01 blocks any complete result parser or report claim. |
 | T6-002 operator documentation | #22 / PR #52 | merged as `bfda1c905c58b7821658cb400a95053d58cdc805`; reviewed CLEAN at `5a1b4ddbe8616284ce7755d2b53ecccb110ebecc` | CLOSED; Node 22 rebuilt main passed public documentation 5/5, 42 files / 411 tests, and package validation. This is documentation and synthetic evidence only. |
 | T6-003 installed package evidence | #22 / PR #53 | merged as `f2ea7627c006907b5026079d62b861d8cda52dfe`; reviewed CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2` | MERGED local synthetic package evidence. Candidate `d5c47f39321f13c991d2abe6fcf3c035a020c9d2` passed Node 20.20.2 and 22.22.2 committed restores and checks. Post-merge Node 22.22.2 passed committed restore, full check, and package dry-run: 43 files, 411 normal tests, one installed-artifact test, and 151 paths. This does not make the package release-ready. |
-| T6 public runtime/output schemas (Plan 06-04) | PR #55 | merged as `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2` review unverified/pending | MERGED synthetic public-runtime/output repair. Node 20.20.2 and 22.22.2 candidate gates passed 414 normal tests plus one installed-artifact test, 35 focused compiled tests, and 14/14 caught mutations. Post-merge Node 22.22.2 passed `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit --no-fund && npm run check`: 43 discovered files, 414 normal tests, and one installed-artifact test. Reviewer-pending disposition: pending. GitHub has no independent review, so this merged PR does not satisfy the `AGENTS.md` independent exact-head review requirement. All external gates remain open. |
-| T6 validation and nested Standard schemas (Plan 06-05) | PR #58 | merged as `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`; candidate `9403bff75b677a97bcceae244efa755bee91778b`; GitHub reviews array empty | MERGED local synthetic validation repair. Node 20.20.2 and 22.22.2 candidate gates each passed 43 discovered files, 415 normal tests, one installed-artifact test, package dry-run, 41 focused documentation/runtime/schema tests, and 25/25 caught mutations. An independent agent recorded CLEAN. Post-merge Node 22.22.2 passed committed restore and `npm run check`: 43 discovered files, 415 normal tests, and one installed-artifact test. GitHub-attributable exact-head review remains reviewer-pending. Formal requirements coverage, PR #55 review, and all external gates remain open. |
+| T6 public runtime/output schemas (Plan 06-04) | PR #55 | merged as `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; findings-only CLEAN comment `5453168167` | MERGED synthetic public-runtime/output repair. Node 20.20.2 and 22.22.2 candidate gates passed 414 normal tests plus one installed-artifact test, 35 focused compiled tests, and 14/14 caught mutations. Post-merge Node 22.22.2 passed `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit --no-fund && npm run check`: 43 discovered files, 414 normal tests, and one installed-artifact test. The independent exact-head findings-only review is CLEAN. The formal GitHub reviews array remains empty because the repository does not use approvals. All external gates remain open. |
+| T6 validation and nested Standard schemas (Plan 06-05) | PR #58 | merged as `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`; candidate `9403bff75b677a97bcceae244efa755bee91778b`; findings-only CLEAN comment `5453239736` | MERGED local synthetic validation repair. Node 20.20.2 and 22.22.2 candidate gates each passed 43 discovered files, 415 normal tests, one installed-artifact test, package dry-run, 41 focused documentation/runtime/schema tests, and 25/25 caught mutations. The independent exact-head findings-only review is CLEAN. Post-merge Node 22.22.2 passed committed restore and `npm run check`: 43 discovered files, 415 normal tests, and one installed-artifact test. Formal requirements coverage and all external gates remain open. |
 
 ## Current executor capability
 
@@ -58,11 +58,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 ### Executable now
 
 - no further local T6-003 package-evidence work is implied by its MERGED state;
-- PR #55 merged its synthetic public-runtime/output repair, but its final
-  metadata exact-head review is unverified/pending; it does not close a
-  release gate;
-- PR #58 merged fixture-proved nested schemas and reconciled local evidence,
-  but its GitHub-attributable exact-head review is reviewer-pending;
+- PR #55 and PR #58 have GitHub-recorded independent exact-head findings-only
+  CLEAN reviews; neither review closes a release gate;
 - retain T5-003-G01 and all external release gates without converting synthetic
   evidence into live proof.
 
@@ -76,7 +73,6 @@ This executor can complete authentic registry-backed `npm ci` and package valida
   `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61`. An independent findings-only
   CLEAN comment exists, while GitHub `reviews: []` means no attributable
   approval exists. No external gate is closed;
-- GitHub-attributable independent review remains pending for PR #55 and PR #58;
 - live Analytics compatibility requires authorized access and documented
   Merchant consent;
 - any production Toast access beyond synthetic fixtures requires authorization/consent constraints from `AGENTS.md`;
@@ -87,8 +83,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 1. Do not create further local T6-003 package-evidence or nested-schema work
    from its MERGED state.
-2. Keep formal requirements coverage, PR #55 and PR #58 GitHub-attributable
-   review, T5-003-G01, #28, live Standard compatibility, live
+2. Keep formal requirements coverage, T5-003-G01, #28, live Standard compatibility, live
    Analytics compatibility, signing, publication, and human or Toast Terms and
    brand approval as owned external gates.
 

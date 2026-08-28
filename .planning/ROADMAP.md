@@ -415,15 +415,15 @@ legacy and pinned 2026 stdio processes use one `ApplicationRuntime`, and it
 proves Standard output schemas cover complete, denied, and labor-incomplete
 results. Node 20.20.2 and 22.22.2 candidate gates each passed committed
 restore, `npm run check` (414 normal tests plus one installed-artifact test),
-35 focused compiled tests, and 14 caught mutations. GitHub has no independent
-final exact-head review for metadata head
-`db1270e963850aef3fb5bbb5c6fad402fdb212e2`; that review is
-unverified/pending. Post-merge Node 22.22.2 passed
+35 focused compiled tests, and 14 caught mutations. An independent
+findings-only review recorded CLEAN for metadata head
+`db1270e963850aef3fb5bbb5c6fad402fdb212e2` in PR #55 comment `5453168167`.
+Post-merge Node 22.22.2 passed
 `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit
 --no-fund && npm run check`: 43 discovered test files, 414 normal tests, and
-one installed-artifact test. Reviewer-pending disposition: pending. Current
-GitHub evidence cannot satisfy the `AGENTS.md` independent exact-head review
-requirement for this merged PR. This is synthetic code and local validation
+one installed-artifact test. The formal GitHub reviews array remains empty
+because the repository records findings-only reviews, not approvals. This is
+synthetic code and local validation
 evidence only. It does not update package-release evidence or external
 authority.
 
@@ -435,13 +435,14 @@ test files, 415 normal tests, one installed-artifact test, package dry-run, 41
 focused documentation/runtime/schema tests, and all 25 isolated compiling
 behavioral mutations. The candidate retained open Toast-derived strings and
 the intentionally extensible `dimensionContext` while making fixture-proved
-fixed nested records strict. An independent agent recorded CLEAN for that
-candidate. GitHub currently records no PR #58 review, so the
-GitHub-attributable exact-head review remains reviewer-pending. Post-merge
+fixed nested records strict. An independent findings-only review recorded
+CLEAN for that candidate in PR #58 comment `5453239736`. The formal GitHub
+reviews array remains empty because the repository records findings-only
+reviews, not approvals. Post-merge
 Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
 43 discovered test files, 415 normal tests, and one installed-artifact test.
 This is local synthetic validation evidence. It does not close formal
-requirements coverage, PR #55 GitHub-attributable review, or any release gate.
+requirements coverage or any release gate.
 
 **Observed requirements-control evidence:** Plan 06-06 / PR #63 is MERGED on
 `main` at `b61d6ee5f479861e40f6ebe4eb0b4a7caa533d61` from candidate
@@ -476,7 +477,6 @@ sufficiency.
   PR #63 has an independent findings-only CLEAN comment for its exact candidate,
   but GitHub `reviews: []` means no GitHub-attributable approval exists. This
   does not close any external gate.
-- GitHub-attributable independent review remains pending for PR #55 and PR #58.
 - Signing and publication require authorized human credentials.
 - Terms, brand, consent, provider, logging, retention, and legal sufficiency
   require the applicable external or human authority.
