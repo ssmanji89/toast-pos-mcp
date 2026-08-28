@@ -14,7 +14,7 @@ const BUSINESS_DATES = {
   reject: 20260819,
   reuse: 20260820,
 } as const;
-const PROTOCOL_TIMEOUT_MS = 10_000;
+const PROTOCOL_TIMEOUT_MS = Number.parseInt(process.env.GATE60_PROTOCOL_TIMEOUT_MS ?? "10000", 10);
 const CLEANUP_SNAPSHOT = "gate60-cancellation-snapshot:activeControllers=0 relayListeners=0";
 const PRODUCTION_SERVER_PATH = path.resolve(process.cwd(), "dist", "index.js");
 const PRELOAD_PATH = path.resolve(
@@ -60,6 +60,7 @@ for (const era of ["legacy", "modern"] as const) {
           assert.ok(transport.outboundBefore("server/discover", "tools/call"), "modern discovery must precede the first tools/call");
           assert.equal(firstRequestId, 0, "modern first tools/call must use numeric ID zero");
         }
+        const immediateStarted = await stderr.waitFor("gate60-orders-started:20260815", immediateCursor);
         await client.notification({
           method: "notifications/cancelled",
           params: { requestId: firstRequestId, reason: "invented immediate cancellation" },
@@ -69,7 +70,6 @@ for (const era of ["legacy", "modern"] as const) {
           "the executable test must send tools/call and cancellation as consecutive stdio frames",
         );
         assert.equal(transport.lastCancellationRequestId(), firstRequestId, "the first cancellation notification must target its matching request ID");
-        const immediateStarted = await stderr.waitFor("gate60-orders-started:20260815", immediateCursor);
         const immediateResult = await immediate.result as { readonly isError?: boolean };
         assert.equal(immediateResult.isError, true, "the immediate cancellation must retain the denied report boundary");
         const immediateAborted = await stderr.waitFor("gate60-orders-aborted:20260815", immediateStarted.sequence);
@@ -202,6 +202,129 @@ test(
     }
   },
 );
+
+test(
+  "duplicate active report IDs are dropped before a second handler and cancellation cleans the first request",
+  { timeout: PROTOCOL_TIMEOUT_MS * 4 },
+  async () => {
+    const child = spawn(process.execPath, [PRODUCTION_SERVER_PATH], {
+      cwd: process.cwd(),
+      env: executableTestEnvironment(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stderr = observeStderr(child.stderr);
+    const stdout = observeJsonMessages(child.stdout);
+
+    try {
+      writeRawMessages(child.stdin, [{
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "toast-duplicate-report-id-test", version: "0.0.0" },
+        },
+      }]);
+      await stdout.waitFor((message) => hasResponseId(message, 0), "missing legacy initialize response");
+
+      const sourceCursor = stderr.cursor();
+      const duplicateRequest = {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "toast_sales_summary",
+          arguments: { businessDate: BUSINESS_DATES.immediateCancellation },
+        },
+      };
+      writeRawMessages(child.stdin, [
+        { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+        duplicateRequest,
+        duplicateRequest,
+      ]);
+      const firstSource = await stderr.waitFor("gate60-orders-started:20260815", sourceCursor);
+      await stderr.assertAbsentFor("gate60-orders-started:20260815", firstSource.sequence);
+      writeRawMessages(child.stdin, [{
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: 1, reason: "invented duplicate ID cancellation" },
+      }]);
+      const aborted = await stderr.waitFor("gate60-orders-aborted:20260815", firstSource.sequence);
+      await stderr.waitFor(CLEANUP_SNAPSHOT, aborted.sequence);
+    } finally {
+      stderr.stop();
+      stdout.stop();
+      if (child.exitCode === null) child.kill();
+    }
+  },
+);
+
+for (const [name, arguments_] of [
+  ["toast_sales_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_payment_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_item_sales_summary", { businessDate: BUSINESS_DATES.immediateCancellation, dimension: "item" }],
+  ["toast_cash_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_labor_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_analytics_metrics_day", {
+    restaurantGuid: "00000000-0000-4000-8000-000000000002",
+    businessDate: BUSINESS_DATES.immediateCancellation,
+  }],
+] as const) {
+  test(
+    `legacy compiled registration wrapper: ${name}`,
+    { timeout: PROTOCOL_TIMEOUT_MS * 4 },
+    async () => {
+      const child = spawn(process.execPath, [PRODUCTION_SERVER_PATH], {
+        cwd: process.cwd(),
+        env: executableTestEnvironment(),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const stderr = observeStderr(child.stderr);
+      const stdout = observeJsonMessages(child.stdout);
+
+      try {
+        writeRawMessages(child.stdin, [{
+          jsonrpc: "2.0",
+          id: 0,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: `toast-registration-wrapper-${name}`, version: "0.0.0" },
+          },
+        }]);
+        await stdout.waitFor((message) => hasResponseId(message, 0), "missing legacy initialize response");
+
+        const snapshotCursor = stderr.cursor();
+        writeRawMessages(child.stdin, [
+          { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name, arguments: arguments_ },
+          },
+          {
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: { requestId: 1, reason: `invented ${name} registration cancellation` },
+          },
+        ]);
+
+        const enteredBridge = await stderr.waitFor(
+          "gate60-cancellation-snapshot:activeControllers=1 relayListeners=2",
+          snapshotCursor,
+        );
+        await stderr.waitFor(CLEANUP_SNAPSHOT, enteredBridge.sequence);
+      } finally {
+        stderr.stop();
+        stdout.stop();
+        if (child.exitCode === null) child.kill();
+      }
+    },
+  );
+}
 
 function callTool(
   client: Client,

@@ -86,6 +86,16 @@ local evidence does not close an external gate.
 | Signing and publication | open | No signing or publication action occurs in this repository validation. |
 | Consent, Toast Terms, and brand approval | open | Local tests cannot grant Merchant consent, legal sufficiency, or Toast approval. |
 
+## Issue #60 Candidate Evidence
+
+Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` retains duplicate-active-ID rejection before a second report handler can run and makes the first-request proof deterministic by waiting for its source marker before cancellation. The executable matrix uses compiled `dist/index.js` with the official stdio transport. The modern official client proves first `tools/call` ID `0` reaches and aborts the invented Orders source. The legacy official client uses initialize ID `0` then first `tools/call` ID `1`. The coalesced legacy sequence proves pre-handler cancellation before Orders source access. The duplicate-ID regression sends two active `tools/call` messages with ID `1`, proves no second Orders source start, cancels ID `1`, and observes zero active controllers and relay listeners.
+
+Node `20.20.2` with npm `10.8.2` restored the committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
+
+Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 441 normal tests, and one installed-artifact test, then passed the same 40-test focused executable suite and all 13 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
+
+Issue #60 remains OPEN. Independent findings-only review is pending. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
+
 ## Safety Boundaries
 
 - Use only independently invented fixtures.
