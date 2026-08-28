@@ -245,12 +245,12 @@ The client pattern is the current local E2E pattern. The preload mechanism needs
 | A2 | The current synthetic route fixture can be extracted into a reusable fetch handler without changing product runtime behavior. | Architecture Patterns | The test may need a separate minimal invented route implementation. |
 | A3 | The package-legitimacy seam's `@types/node` SUS result applies to the newest release, not the committed `20.19.43` lock entry. | Package Legitimacy Audit | A human must verify before fresh restoration if metadata changes. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Does the pinned MCP client preserve `NODE_OPTIONS` in the spawned executable environment?**
-   - What we know: The existing client already spawns a command through `StdioClientTransport`. [VERIFIED: `test/support/report-tools-e2e-support.ts`]
-   - What's unclear: The installed-artifact test must confirm environment forwarding. [ASSUMED]
-   - Recommendation: Make this the first test assertion. If it fails, use a temporary wrapper executable outside the tarball. [ASSUMED]
+1. **How will the installed-artifact test handle `NODE_OPTIONS` forwarding?**
+   - Planned resolution: First prove that the installed bin receives `NODE_OPTIONS` by requiring the external preload readiness/runtime marker before MCP negotiation. [PLANNED]
+   - Planned fallback: Only if that marker is absent, start the installed bin through an isolated temporary Node wrapper outside the tarball. The wrapper passes the same external preload with an explicit `--import` argument and preserves the synthetic environment and stdio streams. [PLANNED]
+   - Evidence status: This is a planned test sequence. It is not observed installed-bin proof yet. [PLANNED]
 
 ## Environment Availability
 
