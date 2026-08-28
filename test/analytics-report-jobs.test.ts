@@ -525,6 +525,21 @@ test("Analytics lifecycle retains safe IDs from failed create and replacement tu
   assert.equal(JSON.stringify(replacementResult).includes(RESULT_MARKER), false);
 });
 
+test("Analytics lifecycle omits empty upstream request IDs from failure provenance", async () => {
+  const { access, selection } = await createSelection();
+  const adapter = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => new Response(JSON.stringify(RESULT_MARKER), { status: 500, headers: { "x-request-id": "" } }),
+  });
+  const result = await adapter.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(result, "failed_or_incomplete", 0, 0);
+  assert.deepEqual(result.provenance.responseRequestIds, []);
+  assert.equal(JSON.stringify(result).includes(RESULT_MARKER), false);
+});
+
 test("Analytics lifecycle enforces all documented endpoint windows atomically", async () => {
   const { access, selection } = await createSelection();
   let now = 0;
