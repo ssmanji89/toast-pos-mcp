@@ -33,6 +33,19 @@ function argument(name) {
   return process.argv[index + 1];
 }
 
+function rejectUnsupportedArguments() {
+  const supported = new Set(["--inventory", "--matrix", "--manifest"]);
+  for (let index = 2; index < process.argv.length; index += 1) {
+    const value = process.argv[index];
+    if (value.startsWith("--") && !supported.has(value)) {
+      throw new Error(`unsupported argument: ${value}`);
+    }
+    if (supported.has(value)) {
+      index += 1;
+    }
+  }
+}
+
 function table(markdown, expectedFirstColumn) {
   const lines = markdown.split(/\r?\n/u);
   const headerIndex = lines.findIndex((line) => line.startsWith(`| ${expectedFirstColumn} |`));
@@ -115,14 +128,11 @@ function anchoredSection(source, anchor) {
   return lines.slice(target.index + 1, following?.index).join("\n");
 }
 
-function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSourceCommit, fixture) {
+function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown) {
   const diagnostics = [];
-  const sourceCommit = fixture ? requiredSourceCommit : canonicalSourceCommit;
+  const sourceCommit = canonicalSourceCommit;
   const inventoryCommit = inventoryMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
   const manifestCommit = manifestMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
-  if (!fixture && requiredSourceCommit !== canonicalSourceCommit) {
-    diagnostics.push(`canonical source commit argument must equal ${canonicalSourceCommit}`);
-  }
   if (inventoryCommit !== sourceCommit) {
     diagnostics.push(`stale inventory source commit: expected ${sourceCommit}, found ${inventoryCommit ?? "missing"}`);
   }
@@ -267,23 +277,21 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
       diagnostics.push(`${row.ID}: canonical inventory leaf is not covered by the required leaf manifest`);
     }
   }
-  if (!fixture) {
-    for (const expected of canonicalLeafDomains) {
-      const observed = manifestByDomain.get(expected.Domain);
-      if (!observed) {
-        diagnostics.push(`missing canonical source domain: ${expected.Domain}`);
-        continue;
-      }
-      for (const field of ["Canonical source", "Source anchor", "Requirement ID prefix", "Expected leaf count", "Leaf digest"]) {
-        if (observed[field] !== expected[field]) {
-          diagnostics.push(`${expected.Domain}: canonical source domain ${field.toLowerCase()} mismatch`);
-        }
+  for (const expected of canonicalLeafDomains) {
+    const observed = manifestByDomain.get(expected.Domain);
+    if (!observed) {
+      diagnostics.push(`missing canonical source domain: ${expected.Domain}`);
+      continue;
+    }
+    for (const field of ["Canonical source", "Source anchor", "Requirement ID prefix", "Expected leaf count", "Leaf digest"]) {
+      if (observed[field] !== expected[field]) {
+        diagnostics.push(`${expected.Domain}: canonical source domain ${field.toLowerCase()} mismatch`);
       }
     }
-    for (const name of manifestDomains) {
-      if (!canonicalLeafDomains.some((domain) => domain.Domain === name)) {
-        diagnostics.push(`unknown canonical source domain: ${name}`);
-      }
+  }
+  for (const name of manifestDomains) {
+    if (!canonicalLeafDomains.some((domain) => domain.Domain === name)) {
+      diagnostics.push(`unknown canonical source domain: ${name}`);
     }
   }
 
@@ -328,12 +336,11 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
 }
 
 try {
+  rejectUnsupportedArguments();
   const diagnostics = audit(
     readFileSync(argument("--inventory"), "utf8"),
     readFileSync(argument("--matrix"), "utf8"),
     readFileSync(argument("--manifest"), "utf8"),
-    argument("--required-source-commit"),
-    process.argv.includes("--fixture"),
   );
   if (diagnostics.length > 0) {
     process.stderr.write(`${diagnostics.join("\n")}\n`);
