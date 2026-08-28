@@ -32,7 +32,8 @@ try {
     await writeFile(sourcePath, original.replace(before, after));
     const build = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" });
     if (build.status === 0) {
-      const focused = spawnSync("node", ["--test", "--test-name-pattern", testName, focusedTest], { encoding: "utf8" });
+      const exactPattern = `^${escapeRegularExpression(testName)}$`;
+      const focused = spawnSync("node", ["--test", "--test-name-pattern", exactPattern, focusedTest], { encoding: "utf8" });
       const output = `${focused.stdout}\n${focused.stderr}`;
       if (!output.includes(testName)) throw new Error(`Guard ${id} did not run its named behavioral test.`);
       if (focused.status === 0) throw new Error(`Guard mutation survived: ${id}`);
@@ -52,3 +53,7 @@ if (finalTest.status !== 0) throw new Error("Restored candidate did not pass its
 const treeDiff = spawnSync("git", ["diff", "--exit-code", "--", "src/analytics-report-jobs.ts", "test/analytics-report-jobs.test.ts", "scripts/verify-t5-002-analytics-job-guard-mutations.mjs", "docs/verification/t5-002-analytics-job-guard-matrix.md"], { encoding: "utf8" });
 if (treeDiff.status !== 0) throw new Error("T5-002 mutation harness left a candidate tree diff.");
 console.log(`T5-002 mutation harness caught ${guards.length} compiling behavioral mutations and restored the source.`);
+
+function escapeRegularExpression(value) {
+  return value.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
+}
