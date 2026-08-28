@@ -239,14 +239,17 @@ This wording follows the implemented tool schema. [VERIFIED: `src/analytics-repo
 | A1 | A new `docs/operator-guide.md` and `docs/architecture/report-contract.md` are the best final paths. [ASSUMED] | Documentation Architecture | The implementer can use different paths if the owning documentation structure gives a clearer single source of truth. |
 | A2 | A documentation contract test can cover durable negative wording without creating a false legal proof. [ASSUMED] | Validation Architecture | The test may need a different repository-native location or may be unnecessary after human review. |
 
+## Open Questions (RESOLVED)
+
+### Public brand distribution
+
+**Resolution:** T6-002 records the Toast Terms link and observed update date, and uses neutral wording only. [CITED: https://pos.toasttab.com/api-terms-of-use]
+
+Toast, legal, and owner approval remain external gates before public Toast Brand Feature use or publication. [CITED: https://pos.toasttab.com/api-terms-of-use; VERIFIED: GitHub issue #22]
+
 ## Open Questions
 
-1. **Can public distribution use the project name and other Toast references without a separate Toast Brand Feature approval?**
-   - What we know: The Terms define Brand Features to include trade names and require prior written consent for public use. [CITED: https://pos.toasttab.com/api-terms-of-use]
-   - What's unclear: The Terms page does not answer this repository's exact naming and distribution case. [CITED: https://pos.toasttab.com/api-terms-of-use]
-   - Recommendation: Obtain an owner/legal/Toast decision before public package or website publication. [CITED: https://pos.toasttab.com/api-terms-of-use]
-
-2. **Which single document owns the report formula catalog?**
+1. **Which single document owns the report formula catalog?**
    - What we know: Formula and schema facts are currently distributed across source modules and several architecture documents. [VERIFIED: codebase graph; VERIFIED: `docs/architecture/`] 
    - What's unclear: No current top-level catalog maps every public tool to its source, formula, schema, freshness, and exclusion contract. [VERIFIED: codebase grep]
    - Recommendation: Create one catalog and link every public guide to it. [ASSUMED]
