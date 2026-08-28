@@ -407,14 +407,17 @@ legacy and pinned 2026 stdio processes use one `ApplicationRuntime`, and it
 proves Standard output schemas cover complete, denied, and labor-incomplete
 results. Node 20.20.2 and 22.22.2 candidate gates each passed committed
 restore, `npm run check` (414 normal tests plus one installed-artifact test),
-35 focused compiled tests, and 14 caught mutations. The final metadata head
-received an independent CLEAN review at
-`db1270e963850aef3fb5bbb5c6fad402fdb212e2`. Post-merge Node 22.22.2 passed
+35 focused compiled tests, and 14 caught mutations. GitHub has no independent
+final exact-head review for metadata head
+`db1270e963850aef3fb5bbb5c6fad402fdb212e2`; that review is
+unverified/pending. Post-merge Node 22.22.2 passed
 `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit
 --no-fund && npm run check`: 43 discovered test files, 414 normal tests, and
-one installed-artifact test. Reviewer-pending disposition: none. This is
-synthetic code, review, and local validation evidence only. It does not
-update package-release evidence or external authority.
+one installed-artifact test. Reviewer-pending disposition: pending. Current
+GitHub evidence cannot satisfy the `AGENTS.md` independent exact-head review
+requirement for this merged PR. This is synthetic code and local validation
+evidence only. It does not update package-release evidence or external
+authority.
 
 This is MERGED local synthetic package evidence. It is not publication
 readiness, live compatibility, consent, approval, signing, or legal
