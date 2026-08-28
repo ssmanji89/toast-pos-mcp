@@ -81,8 +81,8 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 ### Production proof still required
 
-- #60/T6-003 — resolve first-tool-request handler cancellation through an SDK correction or separately reviewed local runtime correction before release claims;
-- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence; retain the distinct #60 first-tool-request handler gate;
+- #60/T6-003 — CLOSED by PR #69 as `8d1c659` after CLEAN independent findings-only review at `52df015`; the merged local runtime correction proves first-tool cancellation through the compiled stdio path;
+- Phase 3 cancellation — merged report handlers and Toast page-fold paths now have production-chain cancellation evidence;
 - #28 and Phase 6 — retain owner-authorized live Standard compatibility, terms, packaging, signing, and publication gates.
 
 ---
@@ -175,7 +175,7 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 - #16 is CLEAN/merged and T2-002 is rebased onto the corrected location authority;
 - #15 provenance is merged; #31 page-fold primitives remain required on the same production transport;
 - #17 SDK v2 migration is exact-head validated, independently reviewed, merged, and closed;
-- #4's protocol compatibility work is closed; #60 owns the explicit bounded first-tool-request cancellation release follow-up;
+- #4's protocol compatibility work and #60's first-tool-request cancellation follow-up are closed; PR #69 provides the latter's exact-head evidence;
 - all paths use the same runtime identities rather than reconstructed lookalikes.
 
 ---
@@ -187,7 +187,7 @@ Phase 2 is ready for user-facing T3 tool registration only when:
 **Status:** CLOSED on `main`. T3-001 merged as `1ab7cb7`, T3-002 as
 `291cda2`, and T3-003 as `e0effdb`. The merged evidence proves the local
 production chain against synthetic fixtures. It does not satisfy live Toast,
-first-tool-request cancellation (#60/T6-003), signing, or publication gates.
+signing, or publication gates.
 
 ### Outcome
 
