@@ -1,39 +1,30 @@
 # T5-002 Analytics Job Guard Matrix
 
-This matrix defines local synthetic proof before candidate selection.
-It does not prove live Toast Analytics compatibility.
+This matrix defines local synthetic behavioral proof. It does not prove live Toast Analytics compatibility.
 
-| Guard | Focused test | Source mutation identifier |
-|---|---|---|
-| Six-operation catalog remains closed | `analytics-report-jobs.test.ts`: six reviewed routes | `closed-catalog` |
-| Private selection ownership precedes every turn | `reject forged authority` | `selection-ownership` |
-| Create identifier remains opaque | `opaque bounded create identifier` | `opaque-create-id` |
-| Completed body remains unread | `polls once` | `no-result-body` |
-| 202 has local bounds | `exhausts local pending budget` | `pending-bounds` |
-| 404 is invalid-or-expired | `invalid-or-expired` | `invalid-or-expired` |
-| 409 has one replacement budget | `bounds conflict replacements` | `replacement-budget` |
-| POST and GET have distinct limiter policy | `lifecycle polling` | `post-get-limiter` |
-| Limiter key includes operation, method, range, identity, and set | `six reviewed routes` | `limiter-key` |
-| Discovery and job limiters stay separate | `runtime composition` | `limiter-separation` |
-| One signal reaches capability, limiter, sleep, and fetch | `polls once` | `signal-propagation` |
-| Deferred token cancellation stops later turns | `cancellation stops deferred token` | `deferred-token-cancellation` |
-| In-flight POST cancellation stops later turns | `cancellation stops deferred token` | `inflight-post-cancellation` |
-| In-flight GET cancellation stops later turns | `cancellation stops deferred token` | `inflight-get-cancellation` |
-| Cancellation errors stay sanitized | `cancellation stops deferred token` | `error-sanitization` |
-| Provenance and completeness are explicit | `polls once` | `provenance-completeness` |
-| Local policy labels stay explicit | `exhausts local pending budget` | `local-policy-label` |
-| Runtime composes only an internal Analytics adapter | `runtime composes one private job adapter` | `runtime-internal-only` |
+| Guard | Exact behavioral test | Compiling semantic mutation | Expected result |
+|---|---|---|---|
+| Closed six-operation catalog and G01 | `Analytics report jobs use exactly the six reviewed create and retrieval routes` | Change the payout sales retrieval route to payout payments. | The named route assertion fails. |
+| Opaque create identifier and G03 | `Analytics report jobs reject malformed create identifiers without publishing a descriptor` | Reduce the accepted opaque identifier bound to one byte. | A valid opaque identifier is rejected. |
+| Body-free completed state and G05 | `Analytics report jobs retain only an opaque bounded create identifier and body-free statuses` | Classify 200 as failed instead of unavailable-result completion. | The completed-state assertion fails. |
+| Pending bound | `Analytics report lifecycle exhausts its local pending budget and cancels without later turns` | Reduce the poll budget to one. | The recorded poll count fails. |
+| 404 classifier | `Analytics report lifecycle returns invalid-or-expired and bounds conflict replacements` | Classify 404 as failed-or-incomplete. | The invalid-or-expired assertion fails. |
+| Replacement bound | `Analytics report lifecycle returns invalid-or-expired and bounds conflict replacements` | Reduce the replacement budget to zero. | The replacement count fails. |
+| Capability envelope | `Analytics lifecycle maps capability and source failures to immutable safe envelopes` | Map a denial to failed-or-incomplete. | The denied-envelope assertion fails. |
+| Source failure envelope | `Analytics lifecycle maps capability and source failures to immutable safe envelopes` | Replace the synthetic source rejection with a malformed success. | The safe failed-envelope assertion fails. |
+| Create minute/hour windows | `Analytics lifecycle enforces all documented endpoint windows atomically` | Reduce the 10/minute budget to one. | The controlled wait assertion fails. |
+| Retrieval second/minute windows | `Analytics lifecycle enforces all documented endpoint windows atomically` | Reduce the 30/minute retrieval budget to one. | The controlled wait assertion fails. |
+| 429 Retry-After | `Analytics lifecycle retries a bounded 429 create turn using Retry-After` | Ignore a valid Retry-After header. | The exact wait assertion fails. |
+| 429 retry budget | `Analytics lifecycle retries a bounded 429 create turn using Retry-After` | Set the retry budget to zero. | The retry lifecycle assertion fails. |
+| G02 inactive option | `Analytics report jobs use exactly the six reviewed create and retrieval routes` | Send a non-empty inactive exclusion list. | The closed request-body assertion fails. |
+| Safe provenance | `Analytics lifecycle maps poll and replacement failures without retaining source bodies` | Drop the safe request ID. | The safe provenance assertion fails. |
 
 ## Open vendor-contract gates
 
-G01 remains open. The payout-by-payment family is absent.
+- G01: The payout-by-payment family remains absent.
+- G02: The inactive-status option remains absent.
+- G03: Create identifiers have no UUID-only parser.
+- G04: Disputed metrics count fields have no projection.
+- G05: Completed-result top-level parsing remains absent.
 
-G02 remains open. The inactive-status option is absent.
-
-G03 remains open. Create identifiers have no UUID-only parser.
-
-G04 remains open. Disputed metrics counts are absent.
-
-G05 remains open. Completed-result parsing is absent.
-
-Passing these tests does not close these gates.
+Behavioral proof does not close any vendor gate. T5-003 alone owns MCP tools and stdio presentation.
