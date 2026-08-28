@@ -49,6 +49,11 @@ test("production factory shares one startup runtime across protocol eras", async
   );
 });
 
+test("Standard handlers retain the active MCP request signal", async () => {
+  const source = await readFile(path.resolve(process.cwd(), "src", "report-tools.ts"), "utf8");
+  assert.equal((source.match(/signal: ctx\.mcpReq\.signal/gu) ?? []).length, 5);
+});
+
 test(
   "serves retained legacy 2025 requests through the production report runtime",
   { timeout: STDIO_CONNECT_TIMEOUT_MS },
