@@ -167,22 +167,7 @@ Task 1 owns this Wave 0 dependency. Task 2 cannot be green before it exists and 
 
 **Approval:** implementation evidence complete — independent review remains required.
 
-## T6-003 installed artifact validation
-
-| ID | Behavior | Wave 0 state | Evidence |
-| --- | --- | --- | --- |
-| T6-003-PKG-01 | Exact package path allowlist and checksum | pending | RED test added; real npm pack required. |
-| T6-003-PKG-02 | Empty consumer installed-bin modern MCP path | pending | RED test added; absent preload must fail after package installation. |
-| T6-003-PKG-03 | Standard completion and constrained Analytics envelope | pending | RED test added; existing body-free Analytics boundary only. |
-| T6-003-PKG-04 | Preload runtime identity and unmatched-route rejection | pending | Test-only preload not yet present. |
-| T6-003-PKG-05 | Node 20.20.2 exact-head gate | pending | Committed dependency restore and full gate required. |
-| T6-003-PKG-06 | Node 22.22.2 exact-head gate | pending | Committed dependency restore and full gate required. |
-| T6-003-PKG-07 | Dependency, license, and advisory inspection | pending | Bounded no-change inspection required. |
-| T6-003-PKG-08 | Evidence keeps external gates open | pending | README, threat model, docs contract, and LOOP update required. |
-
-RED command pending observation: `npm run build:test && ! node --test --enable-source-maps dist-test/test/package-artifact-e2e.test.js`.
-
-### T6-003 observed exact-head evidence
+## T6-003 observed exact-head evidence
 
 The focused RED command passed on 2026-08-28 because the installed child could
 not emit `installed-artifact-fetch-preload-ready` before the external test-only
