@@ -66,7 +66,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | CLOSED |
-| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | MERGED — PR #53 local synthetic package evidence merged at `f2ea7627c006907b5026079d62b861d8cda52dfe`; CLEAN review and external release gates remain open |
+| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | MERGED — PR #53 package evidence and PR #58 nested-schema/evidence reconciliation are merged; GitHub-attributable review and external release gates remain open |
 
 ## Completed slice
 
@@ -128,6 +128,22 @@ independent exact-head review requirement for this merged PR. This is
 synthetic implementation and local validation evidence only. It does not
 close #4/T6-003, T5-003-G01, #28, live Standard or Analytics compatibility,
 signing, publication, consent, Terms, or brand approval. DOX: updated.
+
+Plan 06-05 / PR #58 is MERGED on `main` at
+`69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c` from candidate
+`9403bff75b677a97bcceae244efa755bee91778b`. The candidate restored the
+committed lockfile on Node 20.20.2 and Node 22.22.2. Each gate passed 43
+discovered test files, 415 normal tests, one installed-artifact test, package
+dry-run, 41 focused documentation/runtime/schema tests, and 25 isolated
+compiling behavioral mutations. An independent agent recorded CLEAN for the
+candidate. GitHub currently records an empty reviews array for PR #58, so its
+GitHub-attributable exact-head review remains reviewer-pending. Post-merge
+Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
+43 discovered files, 415 normal tests, and one installed-artifact test. This
+merges local synthetic evidence only. Formal requirements coverage, PR #55
+GitHub-attributable review, #4/T6-003 first-tool-request cancellation,
+T5-003-G01, #28, live Standard and Analytics compatibility, signing,
+publication, consent, Terms, and brand approval remain open. DOX: updated.
 
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
@@ -492,7 +508,10 @@ The threat model went stale twice during this slice — once because `main` move
 ## Release frontier
 
 - **T6-003 state:** PR #53 merged the reviewed local package-evidence slice.
-  No further local package-evidence work is implied by this state.
+  PR #58 merged fixture-proved nested Standard schemas and truthful local
+  validation evidence. No further local package-evidence work is implied by
+  this state. PR #58 GitHub-attributable exact-head review remains
+  reviewer-pending.
 - **Blocking vendor gate:** T5-003-G01 requires a corrected current Toast
   OpenAPI or written vendor confirmation before any complete Analytics result
   parser or report claim can be implemented.

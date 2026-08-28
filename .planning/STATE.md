@@ -5,7 +5,7 @@ milestone_name: Public local Toast reporting MCP
 
 **Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `bcd819fb7c423d4e19274448417829b9821173ee`
+**Observed `main`:** `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`
 
 ## Canonical campaign position
 
@@ -20,7 +20,8 @@ milestone_name: Public local Toast reporting MCP
 - T5-001 and T5-002 are CLOSED; T5-003 safe MCP wiring is merged, but its
   complete result contract remains open behind G01;
 - T6-001 and T6-002 are CLOSED; T6-003 is MERGED as local synthetic package
-  evidence and remains subject to external release gates.
+  and nested-schema evidence, and remains subject to formal-review and
+  external release gates.
 
 ## Campaign work observed
 
@@ -46,6 +47,7 @@ milestone_name: Public local Toast reporting MCP
 | T6-002 operator documentation | #22 / PR #52 | merged as `bfda1c905c58b7821658cb400a95053d58cdc805`; reviewed CLEAN at `5a1b4ddbe8616284ce7755d2b53ecccb110ebecc` | CLOSED; Node 22 rebuilt main passed public documentation 5/5, 42 files / 411 tests, and package validation. This is documentation and synthetic evidence only. |
 | T6-003 installed package evidence | #22 / PR #53 | merged as `f2ea7627c006907b5026079d62b861d8cda52dfe`; reviewed CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2` | MERGED local synthetic package evidence. Candidate `d5c47f39321f13c991d2abe6fcf3c035a020c9d2` passed Node 20.20.2 and 22.22.2 committed restores and checks. Post-merge Node 22.22.2 passed committed restore, full check, and package dry-run: 43 files, 411 normal tests, one installed-artifact test, and 151 paths. This does not make the package release-ready. |
 | T6 public runtime/output schemas (Plan 06-04) | PR #55 | merged as `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2` review unverified/pending | MERGED synthetic public-runtime/output repair. Node 20.20.2 and 22.22.2 candidate gates passed 414 normal tests plus one installed-artifact test, 35 focused compiled tests, and 14/14 caught mutations. Post-merge Node 22.22.2 passed `source /Users/sully/.nvm/nvm.sh && nvm use 22.22.2 && npm ci --no-audit --no-fund && npm run check`: 43 discovered files, 414 normal tests, and one installed-artifact test. Reviewer-pending disposition: pending. GitHub has no independent review, so this merged PR does not satisfy the `AGENTS.md` independent exact-head review requirement. All external gates remain open. |
+| T6 validation and nested Standard schemas (Plan 06-05) | PR #58 | merged as `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`; candidate `9403bff75b677a97bcceae244efa755bee91778b`; GitHub reviews array empty | MERGED local synthetic validation repair. Node 20.20.2 and 22.22.2 candidate gates each passed 43 discovered files, 415 normal tests, one installed-artifact test, package dry-run, 41 focused documentation/runtime/schema tests, and 25/25 caught mutations. An independent agent recorded CLEAN. Post-merge Node 22.22.2 passed committed restore and `npm run check`: 43 discovered files, 415 normal tests, and one installed-artifact test. GitHub-attributable exact-head review remains reviewer-pending. Formal requirements coverage, PR #55 review, and all external gates remain open. |
 
 ## Current executor capability
 
@@ -59,6 +61,8 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 - PR #55 merged its synthetic public-runtime/output repair, but its final
   metadata exact-head review is unverified/pending; it does not close a
   release gate;
+- PR #58 merged fixture-proved nested schemas and reconciled local evidence,
+  but its GitHub-attributable exact-head review is reviewer-pending;
 - retain T5-003-G01 and all external release gates without converting synthetic
   evidence into live proof.
 
@@ -69,6 +73,9 @@ This executor can complete authentic registry-backed `npm ci` and package valida
   action: the npm registry reports `@modelcontextprotocol/server@2.0.0` and
   `@modelcontextprotocol/client@2.0.0` as the current latest releases;
 - T5-003-G01 requires a corrected current Toast retrieval response contract;
+- Formal Phase 06 requirements coverage is pending because
+  `.planning/REQUIREMENTS.md` is absent;
+- GitHub-attributable independent review remains pending for PR #55 and PR #58;
 - live Analytics compatibility requires authorized access and documented
   Merchant consent;
 - any production Toast access beyond synthetic fixtures requires authorization/consent constraints from `AGENTS.md`;
@@ -77,9 +84,10 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ## Immediate autonomous order
 
-1. Do not create further local T6-003 package-evidence work from its MERGED
-   state.
-2. Keep #4/T6-003, T5-003-G01, #28, live Standard compatibility, live
+1. Do not create further local T6-003 package-evidence or nested-schema work
+   from its MERGED state.
+2. Keep formal requirements coverage, PR #55 and PR #58 GitHub-attributable
+   review, #4/T6-003, T5-003-G01, #28, live Standard compatibility, live
    Analytics compatibility, signing, publication, and human or Toast Terms and
    brand approval as owned external gates.
 

@@ -419,6 +419,22 @@ requirement for this merged PR. This is synthetic code and local validation
 evidence only. It does not update package-release evidence or external
 authority.
 
+**Observed validation and nested-schema evidence:** Plan 06-05 / PR #58 is
+MERGED on `main` at `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c` from candidate
+`9403bff75b677a97bcceae244efa755bee91778b`. Node 20.20.2 and Node 22.22.2
+candidate gates each restored the committed lockfile and passed 43 discovered
+test files, 415 normal tests, one installed-artifact test, package dry-run, 41
+focused documentation/runtime/schema tests, and all 25 isolated compiling
+behavioral mutations. The candidate retained open Toast-derived strings and
+the intentionally extensible `dimensionContext` while making fixture-proved
+fixed nested records strict. An independent agent recorded CLEAN for that
+candidate. GitHub currently records no PR #58 review, so the
+GitHub-attributable exact-head review remains reviewer-pending. Post-merge
+Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
+43 discovered test files, 415 normal tests, and one installed-artifact test.
+This is local synthetic validation evidence. It does not close formal
+requirements coverage, PR #55 GitHub-attributable review, or any release gate.
+
 This is MERGED local synthetic package evidence. It is not publication
 readiness, live compatibility, consent, approval, signing, or legal
 sufficiency.
@@ -434,7 +450,9 @@ sufficiency.
   location discovery.
 - Live Analytics compatibility requires authorized access and documented
   Merchant consent under `AGENTS.md`.
-
+- Formal Phase 06 requirements coverage is pending because
+  `.planning/REQUIREMENTS.md` is absent.
+- GitHub-attributable independent review remains pending for PR #55 and PR #58.
 - Signing and publication require authorized human credentials.
 - Terms, brand, consent, provider, logging, retention, and legal sufficiency
   require the applicable external or human authority.
