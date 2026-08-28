@@ -66,7 +66,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | CLOSED |
-| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | BUILT — local synthetic artifact evidence recorded; independent review and external gates remain open |
+| T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | MERGED — PR #53 local synthetic package evidence merged at `f2ea7627c006907b5026079d62b861d8cda52dfe`; CLEAN review and external release gates remain open |
 
 ## Completed slice
 
@@ -88,20 +88,27 @@ and package validation. This closes the documentation checkpoint only. It does
 not close live compatibility, installed-artifact smoke, signing, publication,
 or human Terms and brand gates.
 
-T6-003 is BUILT at candidate
-`d5c47f39321f13c991d2abe6fcf3c035a020c9d2`. Detached Node 20.20.2 and
-22.22.2 worktrees each restored the committed lockfile and passed `npm run
-check`: 43 compiled files, 411 normal tests, and one installed-artifact test.
-The real tarball had 151 exact paths and SHA-256
+T6-003 is MERGED on `main` through PR #53 at
+`f2ea7627c006907b5026079d62b861d8cda52dfe`. Independent exact-head review was
+CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2`. The reviewed package
+candidate was `d5c47f39321f13c991d2abe6fcf3c035a020c9d2`. Detached Node
+20.20.2 and 22.22.2 worktrees each restored the committed lockfile and passed
+`npm run check`: 43 discovered test files, 411 normal tests, and one
+installed-artifact test. The real tarball had 151 exact paths and SHA-256
 `2e319e3e13be48907508dc0e3d46b673e6b5721b1021906b3ae4e9d1374f2be0` on both
 runtimes. The empty-consumer installed bin negotiated MCP 2026-07-28, listed
 the five Standard tools plus `toast_analytics_metrics_day`, returned the
 invented Standard schema-version-1 complete envelope, and returned only the
-body-free Analytics denial boundary. This is local synthetic package evidence.
-It does not close T5-003-G01, #4/T6-003 first-tool-request cancellation, #28,
-live Standard or Analytics compatibility, signing, publication, or human/Toast
-brand and Terms gates. Independent exact-head review remains required. DOX:
-updated.
+body-free Analytics denial boundary. Post-merge Node 22.22.2 passed
+`npm ci --no-audit --no-fund && npm run check && npm pack --dry-run --json` at
+the merge SHA with the same 43 files, 411 normal tests, one installed-artifact
+test, and 151 package paths. This is MERGED local synthetic package evidence.
+It does not close #4/T6-003 first-tool-request cancellation, T5-003-G01, #28,
+live Standard compatibility, live Analytics compatibility, signing,
+publication, or human or Toast Terms and brand approval. The npm registry
+reports `@modelcontextprotocol/server@2.0.0` and
+`@modelcontextprotocol/client@2.0.0` as current latest releases, so #4 has no
+local dependency-upgrade action. DOX: updated.
 
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
@@ -463,16 +470,13 @@ The threat model went stale twice during this slice — once because `main` move
 11. Emit a fenced `LOOP.md DELTA` only when a real state transition occurs.
 12. Run the DOX check for every slice. Update documentation only for durable changes.
 
-## Next assignment
+## Release frontier
 
-- **Next slice:** T6-003. Plan and execute only the dependency-ready package
-  and installed-artifact evidence work.
-- **Required action:** retain the current public documentation contract while
-  proving the actual package tarball and stdio executable path. Do not publish
-  or sign a package without the required human authority.
-- **Blocking gate:** T5-003-G01 requires a corrected current Toast OpenAPI or
-  written vendor confirmation of the retrieval response top-level shape before
-  any complete Analytics result parser or report claim can be implemented.
-- **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
-  Standard compatibility, T5-003-G01, live Analytics compatibility, signing,
-  publication, and human Terms and brand approvals remain open.
+- **T6-003 state:** PR #53 merged the reviewed local package-evidence slice.
+  No further local package-evidence work is implied by this state.
+- **Blocking vendor gate:** T5-003-G01 requires a corrected current Toast
+  OpenAPI or written vendor confirmation before any complete Analytics result
+  parser or report claim can be implemented.
+- **External and human gates:** #4/T6-003 first-tool-request cancellation,
+  #28 live Standard compatibility, live Analytics compatibility, signing,
+  publication, and human or Toast Terms and brand approval remain open.

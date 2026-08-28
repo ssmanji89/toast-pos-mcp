@@ -3,9 +3,9 @@
 milestone: v1.0
 milestone_name: Public local Toast reporting MCP
 
-**Generated:** 2026-08-27
+**Generated:** 2026-08-28
 **Authority:** snapshot only; reconcile against GitHub and `LOOP.md` before acting  
-**Observed `main`:** `bfda1c905c58b7821658cb400a95053d58cdc805`
+**Observed `main`:** `f2ea7627c006907b5026079d62b861d8cda52dfe`
 
 ## Canonical campaign position
 
@@ -19,7 +19,8 @@ milestone_name: Public local Toast reporting MCP
 - T4 is CLOSED after PR #48 merged with production stdio evidence;
 - T5-001 and T5-002 are CLOSED; T5-003 safe MCP wiring is merged, but its
   complete result contract remains open behind G01;
-- T6-001 and T6-002 are CLOSED; T6-003 remains open.
+- T6-001 and T6-002 are CLOSED; T6-003 is MERGED as local synthetic package
+  evidence and remains subject to external release gates.
 
 ## Campaign work observed
 
@@ -43,6 +44,7 @@ milestone_name: Public local Toast reporting MCP
 | T5-002 Analytics job lifecycle | PR #50 | merged as `0c6de53760b64b38b5cae30717117c551aca7e1d`; reviewed at `e3d07868ed0c5fa18f5bbcfdc2aa52bc912661ee` | CLOSED; Node 20/22 candidate evidence passed 399 tests, 15 focused lifecycle tests, 16/16 mutations, and package validation; rebuilt Node 22 main passed; synthetic internal lifecycle only, with G01-G05 and T5-003 MCP wiring open |
 | T5-003 Analytics MCP boundary | PR #51 | merged as `ff39d1d79dd4b7532d0314279ec62df1727f21ff`; reviewed CLEAN at `55ab1e2d35c80c0de596bc390f292b39fff1d143` | SAFE MCP WIRING MERGED; Node 20/22 candidate evidence passed 406 tests, focused stdio 7/7, 18/18 isolated mutations, and package validation; rebuilt Node 22 main passed. The one tool is denied/incomplete only. G01 blocks any complete result parser or report claim. |
 | T6-002 operator documentation | #22 / PR #52 | merged as `bfda1c905c58b7821658cb400a95053d58cdc805`; reviewed CLEAN at `5a1b4ddbe8616284ce7755d2b53ecccb110ebecc` | CLOSED; Node 22 rebuilt main passed public documentation 5/5, 42 files / 411 tests, and package validation. This is documentation and synthetic evidence only. |
+| T6-003 installed package evidence | #22 / PR #53 | merged as `f2ea7627c006907b5026079d62b861d8cda52dfe`; reviewed CLEAN at `ab1180d76dae139b813b7a8c4aa5bfa903eb02b2` | MERGED local synthetic package evidence. Candidate `d5c47f39321f13c991d2abe6fcf3c035a020c9d2` passed Node 20.20.2 and 22.22.2 committed restores and checks. Post-merge Node 22.22.2 passed committed restore, full check, and package dry-run: 43 files, 411 normal tests, one installed-artifact test, and 151 paths. This does not make the package release-ready. |
 
 ## Current executor capability
 
@@ -52,25 +54,30 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 
 ### Executable now
 
-- plan and execute T6-003 internal package and installed-artifact evidence;
-- retain T5-003-G01 and the external release gates without converting synthetic
+- no further local T6-003 package-evidence work is implied by its MERGED state;
+- retain T5-003-G01 and all external release gates without converting synthetic
   evidence into live proof.
 
 ### Human/external gates
 
 - #28 requires owner-authorized live Standard Toast credentials;
+- #4/T6-003 first-tool-request cancellation has no local dependency-upgrade
+  action: the npm registry reports `@modelcontextprotocol/server@2.0.0` and
+  `@modelcontextprotocol/client@2.0.0` as the current latest releases;
 - T5-003-G01 requires a corrected current Toast retrieval response contract;
 - live Analytics compatibility requires authorized access and documented
   Merchant consent;
 - any production Toast access beyond synthetic fixtures requires authorization/consent constraints from `AGENTS.md`;
-- T6 publication/signing remains external/human when package credentials or signing are required.
+- T6 signing, publication, and human or Toast Terms and brand approval remain
+  external gates.
 
 ## Immediate autonomous order
 
-1. Plan and execute T6-003 without publication, signing, live credentials, or
-   a release-ready claim.
-2. Keep T5-003-G01, #4/T6-003, #28, live Analytics compatibility, and T6
-   publication/signing as owned external gates.
+1. Do not create further local T6-003 package-evidence work from its MERGED
+   state.
+2. Keep #4/T6-003, T5-003-G01, #28, live Standard compatibility, live
+   Analytics compatibility, signing, publication, and human or Toast Terms and
+   brand approval as owned external gates.
 
 ## Refresh rule
 
