@@ -3,7 +3,7 @@ phase: 06
 slug: release-hardening-and-public-compatibility-proof
 status: incomplete
 nyquist_compliant: false
-execution_status: 06-05-candidate-pending-final-gates
+execution_status: 06-05-merged-local-evidence-reviewer-pending-external-gates
 created: 2026-08-27
 updated: 2026-08-28
 ---
@@ -21,6 +21,24 @@ signing, publication, or legal sufficiency.
 3. Final command output belongs in the 06-05 PR only.
 4. No tracked file changes after either final candidate gate.
 
+## Merged Execution Evidence
+
+PR #58 merged candidate `9403bff75b677a97bcceae244efa755bee91778b` into
+`main` at `69f4052302dd27c1dd6ed92ff406c78d3c5f5a3c`. Node 20.20.2 and Node
+22.22.2 each used the committed lockfile. Each candidate gate passed `npm ci
+--no-audit --no-fund && npm run check`, package dry-run, 43 discovered test
+files, 415 normal tests, and one installed-artifact test. The focused command
+passed 41 tests. The first, second, and third mutation batches caught all 25
+isolated compiling behavioral mutations on both runtimes. `git diff --check`,
+`git diff --quiet`, and `git diff --cached --quiet` passed after the candidate
+gates. Post-merge Node 22.22.2 passed committed restore and `npm run check` at
+the merge SHA with 43 discovered test files, 415 normal tests, and one
+installed-artifact test.
+
+An independent agent recorded CLEAN for the exact candidate. GitHub currently
+reports an empty reviews array for PR #58. This is local evidence only, and
+the GitHub-attributable exact-head review remains reviewer-pending.
+
 ## Test Commands
 
 | Scope | Command |
@@ -35,14 +53,14 @@ signing, publication, or legal sufficiency.
 
 | ID | Direct behavior | Named test or harness | Evidence status | Limitation |
 | --- | --- | --- | --- | --- |
-| T6-002-DOCS-01 | Public documentation lists the five Standard tools and their source boundaries. | `test/public-operator-docs.test.ts` | Historical local evidence exists from the named documentation command. | A current candidate result remains a PR-only final gate. |
-| T6-002-DOCS-02 | Public documentation keeps Analytics body-free and distinguishes local evidence from authority gates. | `test/public-operator-docs.test.ts` | Historical local evidence exists from the named documentation command. | This does not prove consent, approval, publication, or live compatibility. |
-| T6-002-DOCS-03 | The documentation contract and repository gate use the committed lockfile. | `test/public-operator-docs.test.ts`; `npm run check` | Historical local evidence exists from the named commands. | The final 06-05 candidate must run both supported Node gates. |
+| T6-002-DOCS-01 | Public documentation lists the five Standard tools and their source boundaries. | `test/public-operator-docs.test.ts` | The final candidate focused command passed on Node 20.20.2 and Node 22.22.2. | This does not prove consent, approval, publication, or live compatibility. |
+| T6-002-DOCS-02 | Public documentation keeps Analytics body-free and distinguishes local evidence from authority gates. | `test/public-operator-docs.test.ts` | The final candidate focused command passed on Node 20.20.2 and Node 22.22.2. | This does not prove consent, approval, publication, or live compatibility. |
+| T6-002-DOCS-03 | The documentation contract and repository gate use the committed lockfile. | `test/public-operator-docs.test.ts`; `npm run check` | Both final candidate gates restored the committed lockfile and passed. | This does not make the candidate release-ready. |
 | P06-04-RUNTIME-01 | Retained legacy and modern stdio factories use the production runtime. | `test/server.test.ts` — `serves retained legacy 2025 requests through the production report runtime` | Historical 06-04 local evidence exists. | This does not prove first-tool-request cancellation or live MCP host compatibility. |
 | P06-04-SCHEMA-01 | Top-level Standard status branches match real handler results. | `test/report-tools-e2e.test.ts` — `tools/list advertises only the real Standard result branches` | Historical 06-04 local evidence exists. | This row does not claim nested-shape coverage. |
 | P06-04-MUTATION-01 | Public runtime and top-level output guards reject the 14 historical 06-04 mutations. | `scripts/verify-t6-public-wiring-mutations.mjs` | Historical 06-04 local evidence exists. | Current mutation batches include added 06-05 guards and require final candidate execution. |
-| T6-005-NESTED-01 | Fixture-proved fixed nested report records are strict; unknown Toast-derived values remain strings. | `test/report-tools-e2e.test.ts` — `nested Standard output schemas match invented complete results without closing Toast strings` | Candidate test required. | `dimensionContext` remains intentionally extensible across Menu and Configuration sources. |
-| T6-005-NESTED-02 | Each 06-05 strict nested schema fails when its schema becomes loose. | `scripts/verify-t6-public-wiring-mutations.mjs` | Candidate mutation batches required. | Each isolated mutation must compile, run its named test, fail, and restore the worktree. |
+| T6-005-NESTED-01 | Fixture-proved fixed nested report records are strict; unknown Toast-derived values remain strings. | `test/report-tools-e2e.test.ts` — `nested Standard output schemas match invented complete results without closing Toast strings` | The final candidate focused command passed on Node 20.20.2 and Node 22.22.2. | `dimensionContext` remains intentionally extensible across Menu and Configuration sources. |
+| T6-005-NESTED-02 | Each 06-05 strict nested schema fails when its schema becomes loose. | `scripts/verify-t6-public-wiring-mutations.mjs` | All three final candidate mutation batches passed on Node 20.20.2 and Node 22.22.2; 25 mutations were caught. | Each isolated mutation compiled, ran its named test, failed that test, and restored the worktree. |
 
 ## Evidence Limits and Pending Gates
 
@@ -50,6 +68,7 @@ signing, publication, or legal sufficiency.
 | --- | --- | --- |
 | Formal Phase 06 requirement coverage | pending | `.planning/REQUIREMENTS.md` is absent. The owner reference is `T6-003`, but no formal all-requirements coverage claim is available. |
 | PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
+| PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
 | #4/T6-003 first-tool-request cancellation | open | Local synthetic tests do not close this SDK/runtime release gate. |
 | T5-003-G01 | open | The complete Analytics retrieval response contract remains unverified. |
 | #28 live Standard compatibility | open | Owner-authorized live Standard credentials are required. |
