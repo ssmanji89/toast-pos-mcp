@@ -110,6 +110,19 @@ reports `@modelcontextprotocol/server@2.0.0` and
 `@modelcontextprotocol/client@2.0.0` as current latest releases, so #4 has no
 local dependency-upgrade action. DOX: updated.
 
+Plan 06-04 / PR #55 is OPEN at source candidate
+`cdba72a5dfbc2527d5317a0ad419b5c0c650646e`. It repairs retained legacy
+public-runtime wiring and Standard output schemas only. Node 20.20.2 and
+Node 22.22.2 each restored the committed lockfile and passed `npm run check`
+with 414 normal tests and one installed-artifact test. The compiled
+legacy/modern public-wiring suite passed 35 tests, and all 14 isolated
+compiling mutations were caught in bounded batches. Independent exact-head
+review was CLEAN at `cdba72a5dfbc2527d5317a0ad419b5c0c650646e`. This is
+synthetic implementation and review evidence only. The metadata commit after
+that source candidate requires fresh review. It does not close #4/T6-003,
+T5-003-G01, #28, live Standard or Analytics compatibility, signing,
+publication, consent, Terms, or brand approval. DOX: updated.
+
 T5-003 has merged its safe MCP boundary on `main` at
 `ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
 reviewed CLEAN head was `55ab1e2d35c80c0de596bc390f292b39fff1d143`.

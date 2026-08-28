@@ -49,30 +49,181 @@ const itemSalesInputSchema = z.object({
   restaurantGuid: restaurantGuidSchema,
 });
 
-const baseCompleteOutputSchema = z
+const standardEnvelopeSchema = z
   .object({
     schemaVersion: z.literal(STANDARD_REPORT_SCHEMA_VERSION),
-    status: z.literal("complete"),
-    report: z.enum([
-      "sales_summary",
-      "payment_summary",
-      "item_sales_summary",
-      "cash_summary",
-      "labor_summary",
-    ]),
     source: z.literal("standard_api"),
-    restaurantGuid: z.string().uuid(),
-    restaurantName: z.string().min(1),
     businessDate: businessDateSchema,
     requestedBusinessDate: businessDateSchema,
-    effectiveBusinessDate: businessDateSchema,
-    timezone: z.string().min(1),
-    currencyCode: z.string().regex(/^[A-Z]{3}$/u),
     generatedAtEpochMs: z.number().int().nonnegative(),
     formulaNotes: z.array(z.string()),
     warnings: z.array(z.string()),
-  })
-  .passthrough();
+  });
+
+const contextFreshnessSchema = z.object({
+  retrievedThroughEpochMs: z.number().int().nonnegative(),
+  ageMs: z.number().int().nonnegative(),
+  maxAgeMs: z.number().int().nonnegative(),
+}).strict();
+
+const requestProvenanceSchema = z.object({
+  retrievedThroughEpochMs: z.number().int().nonnegative().nullable(),
+  upstreamRequestIds: z.array(z.string()),
+  upstreamRequestIdCount: z.number().int().nonnegative(),
+  upstreamRequestIdsTruncated: z.boolean(),
+}).strict();
+
+const completeStandardEnvelopeSchema = standardEnvelopeSchema.extend({
+  status: z.literal("complete"),
+  restaurantGuid: z.string().uuid(),
+  restaurantName: z.string().min(1),
+  effectiveBusinessDate: businessDateSchema,
+  timezone: z.string().min(1),
+  currencyCode: z.string().regex(/^[A-Z]{3}$/u),
+  contextFreshness: contextFreshnessSchema,
+  contextProvenance: requestProvenanceSchema,
+  provenance: requestProvenanceSchema,
+});
+
+const deniedStandardEnvelopeSchema = standardEnvelopeSchema.extend({
+  status: z.literal("denied"),
+  restaurantGuid: z.string().uuid().optional(),
+  restaurantName: z.string().min(1).optional(),
+  effectiveBusinessDate: businessDateSchema.optional(),
+  contextFreshness: contextFreshnessSchema.optional(),
+  contextProvenance: requestProvenanceSchema.optional(),
+  denial: z.object({
+    code: z.string().min(1),
+    retryable: z.boolean(),
+    upstreamStatus: z.number().int().nullable().optional(),
+    upstreamRequestId: z.string().min(1).nullable().optional(),
+  }).strict(),
+  missingScopes: z.array(z.string()),
+  missingProvisionedScopes: z.array(z.string()),
+  missingConnectionScopes: z.array(z.string()),
+  excludedScopes: z.array(z.string()),
+});
+
+const salesSummaryOutputSchema = z.union([
+  completeStandardEnvelopeSchema.extend({
+    report: z.literal("sales_summary"),
+    closeoutHour: z.number().int(),
+    pagesProcessed: z.number().int().nonnegative(),
+    sourceOrdersProcessed: z.number().int().nonnegative(),
+    currentAndPast: z.object({}).passthrough(),
+    future: z.object({}).passthrough(),
+    combined: z.object({}).passthrough(),
+    exclusions: z.object({}).passthrough(),
+  }),
+  deniedStandardEnvelopeSchema.extend({ report: z.literal("sales_summary") }),
+]);
+
+const paymentSummaryOutputSchema = z.union([
+  completeStandardEnvelopeSchema.extend({
+    report: z.literal("payment_summary"),
+    closeoutHour: z.number().int(),
+    eventListCount: z.literal(3),
+    paymentDetailsProcessed: z.number().int().nonnegative(),
+    uniquePaymentCount: z.number().int().nonnegative(),
+    paid: z.object({}).passthrough(),
+    refunded: z.object({}).passthrough(),
+    voided: z.object({}).passthrough(),
+    paidByType: z.array(z.object({}).passthrough()),
+    paymentStatusCounts: z.array(z.object({}).passthrough()),
+    refundStatusCounts: z.array(z.object({}).passthrough()),
+  }),
+  deniedStandardEnvelopeSchema.extend({ report: z.literal("payment_summary") }),
+]);
+
+const itemSalesSummaryOutputSchema = z.union([
+  completeStandardEnvelopeSchema.extend({
+    report: z.literal("item_sales_summary"),
+    dimension: z.string().min(1),
+    metricBasis: z.string().min(1),
+    nonAdditiveAcrossGroups: z.boolean(),
+    pagesProcessed: z.number().int().nonnegative(),
+    sourceOrdersProcessed: z.number().int().nonnegative(),
+    modifierSelectionsTraversed: z.number().int().nonnegative(),
+    unresolvedContributionCount: z.number().int().nonnegative(),
+    dimensionContext: z.object({}).passthrough(),
+    groups: z.array(z.object({}).passthrough()),
+  }),
+  deniedStandardEnvelopeSchema.extend({
+    report: z.literal("item_sales_summary"),
+    dimension: z.string().min(1),
+  }),
+]);
+
+const cashSummaryOutputSchema = z.union([
+  completeStandardEnvelopeSchema.extend({
+    report: z.literal("cash_summary"),
+    closeoutHour: z.number().int(),
+    cashEntryCount: z.number().int().nonnegative(),
+    depositCount: z.number().int().nonnegative(),
+    cashEntryAmountMinor: z.number().int(),
+    depositAmountMinor: z.number().int(),
+    noSaleCount: z.number().int().nonnegative(),
+    cashEntriesWithoutDrawerCount: z.number().int().nonnegative(),
+    cashInCount: z.number().int().nonnegative(),
+    cashOutCount: z.number().int().nonnegative(),
+    cashCollectedCount: z.number().int().nonnegative(),
+    tipOutCount: z.number().int().nonnegative(),
+    payoutCount: z.number().int().nonnegative(),
+    reimbursementCount: z.number().int().nonnegative(),
+    closeoutCount: z.number().int().nonnegative(),
+    observedReversalCount: z.number().int().nonnegative(),
+    unresolvedCrossDateReversalCount: z.number().int().nonnegative(),
+    observedDepositReversalCount: z.number().int().nonnegative(),
+    unresolvedCrossDateDepositReversalCount: z.number().int().nonnegative(),
+    cashEntryTotalsByType: z.array(z.object({}).passthrough()),
+    cashDrawerReferences: z.array(z.object({}).passthrough()),
+    noSaleReasonReferences: z.array(z.object({}).passthrough()),
+    payoutReasonReferences: z.array(z.object({}).passthrough()),
+  }),
+  deniedStandardEnvelopeSchema.extend({ report: z.literal("cash_summary") }),
+]);
+
+const laborAggregateSchema = {
+  timeEntryCount: z.number().int().nonnegative(),
+  activeTimeEntryCount: z.number().int().nonnegative(),
+  deletedTimeEntryCount: z.number().int().nonnegative(),
+  excludedJobTimeEntryCount: z.number().int().nonnegative(),
+  unresolvedJobTimeEntryCount: z.number().int().nonnegative(),
+  unresolvedHourlyWageTimeEntryCount: z.number().int().nonnegative(),
+  salariedTimeEntryCount: z.number().int().nonnegative(),
+  regularHours: z.number().nonnegative(),
+  overtimeHours: z.number().nonnegative(),
+  regularWagesMinor: z.number().int(),
+  breakCount: z.number().int().nonnegative(),
+  missedBreakCount: z.number().int().nonnegative(),
+  unresolvedBreakTypeCount: z.number().int().nonnegative(),
+  ordersSalesMinor: z.number().int(),
+  ordersTipsMinor: z.number().int(),
+  tipWithholdingEnabled: z.boolean(),
+  tipWithholdingBasisMinor: z.number().int(),
+  tipWithholdingMinor: z.number().int(),
+  netOrdersTipsMinor: z.number().int(),
+  ordersWithServerAttributionCount: z.number().int().nonnegative(),
+} as const;
+
+const laborSummaryOutputSchema = z.union([
+  completeStandardEnvelopeSchema.extend({
+    ...laborAggregateSchema,
+    report: z.literal("labor_summary"),
+    closeoutHour: z.number().int(),
+    jobsSourceCount: z.number().int().nonnegative(),
+    breakTypeSourceCount: z.number().int().nonnegative(),
+  }),
+  completeStandardEnvelopeSchema.extend({
+    ...laborAggregateSchema,
+    status: z.literal("incomplete"),
+    report: z.literal("labor_summary"),
+    closeoutHour: z.number().int(),
+    jobsSourceCount: z.number().int().nonnegative(),
+    breakTypeSourceCount: z.number().int().nonnegative(),
+  }),
+  deniedStandardEnvelopeSchema.extend({ report: z.literal("labor_summary") }),
+]);
 
 export function registerStandardReportTools(
   server: McpServer,
@@ -88,7 +239,7 @@ export function registerStandardReportTools(
       description:
         "Calculate a deterministic read-only Standard API sales summary for one Toast business date, with future orders separated from current/past sales and explicit completeness/provenance metadata.",
       inputSchema: reportInputSchema,
-      outputSchema: baseCompleteOutputSchema,
+      outputSchema: salesSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
     async (input, ctx) => toolResult(await buildSalesSummaryReport(
@@ -107,7 +258,7 @@ export function registerStandardReportTools(
       description:
         "Calculate a deterministic read-only Standard API payment summary for one Toast business date using paid, refunded, and voided payment event sources separately.",
       inputSchema: reportInputSchema,
-      outputSchema: baseCompleteOutputSchema,
+      outputSchema: paymentSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
     async (input, ctx) => toolResult(await buildPaymentSummaryReport(
@@ -126,7 +277,7 @@ export function registerStandardReportTools(
       description:
         "Group historical Standard Orders facts by item, sales category, revenue center, dining option, item tag, order source, or service period. Current Menus/Configuration data is enrichment only and unresolved historical references are retained rather than guessed by name.",
       inputSchema: itemSalesInputSchema,
-      outputSchema: baseCompleteOutputSchema,
+      outputSchema: itemSalesSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
     async (input, ctx) => toolResult(await buildItemSalesSummaryReport(
@@ -154,7 +305,7 @@ function registerCashSummaryTool(
       description:
         "Calculate a deterministic read-only Standard API cash-entry and deposit summary for one Toast business date. Cash Management source facts remain distinct from guest cash payments.",
       inputSchema: reportInputSchema,
-      outputSchema: baseCompleteOutputSchema,
+      outputSchema: cashSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
     async (input, ctx) => toolResult(await buildCashSummaryReport(
@@ -178,7 +329,7 @@ function registerLaborSummaryTool(
       description:
         "Calculate a deterministic read-only Standard API labor summary for one Toast business date. Active or unresolved labor facts return an explicit incomplete result.",
       inputSchema: reportInputSchema,
-      outputSchema: laborOutputSchema,
+      outputSchema: laborSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
     async (input, ctx) => toolResult(await buildLaborSummaryReport(
@@ -190,16 +341,6 @@ function registerLaborSummaryTool(
     )),
   );
 }
-
-const laborOutputSchema = z.union([
-  baseCompleteOutputSchema.extend({
-    report: z.literal("labor_summary"),
-  }),
-  baseCompleteOutputSchema.extend({
-    status: z.literal("incomplete"),
-    report: z.literal("labor_summary"),
-  }),
-]);
 
 function readOnlyAnnotations() {
   return {
