@@ -32,7 +32,7 @@ milestone_name: Public local Toast reporting MCP
 | successful transport provenance | #15 / PR #29 | merged as `afdffee57a43207bc045b08e2be1eae2e6d4bd23` | CLOSED; Node 20/22 gates passed, independent review CLEAN; detailed results retain immutable API family and request scope |
 | Standard location live compatibility | #28 | n/a | release gate; owner-authorized live Standard credential required |
 | MCP SDK v2 migration | #17 / PR #24 | merged as `4bcb2a5ada264beffde97804f43daa69893f93cd` | CLOSED; authentic Node 20/22 package and stdio runtime gates passed; independent review CLEAN |
-| stateless/reconnect/cancellation compatibility | #4 / PR #45 | merged as `4a069937`; reviewed CLEAN at `a406b479` | local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is merged; issue #60 owns the separate first-tool-request T6-003 release gate |
+| stateless/reconnect/cancellation compatibility | #4 / PR #45 / PR #69 | merged as `4a069937` and `8d1c659`; reviewed CLEAN at `a406b479` and `52df015` | local stdio lifecycle, reconnect, nonzero-ID cancellation, and first-tool cancellation evidence are merged; issue #60 is CLOSED |
 | ordersBulk bounded-memory/page-fold prerequisite | #31 / PR #35 | merged as `ca02850f6a052ffe0ec68bf3ce7679176b08bd85` | CLOSED; Node 20/22 gates passed, independent review CLEAN, issue #31 closed |
 | Toast rate-limit reset semantics and hierarchy | #32 / #36 / PR #37 | merged as `793784e69bb538624ef5b0281abd9ab25481a25e` | CLOSED; Node 20/22 gates passed, 13/13 mutations caught, independent review CLEAN, issue #32 closed |
 | Standard request cancellation | PR #39 | merged as `5714eac747375d2410adab6ff62bb34a230e4c04` | CLOSED; Node 20/22 gates passed, 11/11 cancellation mutations caught, independent review CLEAN; internal pre-T3 boundary only |
@@ -69,9 +69,6 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 ### Human/external gates
 
 - #28 requires owner-authorized live Standard Toast credentials;
-- #60/T6-003 first-tool-request cancellation has no local dependency-upgrade
-  action: the npm registry reports `@modelcontextprotocol/server@2.0.0` and
-  `@modelcontextprotocol/client@2.0.0` as the current latest releases;
 - T5-003-G01 requires a corrected current Toast retrieval response contract;
 - Formal Phase 06 requirements inventory, evidence matrix, required-leaf
   manifest, and deterministic structural audit are merged local evidence.
@@ -91,7 +88,7 @@ This executor can complete authentic registry-backed `npm ci` and package valida
 1. Do not create further local T6-003 package-evidence or nested-schema work
    from its MERGED state.
 2. Keep formal requirements coverage, PR #55 and PR #58 GitHub-attributable
-   review, #60/T6-003, T5-003-G01, #28, live Standard compatibility, live
+   review, T5-003-G01, #28, live Standard compatibility, live
    Analytics compatibility, signing, publication, and human or Toast Terms and
    brand approval as owned external gates.
 

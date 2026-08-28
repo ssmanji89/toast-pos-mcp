@@ -451,17 +451,12 @@ sufficiency.
 
 **Remaining external, vendor, and human gates:**
 
-- #60/T6-003 first-tool-request cancellation remains open. The npm registry
-  reports `@modelcontextprotocol/server@2.0.0` and
-  `@modelcontextprotocol/client@2.0.0` as current latest releases, so no local
-  MCP dependency-upgrade path exists. Actual compiled stdio evidence records
-  legacy `initialize` ID 0 then first `tools/call` ID 1, while pinned modern
-  `2026-07-28` records first `tools/call` ID 0. Plan 06-07 uses the corrected
-  contract: modern ID 0 is the defect proof; legacy ID 1 is regression proof.
-  Plan 06-08 retains cleanup, registration, mutation, Node 20/22, and
-  independent exact-head review gates. Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210`
-  retains duplicate-active-ID rejection and makes the first-request proof deterministic.
-  Both Node gates passed. Both runtimes ran all 13 isolated mutations. The independent exact-head review remains pending.
+- #60/T6-003 first-tool-request cancellation is CLOSED. PR #69 merged as
+  `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f` after a CLEAN independent
+  findings-only review at `52df015876f9277255edba30262fa58eec0c95f9`.
+  Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` retains
+  duplicate-active-ID rejection and deterministic first-request cancellation.
+  Both Node gates and all 13 isolated mutations passed on both runtimes.
 - T5-003-G01 requires a corrected Toast retrieval contract or written vendor
   confirmation before a complete Analytics result contract can be claimed.
 - #28 requires owner-authorized live Standard evidence for credential-wide

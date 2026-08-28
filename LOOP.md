@@ -533,10 +533,9 @@ The threat model went stale twice during this slice — once because `main` move
 - **Blocking vendor gate:** T5-003-G01 requires a corrected current Toast
   OpenAPI or written vendor confirmation before any complete Analytics result
   parser or report claim can be implemented.
-- **External and human gates:** #60/T6-003 first-tool-request cancellation,
-  #28 live Standard compatibility, live Analytics compatibility, signing,
+- **External and human gates:** #28 live Standard compatibility, live Analytics compatibility, signing,
   publication, and human or Toast Terms and brand approval remain open.
 
 ### #60 candidate handoff
 
-Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` drops duplicate active report IDs before official handler dispatch, preserving the first accepted registry entry and bridge controller. It also makes the first-request proof deterministic by waiting for the source marker before cancellation. Node 20.20.2 and Node 22.22.2 each completed committed-lockfile restore and `npm run check` (45 discovered files, 441 normal tests, one installed-artifact test). The 40-test focused executable suite includes the duplicate-ID regression. Both runtimes completed the full 13-guard mutation matrix: the former 12 bridge guards plus duplicate active-ID rejection. Issue #60 stays OPEN until independent findings-only exact-head review completes. DOX: updated.
+Candidate `2f0b38ffb84e355a25ea322bcb0ab9d43b68a210` drops duplicate active report IDs before official handler dispatch, preserving the first accepted registry entry and bridge controller. It also makes the first-request proof deterministic by waiting for the source marker before cancellation. Node 20.20.2 and Node 22.22.2 each completed committed-lockfile restore and `npm run check` (45 discovered files, 441 normal tests, one installed-artifact test). The 40-test focused executable suite includes the duplicate-ID regression. Both runtimes completed the full 13-guard mutation matrix: the former 12 bridge guards plus duplicate active-ID rejection. PR #69 merged as `8d1c65994d89f9d18b920acf1c3ab39adb0abb7f` after a CLEAN independent findings-only review at `52df015876f9277255edba30262fa58eec0c95f9`; Issue #60 is CLOSED. DOX: updated.
