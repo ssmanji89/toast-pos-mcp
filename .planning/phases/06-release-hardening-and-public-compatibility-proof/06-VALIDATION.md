@@ -4,6 +4,7 @@ slug: release-hardening-and-public-compatibility-proof
 status: draft
 nyquist_compliant: false
 wave_0_complete: false
+execution_status: task_1_red_pending
 created: 2026-08-27
 ---
 
@@ -124,7 +125,7 @@ Task 1 owns this Wave 0 dependency. Task 2 cannot be green before it exists and 
 - [x] The Wave 0 test includes the license and absent-NOTICE checkpoint.
 - [x] The claims scan and precise negative boundaries are defined.
 - [x] No watch-mode command exists.
-- [ ] Task 1 RED result recorded.
+- [x] Task 1 RED result recorded: `npm run build:test && ! node --test --enable-source-maps dist-test/test/public-operator-docs.test.js` exited 0 on 2026-08-27 because the new contract test failed as expected. The missing `docs/architecture/report-contract.md` caused the deliberate initial failure. The prior no-dependency compile failure was corrected by authentic `npm ci --no-audit --no-fund`; no test assertion changed.
 - [ ] Task 2 GREEN result recorded.
 - [ ] Task 3 full-gate result and candidate SHA recorded.
 - [ ] `nyquist_compliant: true` set after the observed final checks pass.
