@@ -119,6 +119,16 @@ test("audit rejects duplicate and unlinked requirement IDs", () => {
   assert.match(unlinked.stderr, /inventory ID has no matrix record: REQ-ONE/u);
 });
 
+test("audit rejects a compound baseline that overlaps atomic requirement rows", () => {
+  const compound = validRequirement.replaceAll("REQ-ONE", "REQ-PROD-006");
+  const atomic = validRequirement.replaceAll("REQ-ONE", "REQ-PROD-006A");
+  const compoundMatrix = validMatrixRow.replaceAll("REQ-ONE", "REQ-PROD-006");
+  const atomicMatrix = validMatrixRow.replaceAll("REQ-ONE", "REQ-PROD-006A");
+  const result = runAudit(inventory([compound, atomic]), matrix([compoundMatrix, atomicMatrix]));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /REQ-PROD-006: compound baseline overlaps atomic requirement rows/u);
+});
+
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {
   const collapsedGates = requiredGates.map((gate) => {
     if (gate === "#60") {

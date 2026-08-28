@@ -5,27 +5,13 @@
 
 | Requirement ID | Implementation links | Local evidence | Review evidence | Production reachability | Evidence level | Gate disposition |
 | --- | --- | --- | --- | --- | --- | --- |
-| REQ-PROD-001 | `src/report-tools.ts`; `src/analytics-report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T0-001 record | production-wired | synthetic-tested | external |
-| REQ-PROD-002 | `src/runtime-config.ts` | `test/runtime-config.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-003 | `test/fixtures/` | repository fixture tests | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-004 | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-004A | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-005 | `src/analytics-report-tools.ts`; `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-006 | `src/location-registry.ts`; `src/analytics-location-registry.ts` | `test/location-registry.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
-| REQ-PROD-007 | `src/reports/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-008 | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-009 | `src/normalization/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-010 | `docs/architecture/report-contract.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-PROD-011 | `src/capability-preflight.ts`; `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-004C | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-004D | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-004E | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-004F | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-004G | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-ARCH-001 | `package.json`; `tsconfig.json` | `npm run check` | unverified | production-wired | synthetic-tested | external |
-| REQ-ARCH-002 | `src/index.ts`; `src/server.ts` | `test/stdio-lifecycle.test.ts` | `LOOP.md` PR #24 record | production-wired | synthetic-tested | external |
-| REQ-ARCH-003 | `src/index.ts` | `test/stdio-lifecycle.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ARCH-004 | `src/toast-http-client.ts`; `src/analytics/report-job.ts`; `src/report-tools.ts` | `npm run check` | unverified | production-wired | synthetic-tested | external |
-| REQ-ARCH-005 | `src/report-tools.ts`; `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | `LOOP.md` T5-003 record | production-wired | synthetic-tested | external |
-| REQ-ARCH-006 | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ARCH-007 | `src/toast-http-client.ts` | `test/toast-http-client.test.ts` | `LOOP.md` PR #37 record | production-wired | synthetic-tested | external |
-| REQ-ARCH-008 | `src/pagination/` | `test/orders-bulk-pagination.test.ts` | `LOOP.md` PR #35 record | production-wired | synthetic-tested | external |
-| REQ-ARCH-009 | `src/analytics/report-job.ts` | `test/analytics-report-job.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
 | REQ-DEL-001 | `LOOP.md`; GitHub issue and PR records | unverified | unverified | production-wired | unverified | external |
 | REQ-DEL-002 | `.planning/ROADMAP.md` | `npm run check` | unverified | production-wired | synthetic-tested | external |
 | REQ-DEL-003 | `.planning/ROADMAP.md`; `LOOP.md` | local validation documents | unverified | production-wired | synthetic-tested | external |
@@ -34,30 +20,6 @@
 | REQ-DEL-006 | `AGENTS.md`; `LOOP.md` | unverified | unverified | unverified | unverified | external |
 | REQ-DEL-007 | GitHub pull request reviews | unverified | unverified | unverified | unverified | external |
 | REQ-DEL-008 | `LOOP.md` | slice evidence | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-001 | `src/index.ts`; `docs/architecture/report-contract.md` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-002 | `src/index.ts`; `docs/architecture/public-use-boundary.md` | `test/stdio-lifecycle.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-003 | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-004 | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-005 | `src/report-tools.ts`; `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-006 | `src/analytics/report-job.ts`; `src/normalization/` | `test/analytics-report-tools.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-007 | `test/fixtures/` | repository fixture tests | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-008 | `src/report-result.ts`; `docs/architecture/report-contract.md` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-ISSUE-009 | `src/report-tools.ts`; `src/analytics-report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-001 | `docs/architecture/report-contract.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-002 | `docs/architecture/public-use-boundary.md`; `package.json` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-003 | `src/runtime-config.ts`; `docs/architecture/public-use-boundary.md` | `test/runtime-config.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-004 | `src/location-registry.ts`; `src/analytics-location-registry.ts` | `test/location-registry.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-005 | `src/analytics-report-tools.ts`; `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-006 | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
-| REQ-DOC-007 | `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | `LOOP.md` T5-003 record | production-wired | synthetic-tested | external |
-| REQ-DOC-008 | `docs/architecture/threat-model.md` | installed-artifact test | unverified | production-wired | synthetic-tested | external |
-| REQ-PHASE-001 | `docs/architecture/public-use-boundary.md`; `docs/architecture/threat-model.md` | T0-001 evidence | `LOOP.md` T0-001 record | production-wired | independent-review | external |
-| REQ-PHASE-002 | `src/index.ts`; `src/runtime-config.ts` | `test/stdio-lifecycle.test.ts` | `LOOP.md` PR #24 record | production-wired | synthetic-tested | external |
-| REQ-PHASE-003 | `src/runtime.ts`; `src/location-registry.ts` | `test/location-registry.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
-| REQ-PHASE-004 | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` PR #40 record | production-wired | synthetic-tested | external |
-| REQ-PHASE-005 | `src/cash-report.ts`; `src/labor-report.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T4 records | production-wired | synthetic-tested | external |
-| REQ-PHASE-006 | `src/analytics/report-job.ts`; `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | `LOOP.md` T5-003 record | production-wired | synthetic-tested | external |
-| REQ-PHASE-007 | unverified | unverified | unverified | unverified | unverified | external |
 | REQ-PROD-001A | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T0-001 record | production-wired | synthetic-tested | external |
 | REQ-PROD-001B | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T0-001 record | production-wired | synthetic-tested | external |
 | REQ-PROD-001C | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T0-001 record | production-wired | synthetic-tested | external |
@@ -70,30 +32,62 @@
 | REQ-PROD-004B | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-005A | `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-005B | `docs/architecture/public-use-boundary.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-005C | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-005D | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-005E | `src/normalization/` | `test/orders-normalization.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-006A | `src/location-registry.ts` | `test/location-registry.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
 | REQ-PROD-006B | `src/toast-http-client.ts` | `test/partners-transport.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
 | REQ-PROD-006C | `src/location-registry.ts` | `test/location-registry.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
+| REQ-PROD-006D | `src/toast-http-client.ts` | `test/partners-transport.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
+| REQ-PROD-006E | `src/toast-http-client.ts` | `test/partners-transport.test.ts` | `LOOP.md` T2-001 record | production-wired | synthetic-tested | external |
 | REQ-PROD-007A | `src/reports/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-007B | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-007C | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-007D | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-007E | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-007F | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-007G | `src/report-result.ts` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-008A | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-008B | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-008C | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-008D | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-008E | `src/business-date.ts` | `test/business-date.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-009A | `src/normalization/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-009B | `src/normalization/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-009C | `src/normalization/` | `test/report-tools-e2e.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-010A | `docs/architecture/report-contract.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-PROD-010B | `docs/architecture/report-contract.md` | `test/public-operator-docs.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-PROD-011A | `src/capability-preflight.ts` | `test/capabilities.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
 | REQ-PROD-011B | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-011C | `src/capability-preflight.ts` | `test/capabilities.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-011D | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-011E | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-011F | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
+| REQ-PROD-011G | `src/report-tools.ts` | `test/report-tools-e2e.test.ts` | `LOOP.md` T2-002 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-002A | `src/index.ts` | `test/stdio-lifecycle.test.ts` | `LOOP.md` PR #24 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-002B | `src/index.ts` | `test/stdio-lifecycle.test.ts` | `LOOP.md` PR #24 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-003A | unverified | unverified | unverified | unverified | unverified | external |
+| REQ-ARCH-003B | unverified | unverified | unverified | unverified | unverified | external |
+| REQ-ARCH-003C | unverified | unverified | unverified | unverified | unverified | external |
+| REQ-ARCH-003D | unverified | unverified | unverified | unverified | unverified | external |
 | REQ-ARCH-005A | `src/report-tools.ts`; `src/analytics-report-tools.ts` | `test/analytics-report-tools.test.ts` | `LOOP.md` T5-003 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-006A | `src/pagination/` | `test/orders-page-fold.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-ARCH-006B | `src/pagination/` | `test/orders-page-fold.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-ARCH-006C | `src/pagination/` | `test/orders-page-fold.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-ARCH-006D | `src/pagination/` | `test/orders-page-fold.test.ts` | unverified | production-wired | synthetic-tested | external |
+| REQ-ARCH-006E | `src/pagination/` | `test/orders-page-fold.test.ts` | unverified | production-wired | synthetic-tested | external |
 | REQ-ARCH-007A | `src/toast-http-client.ts` | `test/transport.test.ts` | `LOOP.md` PR #37 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-007B | `src/toast-http-client.ts` | `test/transport.test.ts` | `LOOP.md` PR #37 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-008A | `src/pagination/` | `test/orders-bulk-pagination.test.ts` | `LOOP.md` PR #35 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-008B | `src/pagination/` | `test/configuration-page-fold.test.ts` | `LOOP.md` PR #35 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-008C | `src/pagination/` | `test/configuration-page-fold.test.ts` | `LOOP.md` PR #35 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-008D | `src/pagination/` | `test/configuration-page-fold.test.ts` | `LOOP.md` PR #35 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-009A | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
 | REQ-ARCH-009B | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-009C | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-009D | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-009E | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
+| REQ-ARCH-009F | `src/analytics/report-job.ts` | `test/analytics-report-jobs.test.ts` | `LOOP.md` T5-002 record | production-wired | synthetic-tested | external |
 
 ## Mandatory external gates
 

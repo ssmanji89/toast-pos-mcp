@@ -201,6 +201,19 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     }
   }
 
+  const atomicFamilies = new Set();
+  for (const id of inventoryIds) {
+    const match = /^(REQ-[A-Z]+-\d{3})[A-Z]$/u.exec(id);
+    if (match) {
+      atomicFamilies.add(match[1]);
+    }
+  }
+  for (const family of atomicFamilies) {
+    if (inventoryIds.has(family)) {
+      diagnostics.push(`${family}: compound baseline overlaps atomic requirement rows`);
+    }
+  }
+
   const gates = new Map();
   for (const row of gateRows) {
     const id = row["Gate ID"];
