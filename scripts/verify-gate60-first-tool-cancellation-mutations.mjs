@@ -81,7 +81,11 @@ async function verifyMutation({ id, testName, file, before, after }) {
       const result = spawnSync(
         "node",
         ["--test", "--test-name-pattern", `^${escapeRegularExpression(testName)}$`, firstToolTest],
-        { cwd: mutationRoot, encoding: "utf8" },
+        {
+          cwd: mutationRoot,
+          encoding: "utf8",
+          env: { ...process.env, GATE60_PROTOCOL_TIMEOUT_MS: "500" },
+        },
       );
       const output = `${result.stdout}\n${result.stderr}`;
       if (!output.includes(testName)) {

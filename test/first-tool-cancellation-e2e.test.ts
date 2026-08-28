@@ -14,7 +14,7 @@ const BUSINESS_DATES = {
   reject: 20260819,
   reuse: 20260820,
 } as const;
-const PROTOCOL_TIMEOUT_MS = 10_000;
+const PROTOCOL_TIMEOUT_MS = Number.parseInt(process.env.GATE60_PROTOCOL_TIMEOUT_MS ?? "10000", 10);
 const CLEANUP_SNAPSHOT = "gate60-cancellation-snapshot:activeControllers=0 relayListeners=0";
 const PRODUCTION_SERVER_PATH = path.resolve(process.cwd(), "dist", "index.js");
 const PRELOAD_PATH = path.resolve(
