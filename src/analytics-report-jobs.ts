@@ -12,6 +12,10 @@ export const ANALYTICS_REPORT_JOB_POLL_INTERVAL_MS = 1_000;
 export const ANALYTICS_REPORT_JOB_MAX_POLL_ATTEMPTS = 30;
 export const ANALYTICS_REPORT_JOB_MAX_POLL_ELAPSED_MS = 30_000;
 export const ANALYTICS_REPORT_JOB_MAX_REPLACEMENTS = 1;
+/** Local retry safety policy. These values are not Toast rate-limit facts. */
+export const ANALYTICS_REPORT_JOB_MAX_429_RETRIES = 2;
+export const ANALYTICS_REPORT_JOB_MAX_429_WAIT_MS = 30_000;
+const ANALYTICS_REPORT_JOB_429_BACKOFF_BASE_MS = 1_000;
 const jobOwnerByDescriptor = new WeakMap<AnalyticsReportJobDescriptor, AnalyticsReportJobAdapter>();
 const selectionByDescriptor = new WeakMap<AnalyticsReportJobDescriptor, AnalyticsRestaurantSelection>();
 const limiterByAnalyticsIdentity = new WeakMap<object, Map<string, number[]>>();
@@ -105,7 +109,8 @@ export type AnalyticsReportJobErrorCode =
   | "analytics_report_job_descriptor_invalid"
   | "analytics_report_job_request_failed"
   | "analytics_report_job_response_invalid"
-  | "analytics_report_job_cancelled";
+  | "analytics_report_job_cancelled"
+  | "analytics_report_job_capability_denied";
 
 export class AnalyticsReportJobError extends Error {
   readonly code: AnalyticsReportJobErrorCode;
@@ -125,6 +130,8 @@ export interface AnalyticsReportJobAdapterOptions {
   readonly hostname: string;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
+  /** Test seam for bounded local 429 jitter. */
+  readonly random?: () => number;
   readonly sleep?: (milliseconds: number, options?: AnalyticsReportJobRequestOptions) => Promise<void>;
 }
 
@@ -143,6 +150,7 @@ export class AnalyticsReportJobAdapter {
   #identity: object;
   #limiter: Map<string, number[]>;
   #now: () => number;
+  #random: () => number;
   #sleep: (milliseconds: number, options?: AnalyticsReportJobRequestOptions) => Promise<void>;
   #tokenManager: AnalyticsTokenManager;
 
@@ -154,6 +162,7 @@ export class AnalyticsReportJobAdapter {
     this.#limiter = limiterByAnalyticsIdentity.get(this.#identity) ?? new Map();
     limiterByAnalyticsIdentity.set(this.#identity, this.#limiter);
     this.#now = options.now ?? Date.now;
+    this.#random = options.random ?? Math.random;
     this.#sleep = options.sleep ?? (async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.#tokenManager = options.tokenManager;
   }
@@ -193,50 +202,48 @@ export class AnalyticsReportJobAdapter {
     const startedAtEpochMs = this.#now();
     let pollCount = 0;
     let replacementCount = 0;
-    let descriptor: AnalyticsReportJobDescriptor;
     try {
-      descriptor = await this.#createValidated(selection, validated, signal);
+      let descriptor = await this.#createValidated(selection, validated, signal);
+      const responseRequestIds: string[] = [];
+      for (;;) {
+        throwIfCancelled(signal);
+        const turn = await this.#retrieveDescriptor(descriptor, signal);
+        throwIfCancelled(signal);
+        if (turn.requestId !== undefined) responseRequestIds.push(turn.requestId);
+        switch (turn.status.status) {
+          case "complete":
+            return this.#lifecycleResult("result_contract_unavailable", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
+          case "invalid_or_expired":
+            return this.#lifecycleResult("invalid_or_expired", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
+          case "failed_or_incomplete":
+            return this.#lifecycleResult("failed_or_incomplete", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
+          case "replacement_required":
+            if (replacementCount >= ANALYTICS_REPORT_JOB_MAX_REPLACEMENTS) {
+              return this.#lifecycleResult("replacement_exhausted", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
+            }
+            replacementCount += 1;
+            descriptor = await this.#createValidated(selection, validated, signal);
+            continue;
+          case "pending":
+            pollCount += 1;
+            if (
+              pollCount >= ANALYTICS_REPORT_JOB_MAX_POLL_ATTEMPTS
+              || this.#now() - startedAtEpochMs >= ANALYTICS_REPORT_JOB_MAX_POLL_ELAPSED_MS
+            ) {
+              return this.#lifecycleResult("pending_exhausted", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
+            }
+            await awaitWithCancellation(
+              this.#sleep(ANALYTICS_REPORT_JOB_POLL_INTERVAL_MS, { ...(signal === undefined ? {} : { signal }) }),
+              signal,
+            );
+        }
+      }
     } catch (error) {
       if (isCancellation(signal, error)) throw cancellationFailure();
-      if (error instanceof AnalyticsReportJobError && error.code === "analytics_report_job_request_failed") {
-        return this.#lifecycleResult("failed_or_incomplete", validated, selection, startedAtEpochMs, pollCount, replacementCount, []);
-      }
-      throw error;
-    }
-
-    const responseRequestIds: string[] = [];
-    for (;;) {
-      throwIfCancelled(signal);
-      const turn = await this.#retrieveDescriptor(descriptor, signal);
-      throwIfCancelled(signal);
-      if (turn.requestId !== undefined) responseRequestIds.push(turn.requestId);
-      switch (turn.status.status) {
-        case "complete":
-          return this.#lifecycleResult("result_contract_unavailable", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
-        case "invalid_or_expired":
-          return this.#lifecycleResult("invalid_or_expired", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
-        case "failed_or_incomplete":
-          return this.#lifecycleResult("failed_or_incomplete", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
-        case "replacement_required":
-          if (replacementCount >= ANALYTICS_REPORT_JOB_MAX_REPLACEMENTS) {
-            return this.#lifecycleResult("replacement_exhausted", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
-          }
-          replacementCount += 1;
-          descriptor = await this.#createValidated(selection, validated, signal);
-          continue;
-        case "pending":
-          pollCount += 1;
-          if (
-            pollCount >= ANALYTICS_REPORT_JOB_MAX_POLL_ATTEMPTS
-            || this.#now() - startedAtEpochMs >= ANALYTICS_REPORT_JOB_MAX_POLL_ELAPSED_MS
-          ) {
-            return this.#lifecycleResult("pending_exhausted", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
-          }
-          await awaitWithCancellation(
-            this.#sleep(ANALYTICS_REPORT_JOB_POLL_INTERVAL_MS, { ...(signal === undefined ? {} : { signal }) }),
-            signal,
-          );
-      }
+      const status = error instanceof AnalyticsReportJobError && error.code === "analytics_report_job_capability_denied"
+        ? "capability_denied"
+        : "failed_or_incomplete";
+      return this.#lifecycleResult(status, validated, selection, startedAtEpochMs, pollCount, replacementCount, []);
     }
   }
 
@@ -245,41 +252,46 @@ export class AnalyticsReportJobAdapter {
     validated: AnalyticsReportJobCreateInput,
     signal: AbortSignal | undefined,
   ): Promise<AnalyticsReportJobDescriptor> {
-    await this.#assertCapability(signal);
-    await this.#waitForCapacity(validated.operation, "POST", validated.timeRange, selection.restaurantGuids, signal);
-    throwIfCancelled(signal);
     const route = createRouteFor(validated);
     const body = createBodyFor(validated, selection.restaurantGuids);
-    const authorization = await this.#authorizationHeader(signal);
-    let response: Response;
-    try {
-      response = await awaitWithCancellation(this.#fetch(`https://${this.#hostname}${route}`, {
-        method: "POST",
-        headers: {
-          authorization,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-        ...(signal !== undefined ? { signal } : {}),
-      }), signal);
-    } catch {
-      if (signal?.aborted) throw cancellationFailure();
-      throw requestFailure();
+    for (let retryCount = 0; ; retryCount += 1) {
+      throwIfCancelled(signal);
+      this.#access.assertSelectionForCurrentIdentity(selection);
+      await this.#assertCapability(signal);
+      await this.#waitForCapacity(validated.operation, "POST", validated.timeRange, selection.restaurantGuids, signal);
+      const authorization = await this.#authorizationHeader(signal);
+      let response: Response;
+      try {
+        response = await awaitWithCancellation(this.#fetch(`https://${this.#hostname}${route}`, {
+          method: "POST",
+          headers: { authorization, "content-type": "application/json" },
+          body: JSON.stringify(body),
+          ...(signal !== undefined ? { signal } : {}),
+        }), signal);
+      } catch {
+        if (signal?.aborted) throw cancellationFailure();
+        throw requestFailure();
+      }
+      throwIfCancelled(signal);
+      if (response.status === 429) {
+        if (retryCount >= ANALYTICS_REPORT_JOB_MAX_429_RETRIES) throw requestFailure();
+        await this.#waitFor429(response, retryCount, signal);
+        continue;
+      }
+      if (!response.ok) throw requestFailure();
+      const reportRequestId = await readOpaqueReportRequestId(response, signal);
+      throwIfCancelled(signal);
+      const descriptor = Object.freeze({
+        operation: validated.operation,
+        reportRequestId,
+        restaurantGuids: Object.freeze([...selection.restaurantGuids]),
+        createdAtEpochMs: this.#now(),
+        timeRange: validated.timeRange,
+      });
+      jobOwnerByDescriptor.set(descriptor, this);
+      selectionByDescriptor.set(descriptor, selection);
+      return descriptor;
     }
-    throwIfCancelled(signal);
-    if (!response.ok) throw requestFailure();
-    const reportRequestId = await readOpaqueReportRequestId(response, signal);
-    throwIfCancelled(signal);
-    const descriptor = Object.freeze({
-      operation: validated.operation,
-      reportRequestId,
-      restaurantGuids: Object.freeze([...selection.restaurantGuids]),
-      createdAtEpochMs: this.#now(),
-      timeRange: validated.timeRange,
-    });
-    jobOwnerByDescriptor.set(descriptor, this);
-    selectionByDescriptor.set(descriptor, selection);
-    return descriptor;
   }
 
   async #retrieveDescriptor(
@@ -295,27 +307,33 @@ export class AnalyticsReportJobAdapter {
     }
     const selection = selectionByDescriptor.get(descriptor);
     if (selection === undefined) throw requestFailure();
-    this.#access.assertSelectionForCurrentIdentity(selection);
-    await this.#assertCapability(signal);
-    await this.#waitForCapacity(descriptor.operation, "GET", descriptor.timeRange, descriptor.restaurantGuids, signal);
-    throwIfCancelled(signal);
     const route = retrieveRouteFor(descriptor.operation, descriptor.reportRequestId);
-    const authorization = await this.#authorizationHeader(signal);
-    let response: Response;
-    try {
-      response = await awaitWithCancellation(this.#fetch(`https://${this.#hostname}${route}`, {
-        method: "GET",
-        headers: { authorization },
-        ...(signal !== undefined ? { signal } : {}),
-      }), signal);
-    } catch {
-      if (signal?.aborted) throw cancellationFailure();
-      throw requestFailure();
+    for (let retryCount = 0; ; retryCount += 1) {
+      throwIfCancelled(signal);
+      this.#access.assertSelectionForCurrentIdentity(selection);
+      await this.#assertCapability(signal);
+      await this.#waitForCapacity(descriptor.operation, "GET", descriptor.timeRange, descriptor.restaurantGuids, signal);
+      const authorization = await this.#authorizationHeader(signal);
+      let response: Response;
+      try {
+        response = await awaitWithCancellation(this.#fetch(`https://${this.#hostname}${route}`, {
+          method: "GET",
+          headers: { authorization },
+          ...(signal !== undefined ? { signal } : {}),
+        }), signal);
+      } catch {
+        if (signal?.aborted) throw cancellationFailure();
+        throw requestFailure();
+      }
+      throwIfCancelled(signal);
+      if (response.status === 429) {
+        if (retryCount >= ANALYTICS_REPORT_JOB_MAX_429_RETRIES) throw requestFailure();
+        await this.#waitFor429(response, retryCount, signal);
+        continue;
+      }
+      const requestId = safeRequestId(response);
+      return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });
     }
-    throwIfCancelled(signal);
-    if (response.status === 429) await this.#waitFor429(response, signal);
-    const requestId = response.headers?.get("x-request-id") ?? response.headers?.get("toast-request-id") ?? undefined;
-    return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });
   }
 
   async #authorizationHeader(signal: AbortSignal | undefined): Promise<string> {
@@ -335,7 +353,7 @@ export class AnalyticsReportJobAdapter {
     }), signal);
     throwIfCancelled(signal);
     if (decision.status === "denied") {
-      throw new AnalyticsReportJobError("analytics_report_job_request_failed", "Analytics report-job capability is unavailable.");
+      throw new AnalyticsReportJobError("analytics_report_job_capability_denied", "Analytics report-job capability is unavailable.");
     }
   }
 
@@ -350,21 +368,24 @@ export class AnalyticsReportJobAdapter {
     const limits = rateLimitsFor(operation, method, timeRange);
     const key = `${operation}|${method}|${timeRange}|${restaurantGuids.join(",")}`;
     const now = this.#now();
-    const prior = (this.#limiter.get(key) ?? []).filter((at) => at > now - limits.windowMs);
-    if (prior.length >= limits.maxRequests) {
-      const delay = Math.max(1, prior[0]! + limits.windowMs - now);
+    const buckets = limits.map((limit) => {
+      const bucketKey = `${key}|${limit.maxRequests}|${limit.windowMs}`;
+      const turns = (this.#limiter.get(bucketKey) ?? []).filter((at) => at > now - limit.windowMs);
+      return { limit, bucketKey, turns };
+    });
+    const delay = Math.max(0, ...buckets.map(({ limit, turns }) => (
+      turns.length < limit.maxRequests ? 0 : turns[0]! + limit.windowMs - now
+    )));
+    if (delay > 0) {
       await awaitWithCancellation(this.#sleep(delay, { ...(signal === undefined ? {} : { signal }) }), signal);
       throwIfCancelled(signal);
       return this.#waitForCapacity(operation, method, timeRange, restaurantGuids, signal);
     }
-    prior.push(now);
-    this.#limiter.set(key, prior);
+    for (const { bucketKey, turns } of buckets) this.#limiter.set(bucketKey, [...turns, now]);
   }
 
-  async #waitFor429(response: Response, signal: AbortSignal | undefined): Promise<void> {
-    const retryAfter = response.headers?.get("retry-after");
-    const seconds = retryAfter === null || retryAfter === undefined ? 1 : Number(retryAfter);
-    const delay = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1_000, 30_000) : 1_000;
+  async #waitFor429(response: Response, retryCount: number, signal: AbortSignal | undefined): Promise<void> {
+    const delay = retryDelayMilliseconds(response, retryCount, this.#now(), this.#random());
     await awaitWithCancellation(this.#sleep(delay, { ...(signal === undefined ? {} : { signal }) }), signal);
     throwIfCancelled(signal);
   }
@@ -416,13 +437,45 @@ function rateLimitsFor(
   operation: AnalyticsReportOperation,
   method: "POST" | "GET",
   timeRange: AnalyticsReportJobCreateInput["timeRange"],
-): AnalyticsLimiterBudget {
-  if (method === "GET") return { maxRequests: 5, windowMs: 1_000 };
-  if (operation === "check") return { maxRequests: 5, windowMs: 60_000 };
+): readonly AnalyticsLimiterBudget[] {
+  if (method === "GET") return Object.freeze([
+    Object.freeze({ maxRequests: 5, windowMs: 1_000 }),
+    Object.freeze({ maxRequests: 30, windowMs: 60_000 }),
+  ]);
+  if (operation === "check") return Object.freeze([
+    Object.freeze({ maxRequests: 5, windowMs: 60_000 }),
+    Object.freeze({ maxRequests: 60, windowMs: 86_400_000 }),
+  ]);
   if (timeRange === "custom" || timeRange === "month" || timeRange === "year") {
-    return { maxRequests: 10, windowMs: 3_600_000 };
+    return Object.freeze([Object.freeze({ maxRequests: 10, windowMs: 3_600_000 })]);
   }
-  return { maxRequests: 10, windowMs: 60_000 };
+  return Object.freeze([
+    Object.freeze({ maxRequests: 10, windowMs: 60_000 }),
+    Object.freeze({ maxRequests: 60, windowMs: 3_600_000 }),
+  ]);
+}
+
+function retryDelayMilliseconds(response: Response, retryCount: number, now: number, random: number): number {
+  const headerDelay = retryAfterMilliseconds(response.headers?.get("retry-after") ?? null, now);
+  if (headerDelay !== undefined) return Math.min(headerDelay, ANALYTICS_REPORT_JOB_MAX_429_WAIT_MS);
+  const exponential = Math.min(
+    ANALYTICS_REPORT_JOB_429_BACKOFF_BASE_MS * 2 ** retryCount,
+    ANALYTICS_REPORT_JOB_MAX_429_WAIT_MS,
+  );
+  return Math.max(1, Math.floor(exponential * (0.5 + Math.min(1, Math.max(0, random)))));
+}
+
+function retryAfterMilliseconds(value: string | null, now: number): number | undefined {
+  if (value === null) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const at = Date.parse(value);
+  return Number.isFinite(at) && at > now ? at - now : undefined;
+}
+
+function safeRequestId(response: Response): string | undefined {
+  const value = response.headers?.get("x-request-id") ?? response.headers?.get("toast-request-id") ?? undefined;
+  return value !== undefined && value.length <= MAX_REPORT_REQUEST_ID_LENGTH ? value : undefined;
 }
 
 function isCancellation(signal: AbortSignal | undefined, _error: unknown): boolean {
