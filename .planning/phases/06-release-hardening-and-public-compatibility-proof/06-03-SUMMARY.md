@@ -82,9 +82,9 @@ status: complete
 
 The generic GSD State handlers require fields that this repository snapshot intentionally does not contain. They did not update `STATE.md`. The dedicated roadmap handler ran, but its Phase-complete projection was invalid and was reverted.
 
-`git diff --check origin/main...HEAD` found two trailing spaces in the approved
-`06-T6-003-RECONCILIATION-RESEARCH.md` plan input. This plan did not modify that
-file. The task and metadata commits pass their own whitespace checks.
+PR #54 review identified two trailing spaces in
+`06-T6-003-RECONCILIATION-RESEARCH.md`. The follow-up removes only that
+whitespace. The full PR range check now passes.
 
 ## Known Stubs
 

@@ -1,7 +1,7 @@
 # Phase 6: T6-003 post-merge release-frontier reconciliation - Research
 
-**Researched:** 2026-08-27 America/Chicago  
-**Scope:** Control-plane reconciliation after PR #53  
+**Researched:** 2026-08-27 America/Chicago
+**Scope:** Control-plane reconciliation after PR #53
 **Confidence:** HIGH for repository and GitHub facts; HIGH for npm registry facts at the observation time
 
 ## Purpose
