@@ -175,7 +175,7 @@ export class AnalyticsReportJobAdapter {
     throwIfCancelled(options.signal);
     this.#access.assertSelectionForCurrentIdentity(selection);
     const validated = validateCreateInput(input);
-    return this.#createValidated(selection, validated, options.signal);
+    return this.#createValidated(selection, validated, [], options.signal);
   }
 
   async retrieve(
@@ -202,9 +202,9 @@ export class AnalyticsReportJobAdapter {
     const startedAtEpochMs = this.#now();
     let pollCount = 0;
     let replacementCount = 0;
+    const responseRequestIds: string[] = [];
     try {
-      let descriptor = await this.#createValidated(selection, validated, signal);
-      const responseRequestIds: string[] = [];
+      let descriptor = await this.#createValidated(selection, validated, responseRequestIds, signal);
       for (;;) {
         throwIfCancelled(signal);
         const turn = await this.#retrieveDescriptor(descriptor, signal);
@@ -222,7 +222,7 @@ export class AnalyticsReportJobAdapter {
               return this.#lifecycleResult("replacement_exhausted", validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
             }
             replacementCount += 1;
-            descriptor = await this.#createValidated(selection, validated, signal);
+            descriptor = await this.#createValidated(selection, validated, responseRequestIds, signal);
             continue;
           case "pending":
             pollCount += 1;
@@ -243,13 +243,14 @@ export class AnalyticsReportJobAdapter {
       const status = error instanceof AnalyticsReportJobError && error.code === "analytics_report_job_capability_denied"
         ? "capability_denied"
         : "failed_or_incomplete";
-      return this.#lifecycleResult(status, validated, selection, startedAtEpochMs, pollCount, replacementCount, []);
+      return this.#lifecycleResult(status, validated, selection, startedAtEpochMs, pollCount, replacementCount, responseRequestIds);
     }
   }
 
   async #createValidated(
     selection: AnalyticsRestaurantSelection,
     validated: AnalyticsReportJobCreateInput,
+    responseRequestIds: string[],
     signal: AbortSignal | undefined,
   ): Promise<AnalyticsReportJobDescriptor> {
     const route = createRouteFor(validated);
@@ -273,6 +274,7 @@ export class AnalyticsReportJobAdapter {
         throw requestFailure();
       }
       throwIfCancelled(signal);
+      recordSafeRequestId(response, responseRequestIds);
       if (response.status === 429) {
         if (retryCount >= ANALYTICS_REPORT_JOB_MAX_429_RETRIES) throw requestFailure();
         await this.#waitFor429(response, retryCount, signal);
@@ -476,6 +478,11 @@ function retryAfterMilliseconds(value: string | null, now: number): number | und
 function safeRequestId(response: Response): string | undefined {
   const value = response.headers?.get("x-request-id") ?? response.headers?.get("toast-request-id") ?? undefined;
   return value !== undefined && value.length <= MAX_REPORT_REQUEST_ID_LENGTH ? value : undefined;
+}
+
+function recordSafeRequestId(response: Response, responseRequestIds: string[]): void {
+  const requestId = safeRequestId(response);
+  if (requestId !== undefined) responseRequestIds.push(requestId);
 }
 
 function isCancellation(signal: AbortSignal | undefined, _error: unknown): boolean {

@@ -18,7 +18,8 @@ const guards = [
   ["retry-after", "Analytics lifecycle retries a bounded 429 create turn using Retry-After", "if (headerDelay !== undefined) return Math.min(headerDelay, ANALYTICS_REPORT_JOB_MAX_429_WAIT_MS);", "if (headerDelay !== undefined) return 1;"],
   ["retry-budget", "Analytics lifecycle retries a bounded 429 create turn using Retry-After", "export const ANALYTICS_REPORT_JOB_MAX_429_RETRIES = 2;", "export const ANALYTICS_REPORT_JOB_MAX_429_RETRIES = 0;"],
   ["g02-inactive-option", "Analytics report jobs use exactly the six reviewed create and retrieval routes", "excludedRestaurantIds: [] as const,", "excludedRestaurantIds: [\"inactive\"] as const,"],
-  ["safe-request-id", "Analytics lifecycle maps poll and replacement failures without retaining source bodies", "const requestId = safeRequestId(response);", "const requestId = undefined;"],
+  ["safe-request-id", "Analytics lifecycle maps poll and replacement failures without retaining source bodies", "const requestId = safeRequestId(response);\n      return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });", "const requestId = undefined;\n      return Object.freeze({ status: classifyAnalyticsReportJobRetrievalStatus(response.status), ...(requestId === undefined ? {} : { requestId }) });"],
+  ["failed-post-safe-request-id", "Analytics lifecycle retains safe IDs from failed create and replacement turns", "if (requestId !== undefined) responseRequestIds.push(requestId);", "if (requestId !== undefined) void requestId;"],
 ];
 
 if (new Set(guards.map(([id]) => id)).size !== guards.length) {
