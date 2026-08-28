@@ -14,12 +14,12 @@ const mandatoryGates = [
 ];
 
 const canonicalLeafDomains = [
-  { Domain: "Product contract", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Product contract", "Requirement ID prefix": "REQ-CONTRACT-" },
-  { Domain: "Binding safety rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Binding safety rules", "Requirement ID prefix": "REQ-PROD-" },
-  { Domain: "Architecture constraints", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Architecture constraints", "Requirement ID prefix": "REQ-ARCH-" },
-  { Domain: "GSD delivery rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > GSD execution bridge", "Requirement ID prefix": "REQ-DEL-" },
-  { Domain: "Delivery standard", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Delivery standard", "Requirement ID prefix": "REQ-DEL-" },
-  { Domain: "Documentation check", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Documentation check (DOX)", "Requirement ID prefix": "REQ-DEL-" },
+  { Domain: "Product contract", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Product contract", "Requirement ID prefix": "REQ-CONTRACT-", "Expected leaf count": "10", "Leaf digest": "f98c522fa3c58d205d330874768a6a0a0988543c6366bb5186ee8993e3918bb7" },
+  { Domain: "Binding safety rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Binding safety rules", "Requirement ID prefix": "REQ-PROD-", "Expected leaf count": "52", "Leaf digest": "60e877284047d74a36cbd3350ba5e1639750bd936b839611401e5f32779ee50c" },
+  { Domain: "Architecture constraints", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Architecture constraints", "Requirement ID prefix": "REQ-ARCH-", "Expected leaf count": "45", "Leaf digest": "4e7b25b01a8e26e06f1f46c3b48b44d89450bf662b0037fee38614f8804f6542" },
+  { Domain: "GSD delivery rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > GSD execution bridge", "Requirement ID prefix": "REQ-DEL-", "Expected leaf count": "5", "Leaf digest": "4d2ff1f4326810a5711a6b2b611243ccf832e0c74991dfc6729189d04cf68630" },
+  { Domain: "Delivery standard", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Delivery standard", "Requirement ID prefix": "REQ-DEL-", "Expected leaf count": "2", "Leaf digest": "8022c2eaa68a2fc9279c1cc63c5ab829d04a44ce3aeaaf8936cbbbe6151c8a8f" },
+  { Domain: "Documentation check", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Documentation check (DOX)", "Requirement ID prefix": "REQ-DEL-", "Expected leaf count": "1", "Leaf digest": "07a300fcc29bf57df3d71265169cced18def08de3c1ae444208c036e93e076da" },
 ];
 
 function argument(name) {
@@ -264,7 +264,7 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
         diagnostics.push(`missing canonical source domain: ${expected.Domain}`);
         continue;
       }
-      for (const field of ["Canonical source", "Source anchor", "Requirement ID prefix"]) {
+      for (const field of ["Canonical source", "Source anchor", "Requirement ID prefix", "Expected leaf count", "Leaf digest"]) {
         if (observed[field] !== expected[field]) {
           diagnostics.push(`${expected.Domain}: canonical source domain ${field.toLowerCase()} mismatch`);
         }

@@ -231,6 +231,19 @@ test("audit independently requires each canonical domain when matching leaves al
   assert.match(result.stderr, /missing canonical source domain: Product contract/u);
 });
 
+test("audit rejects synchronized leaf, matrix, and manifest fingerprint mutation", () => {
+  const documents = projectDocuments();
+  const alteredRequirements = documents.requirements.replace(/^\| REQ-CONTRACT-001A \|.*\n/mu, "");
+  const alteredMatrix = documents.evidenceMatrix.replace(/^\| REQ-CONTRACT-001A \|.*\n/mu, "");
+  const alteredManifest = documents.requiredLeaves.replace(
+    "| Product contract | AGENTS.md | AGENTS.md > Product contract | REQ-CONTRACT- | 10 | f98c522fa3c58d205d330874768a6a0a0988543c6366bb5186ee8993e3918bb7 |",
+    "| Product contract | AGENTS.md | AGENTS.md > Product contract | REQ-CONTRACT- | 9 | c7459f4ba8ab01f873fcac85b4cfbba9ec7fddae48192e6a7c8e4797fd9a4104 |",
+  );
+  const result = runProjectAudit(alteredRequirements, alteredMatrix, alteredManifest, documents.requiredSourceCommit);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Product contract: canonical source domain (expected leaf count|leaf digest) mismatch/u);
+});
+
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {
   const collapsedGates = requiredGates.map((gate) => {
     if (gate === "#60") {
