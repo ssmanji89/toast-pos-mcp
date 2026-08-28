@@ -103,11 +103,11 @@ body-free Analytics denial boundary. Post-merge Node 22.22.2 passed
 `npm ci --no-audit --no-fund && npm run check && npm pack --dry-run --json` at
 the merge SHA with the same 43 files, 411 normal tests, one installed-artifact
 test, and 151 package paths. This is MERGED local synthetic package evidence.
-It does not close #4/T6-003 first-tool-request cancellation, T5-003-G01, #28,
+It does not close #60/T6-003 first-tool-request cancellation, T5-003-G01, #28,
 live Standard compatibility, live Analytics compatibility, signing,
 publication, or human or Toast Terms and brand approval. The npm registry
 reports `@modelcontextprotocol/server@2.0.0` and
-`@modelcontextprotocol/client@2.0.0` as current latest releases, so #4 has no
+`@modelcontextprotocol/client@2.0.0` as current latest releases, so #60 has no
 local dependency-upgrade action. DOX: updated.
 
 Plan 06-04 / PR #55 is MERGED on `main` at
@@ -126,7 +126,7 @@ files, 414 normal tests, and one installed-artifact test. Reviewer-pending
 disposition: pending. Current GitHub evidence cannot satisfy the `AGENTS.md`
 independent exact-head review requirement for this merged PR. This is
 synthetic implementation and local validation evidence only. It does not
-close #4/T6-003, T5-003-G01, #28, live Standard or Analytics compatibility,
+close #60/T6-003, T5-003-G01, #28, live Standard or Analytics compatibility,
 signing, publication, consent, Terms, or brand approval. DOX: updated.
 
 Plan 06-05 / PR #58 is MERGED on `main` at
@@ -141,7 +141,7 @@ GitHub-attributable exact-head review remains reviewer-pending. Post-merge
 Node 22.22.2 passed committed restore and `npm run check` at the merge SHA:
 43 discovered files, 415 normal tests, and one installed-artifact test. This
 merges local synthetic evidence only. Formal requirements coverage, PR #55
-GitHub-attributable review, #4/T6-003 first-tool-request cancellation,
+GitHub-attributable review, #60/T6-003 first-tool-request cancellation,
 T5-003-G01, #28, live Standard and Analytics compatibility, signing,
 publication, consent, Terms, and brand approval remain open. DOX: updated.
 
@@ -164,7 +164,7 @@ T4-002 / PR #47 merged as `428cca1` after a CLEAN review of `f7cd0dc`.
 Plan 04-03 / PR #48 merged after independent CLEAN review of `3909f10`.
 Rebuilt main passed the Node 22 `npm run check` gate with 364 tests and the
 43-test report-tool stdio suite. T4 closure does not close live Toast gate #28,
-first-tool-request cancellation gate #4/T6-003, or publication gates.
+first-tool-request cancellation gate #60/T6-003, or publication gates.
 
 ### Phase 4 source slices and integration — CLOSED
 
@@ -515,6 +515,6 @@ The threat model went stale twice during this slice — once because `main` move
 - **Blocking vendor gate:** T5-003-G01 requires a corrected current Toast
   OpenAPI or written vendor confirmation before any complete Analytics result
   parser or report claim can be implemented.
-- **External and human gates:** #4/T6-003 first-tool-request cancellation,
+- **External and human gates:** #60/T6-003 first-tool-request cancellation,
   #28 live Standard compatibility, live Analytics compatibility, signing,
   publication, and human or Toast Terms and brand approval remain open.

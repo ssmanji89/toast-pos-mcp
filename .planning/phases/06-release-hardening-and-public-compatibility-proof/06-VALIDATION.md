@@ -69,7 +69,7 @@ the GitHub-attributable exact-head review remains reviewer-pending.
 | Formal Phase 06 requirement coverage | pending | `.planning/REQUIREMENTS.md` is absent. The owner reference is `T6-003`, but no formal all-requirements coverage claim is available. |
 | PR #55 independent final metadata-head review | pending | Observed GitHub state: `MERGED`; merge commit `bcd819fb7c423d4e19274448417829b9821173ee`; final metadata head `db1270e963850aef3fb5bbb5c6fad402fdb212e2`; `reviews` was empty. |
 | PR #58 GitHub-attributable exact-head review | reviewer-pending | An independent agent recorded CLEAN for candidate `9403bff75b677a97bcceae244efa755bee91778b`, but the observed GitHub `reviews` array is empty. |
-| #4/T6-003 first-tool-request cancellation | open | Local synthetic tests do not close this SDK/runtime release gate. |
+| #60/T6-003 first-tool-request cancellation | open | Issue #60 owns this SDK/runtime release gate. Local synthetic tests do not close it. Current `@modelcontextprotocol/server@2.0.0` and `@modelcontextprotocol/client@2.0.0` leave no local dependency-upgrade action. |
 | T5-003-G01 | open | The complete Analytics retrieval response contract remains unverified. |
 | #28 live Standard compatibility | open | Owner-authorized live Standard credentials are required. |
 | Live Analytics compatibility | open | Authorized access and documented Merchant consent are required. |
