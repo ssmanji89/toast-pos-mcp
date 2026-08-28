@@ -24,7 +24,7 @@ const PRELOAD_PATH = path.resolve(
 
 for (const era of ["legacy", "modern"] as const) {
   test(
-    `${era} official stdio client cancels first request zero and later nonzero report requests through the production executable`,
+    `${era} official stdio client preserves actual request IDs and cancels first and later report requests through the production executable`,
     { timeout: PROTOCOL_TIMEOUT_MS * 8 },
     async () => {
       const transport = new ObservedStdioClientTransport({
@@ -44,21 +44,34 @@ for (const era of ["legacy", "modern"] as const) {
 
       try {
         await client.connect(transport);
+        transport.observeInboundMessages();
 
         const first = callTool(client, "toast_sales_summary", BUSINESS_DATES.firstCancellation);
         await stderr.waitFor("gate60-orders-started:20260816");
+        const firstRequestId = transport.firstToolCallId();
+        if (era === "legacy") {
+          assert.equal(transport.firstOutboundId("initialize"), 0, "legacy initialize must use numeric ID zero");
+          assert.equal(firstRequestId, 1, "legacy first tools/call must use numeric ID one");
+        } else {
+          assert.ok(transport.outboundBefore("server/discover", "tools/call"), "modern discovery must precede the first tools/call");
+          assert.equal(firstRequestId, 0, "modern first tools/call must use numeric ID zero");
+        }
         first.controller.abort("invented request-zero cancellation");
         await assert.rejects(first.result);
         await stderr.waitFor("gate60-orders-aborted:20260816");
+        assert.equal(transport.lastCancellationRequestId(), firstRequestId, "the first cancellation notification must target its matching request ID");
+        await transport.waitForDeniedResponse(firstRequestId);
         await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
-        assert.equal(transport.firstToolCallId(), 0, "the first post-connect tools/call must use numeric JSON-RPC ID zero");
 
         const later = callTool(client, "toast_payment_summary", BUSINESS_DATES.laterCancellation);
         await stderr.waitFor("gate60-payments-started:20260817");
-        assert.notEqual(transport.lastToolCallId(), 0, "the later tools/call must use a nonzero JSON-RPC ID");
+        const laterRequestId = transport.lastToolCallId();
+        assert.notEqual(laterRequestId, 0, "the later tools/call must use a nonzero JSON-RPC ID");
         later.controller.abort("invented nonzero cancellation");
         await assert.rejects(later.result);
         await stderr.waitFor("gate60-payments-aborted:20260817");
+        assert.equal(transport.lastCancellationRequestId(), laterRequestId, "the later cancellation notification must target its matching request ID");
+        await transport.waitForDeniedResponse(laterRequestId);
         await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
 
         const resolved = await client.callTool({
@@ -119,20 +132,55 @@ function callTool(
 }
 
 class ObservedStdioClientTransport extends StdioClientTransport {
-  readonly #toolCallIds: unknown[] = [];
+  readonly #outboundMessages: Array<{ readonly method: string; readonly id: unknown; readonly params: unknown }> = [];
+  readonly #inboundMessages: unknown[] = [];
+  #inboundObserverInstalled = false;
 
   override async send(message: Parameters<StdioClientTransport["send"]>[0]): Promise<void> {
-    const candidate = message as { readonly method?: unknown; readonly id?: unknown };
-    if (candidate.method === "tools/call") this.#toolCallIds.push(candidate.id);
+    const candidate = message as { readonly method?: unknown; readonly id?: unknown; readonly params?: unknown };
+    if (typeof candidate.method === "string") {
+      this.#outboundMessages.push({ method: candidate.method, id: candidate.id, params: candidate.params });
+    }
     await super.send(message);
   }
 
+  observeInboundMessages(): void {
+    if (this.#inboundObserverInstalled) return;
+    this.#inboundObserverInstalled = true;
+    const original = this.onmessage;
+    this.onmessage = (message) => {
+      this.#inboundMessages.push(message);
+      original?.(message);
+    };
+  }
+
   firstToolCallId(): unknown {
-    return this.#toolCallIds[0];
+    return this.#outboundMessages.find((message) => message.method === "tools/call")?.id;
   }
 
   lastToolCallId(): unknown {
-    return this.#toolCallIds.at(-1);
+    return this.#outboundMessages.filter((message) => message.method === "tools/call").at(-1)?.id;
+  }
+
+  firstOutboundId(method: string): unknown {
+    return this.#outboundMessages.find((message) => message.method === method)?.id;
+  }
+
+  outboundBefore(firstMethod: string, secondMethod: string): boolean {
+    return this.#outboundMessages.findIndex((message) => message.method === firstMethod)
+      < this.#outboundMessages.findIndex((message) => message.method === secondMethod);
+  }
+
+  lastCancellationRequestId(): unknown {
+    const cancellation = this.#outboundMessages.filter((message) => message.method === "notifications/cancelled").at(-1);
+    return (cancellation?.params as { readonly requestId?: unknown } | undefined)?.requestId;
+  }
+
+  async waitForDeniedResponse(id: unknown): Promise<void> {
+    await waitUntil(
+      () => this.#inboundMessages.some((message) => isDeniedToolResponse(message, id)),
+      `missing denied response for request ${String(id)}`,
+    );
   }
 }
 
@@ -173,4 +221,21 @@ function observeStderr(transport: StdioClientTransport): { waitFor(marker: strin
     },
     stop: () => stream.off("data", onData),
   };
+}
+
+function isDeniedToolResponse(message: unknown, id: unknown): boolean {
+  if (message === null || typeof message !== "object") return false;
+  const response = message as {
+    readonly id?: unknown;
+    readonly result?: { readonly structuredContent?: { readonly status?: unknown } };
+  };
+  return response.id === id && response.result?.structuredContent?.status === "denied";
+}
+
+async function waitUntil(predicate: () => boolean, message: string): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started >= PROTOCOL_TIMEOUT_MS) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
