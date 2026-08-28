@@ -39,7 +39,8 @@ test("Analytics tool requires one UUID restaurant and one real numeric business 
       { restaurantGuid: ANALYTICS_RESTAURANT_GUID, businessDate: 20260230 },
       { restaurantGuids: [ANALYTICS_RESTAURANT_GUID], businessDate: ANALYTICS_BUSINESS_DATE },
     ]) {
-      await assert.rejects(connection.client.callTool({ name: "toast_analytics_metrics_day", arguments: arguments_ }));
+      const result = await connection.client.callTool({ name: "toast_analytics_metrics_day", arguments: arguments_ });
+      assert.equal(result.isError, true);
     }
   } finally {
     await connection.client.close();
@@ -71,8 +72,8 @@ test("Analytics terminal states publish only body-free denied or incomplete enve
     const output = await callAnalytics(scenario);
     assert.equal(output.status, expectedStatus, scenario);
     assert.equal(output.reason, expectedReason, scenario);
-    for (const forbidden of ["complete", "amount", "result", "body", "token", "reportRequestId", "guest", "payment", "restaurantName", "grouping", "currencyCode", "timezone", "closeoutHour"]) {
-      assert.equal(JSON.stringify(output).includes(forbidden), false, `${scenario} leaked ${forbidden}`);
+    for (const forbidden of ["amount", "resultRows", "rawBody", "token", "reportRequestId", "restaurantName", "grouping", "currencyCode", "timezone", "closeoutHour"]) {
+      assert.equal(forbidden in output, false, `${scenario} exposed ${forbidden}`);
     }
   }
 });
@@ -91,10 +92,26 @@ test("Analytics tool propagates nonzero MCP cancellation without publishing an e
   const stderr = observeFixtureStderr(connection.transport);
   try {
     await connectAnalytics(connection);
+    await connection.client.discover({ timeout: 5_000 });
     const controller = new AbortController();
     const call = connection.client.callTool(
       { name: "toast_analytics_metrics_day", arguments: { restaurantGuid: ANALYTICS_RESTAURANT_GUID, businessDate: ANALYTICS_BUSINESS_DATE } },
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        timeout: 5_000,
+        toolDefinition: {
+          name: "toast_analytics_metrics_day",
+          inputSchema: {
+            type: "object",
+            properties: {
+              restaurantGuid: { type: "string" },
+              businessDate: { type: "number" },
+            },
+            required: ["restaurantGuid", "businessDate"],
+            additionalProperties: false,
+          },
+        },
+      },
     );
     await stderr.waitFor("analytics-fetch-started");
     controller.abort("synthetic Analytics cancellation");

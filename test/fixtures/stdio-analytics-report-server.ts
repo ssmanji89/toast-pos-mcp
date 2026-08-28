@@ -39,7 +39,7 @@ const runtime = createApplicationRuntime({
   random: () => 0,
   sleep: async () => undefined,
   authFetch: async (input) => {
-    const url = String(input);
+    const url = input;
     const analytics = url.includes("analytics.synthetic-toast-fixture.test");
     return jsonResponse({
       token: {
@@ -95,10 +95,7 @@ async function analyticsFetch(
     if (scenario === "request-failed") return new Response("", { status: 503 });
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     assertMetricsDayBody(body);
-    return new Response("synthetic-opaque-report-id-5003", {
-      status: 202,
-      headers: { "toast-request-id": "analytics-create-safe-request" },
-    });
+    return jsonResponse("synthetic-opaque-report-id-5003", "analytics-create-safe-request", 202);
   }
   if (url.pathname === "/era/v1/metrics/synthetic-opaque-report-id-5003" && method === "GET") {
     if (scenario === "pending-exhausted") return new Response("opaque-pending-marker", { status: 202 });
@@ -123,16 +120,16 @@ async function analyticsFetch(
 }
 
 function assertMetricsDayBody(body: Record<string, unknown>): void {
-  const allowed = ["endDate", "excludedRestaurantIds", "includedRestaurantIds", "startDate"];
+  const allowed = ["endBusinessDate", "excludedRestaurantIds", "restaurantIds", "startBusinessDate"];
   if (Object.keys(body).sort().join(",") !== allowed.join(",")) throw new Error("Analytics fixture received a non-closed Metrics/day request body");
-  if (JSON.stringify(body.includedRestaurantIds) !== JSON.stringify([RESTAURANT_GUID])) throw new Error("Analytics fixture requires one selected restaurant");
+  if (JSON.stringify(body.restaurantIds) !== JSON.stringify([RESTAURANT_GUID])) throw new Error("Analytics fixture requires one selected restaurant");
   if (JSON.stringify(body.excludedRestaurantIds) !== "[]") throw new Error("Analytics fixture rejects inactive exclusions");
-  if (body.startDate !== "20260816" || body.endDate !== "20260816") throw new Error("Analytics fixture requires equal business dates");
+  if (body.startBusinessDate !== "20260816" || body.endBusinessDate !== "20260816") throw new Error("Analytics fixture requires equal business dates");
 }
 
-function jsonResponse(value: unknown, requestId?: string): Response {
+function jsonResponse(value: unknown, requestId?: string, status = 200): Response {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: {
       "content-type": "application/json",
       ...(requestId === undefined ? {} : { "toast-request-id": requestId }),

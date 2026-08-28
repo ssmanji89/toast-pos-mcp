@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerStandardReportTools } from "./report-tools.js";
+import { registerAnalyticsReportTools } from "./analytics-report-tools.js";
 import type { ApplicationRuntime } from "./runtime.js";
 
 export const SERVER_IDENTITY = {
@@ -38,6 +39,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   );
   if (options.runtime !== undefined) {
     registerStandardReportTools(server, options.runtime);
+    registerAnalyticsReportTools(server, options.runtime);
   }
   return server;
 }
