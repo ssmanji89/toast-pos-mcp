@@ -50,7 +50,7 @@ function matrix(requirementRows: string[], gateRows = requiredGates.map((gate) =
   ].join("\n");
 }
 
-const validRequirement = "| REQ-ONE | AGENTS.md | Binding safety rules | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external |";
+const validRequirement = "| REQ-ONE | AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external |";
 const validMatrixRow = "| REQ-ONE | `src/server.ts` | `test/server.test.ts` | unverified | production-wired | synthetic-tested | external |";
 
 function runAudit(requirements: string, evidenceMatrix: string) {
@@ -86,7 +86,17 @@ test("audit rejects a canonical quote that is absent from its required source re
   const forgedQuote = validRequirement.replace("Read-only means structurally read-only.", "Invented release-ready requirement.");
   const result = runAudit(inventory([forgedQuote]), matrix([validMatrixRow]));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /REQ-ONE: canonical quote is absent from AGENTS.md at /u);
+  assert.match(result.stderr, /REQ-ONE: canonical quote is absent from AGENTS.md section AGENTS.md > Binding safety rules at /u);
+});
+
+test("audit rejects a quote that occurs outside its claimed source section", () => {
+  const swappedAnchor = validRequirement.replace(
+    "AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.`",
+    "LOOP.md | LOOP.md > Product boundary | `Deliver a public, locally run, read-only Toast POS Reporting MCP server that produces deterministic, source-attributed reports without exposing credentials, guest-linked data, or write capabilities.`",
+  );
+  const result = runAudit(inventory([swappedAnchor]), matrix([validMatrixRow]));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /REQ-ONE: canonical quote is absent from LOOP.md section LOOP.md > Product boundary at /u);
 });
 
 test("audit rejects invalid inventory and matrix status enums", () => {

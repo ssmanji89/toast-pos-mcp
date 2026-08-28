@@ -64,12 +64,35 @@ function sourceAtRevision(commit, source, cache) {
   return cache.get(source);
 }
 
-function headingExists(source, anchor) {
-  return source.split(/\r?\n/u).some((line) => line.replace(/^#+\s+/u, "") === anchor);
-}
-
 function exactText(value) {
   return value.replaceAll("**", "").replaceAll("`", "").replace(/\s+/gu, " ").trim();
+}
+
+function anchoredSection(source, anchor) {
+  const lines = source.split(/\r?\n/u);
+  const headings = [];
+  const stack = [];
+  for (const [index, line] of lines.entries()) {
+    const match = /^(#{1,6})\s+(.+)$/u.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const level = match[1].length;
+    while (stack.length > 0 && stack.at(-1).level >= level) {
+      stack.pop();
+    }
+    const heading = { level, text: match[2], index, path: [...stack.map((item) => item.text), match[2]] };
+    stack.push(heading);
+    headings.push(heading);
+  }
+
+  const target = headings.find((heading) => heading.path.join(" > ") === anchor);
+  if (!target) {
+    return undefined;
+  }
+  const following = headings.find((heading) => heading.index > target.index && heading.level <= target.level);
+  return lines.slice(target.index + 1, following?.index).join("\n");
 }
 
 function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
@@ -137,11 +160,11 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     try {
       const sourceText = sourceAtRevision(requiredSourceCommit, source, sourceCache);
       const quote = exactText(row["Canonical quote"]);
-      if (!exactText(sourceText).includes(quote)) {
-        diagnostics.push(`${id}: canonical quote is absent from ${source} at ${requiredSourceCommit}`);
-      }
-      if (!headingExists(sourceText, row["Source anchor"])) {
+      const section = anchoredSection(sourceText, row["Source anchor"]);
+      if (section === undefined) {
         diagnostics.push(`${id}: source anchor is absent from ${source} at ${requiredSourceCommit}`);
+      } else if (!exactText(section).includes(quote)) {
+        diagnostics.push(`${id}: canonical quote is absent from ${source} section ${row["Source anchor"]} at ${requiredSourceCommit}`);
       }
     } catch {
       diagnostics.push(`${id}: cannot read ${source} at ${requiredSourceCommit}`);
