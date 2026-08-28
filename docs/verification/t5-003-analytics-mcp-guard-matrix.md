@@ -44,6 +44,10 @@ node --test dist-test/test/analytics-report-tools-stdio.test.js
 node scripts/verify-t5-003-analytics-mcp-guard-mutations.mjs
 ```
 
+The harness creates an isolated temporary Git worktree, restores locked
+dependencies there, and removes that worktree after every run. It never
+mutates the candidate worktree.
+
 ## External gates
 
 - T5-003-G01 requires a current corrected Toast OpenAPI document or written confirmation of retrieval top-level shape and cardinality.

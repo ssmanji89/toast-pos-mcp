@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const toolPath = new URL("../src/analytics-report-tools.ts", import.meta.url);
-const serverPath = new URL("../src/server.ts", import.meta.url);
-const fixturePath = new URL("../test/fixtures/stdio-analytics-report-server.ts", import.meta.url);
+const repositoryRoot = process.cwd();
+const mutationRoot = await mkdtemp(join(tmpdir(), "toast-pos-mcp-t5-003-"));
+const toolPath = join(mutationRoot, "src/analytics-report-tools.ts");
+const serverPath = join(mutationRoot, "src/server.ts");
+const fixturePath = join(mutationRoot, "test/fixtures/stdio-analytics-report-server.ts");
 const focusedTest = "dist-test/test/analytics-report-tools-stdio.test.js";
 
 const guards = [
@@ -43,18 +47,28 @@ if (requestedBatch !== undefined && !["first", "third", "fourth"].includes(reque
   throw new Error("T5_GUARD_BATCH must be first, third, or fourth when it is set.");
 }
 
-const originals = new Map(await Promise.all([toolPath, serverPath, fixturePath].map(async (path) => [path.href, await readFile(path, "utf8")] )));
 try {
+  const worktree = spawnSync("git", ["worktree", "add", "--detach", mutationRoot, "HEAD"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  if (worktree.status !== 0) throw new Error("T5-003 mutation harness could not create its temporary worktree.");
+  const install = spawnSync("npm", ["ci", "--no-audit", "--no-fund"], {
+    cwd: mutationRoot,
+    encoding: "utf8",
+  });
+  if (install.status !== 0) throw new Error("T5-003 mutation harness could not restore locked dependencies in its temporary worktree.");
+  const originals = new Map(await Promise.all([toolPath, serverPath, fixturePath].map(async (path) => [path, await readFile(path, "utf8")] )));
   for (const [id, testName, path, before, after] of selectedGuards) {
-    const original = originals.get(path.href);
+    const original = originals.get(path);
     if (original === undefined || original.split(before).length !== 2) {
       throw new Error(`Guard ${id} needs one unique source marker.`);
     }
     await writeFile(path, original.replace(before, after));
     try {
-      const build = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" });
+      const build = spawnSync("npm", ["run", "build:test"], { cwd: mutationRoot, encoding: "utf8" });
       if (build.status !== 0) throw new Error(`Guard mutation broke TypeScript compilation: ${id}`);
-      const focused = spawnSync("node", ["--test", "--test-name-pattern", `^${escapeRegularExpression(testName)}$`, focusedTest], { encoding: "utf8" });
+      const focused = spawnSync("node", ["--test", "--test-name-pattern", `^${escapeRegularExpression(testName)}$`, focusedTest], { cwd: mutationRoot, encoding: "utf8" });
       const output = `${focused.stdout}\n${focused.stderr}`;
       if (!output.includes(testName)) throw new Error(`Guard ${id} did not run its named behavioral test.`);
       if (focused.status === 0) throw new Error(`Guard mutation survived: ${id}`);
@@ -62,21 +76,17 @@ try {
       await writeFile(path, original);
     }
   }
+  const finalBuild = spawnSync("npm", ["run", "build:test"], { cwd: mutationRoot, encoding: "utf8" });
+  if (finalBuild.status !== 0) throw new Error("Restored temporary candidate did not compile.");
+  const finalTest = spawnSync("node", ["--test", focusedTest], { cwd: mutationRoot, encoding: "utf8" });
+  if (finalTest.status !== 0) throw new Error("Restored temporary candidate did not pass its focused suite.");
+  const sourceDiff = spawnSync("git", ["diff", "--exit-code", "--", "src/analytics-report-tools.ts", "src/server.ts", "test/fixtures/stdio-analytics-report-server.ts"], { cwd: mutationRoot, encoding: "utf8" });
+  if (sourceDiff.status !== 0) throw new Error("T5-003 mutation harness left a temporary candidate source diff.");
 } finally {
-  for (const [href, original] of originals) await writeFile(new URL(href), original);
+  spawnSync("git", ["worktree", "remove", "--force", mutationRoot], { cwd: repositoryRoot, encoding: "utf8" });
+  await rm(mutationRoot, { recursive: true, force: true });
 }
-
-for (const [href, original] of originals) {
-  if (await readFile(new URL(href), "utf8") !== original) throw new Error("T5-003 mutation harness did not restore the candidate source.");
-}
-const finalBuild = spawnSync("npm", ["run", "build:test"], { encoding: "utf8" });
-if (finalBuild.status !== 0) throw new Error("Restored candidate did not compile.");
-const finalTest = spawnSync("node", ["--test", focusedTest], { encoding: "utf8" });
-if (finalTest.status !== 0) throw new Error("Restored candidate did not pass its focused suite.");
-spawnSync("git", ["update-index", "--refresh"], { encoding: "utf8" });
-const sourceDiff = spawnSync("git", ["diff", "--exit-code", "--", "src/analytics-report-tools.ts", "src/server.ts", "test/fixtures/stdio-analytics-report-server.ts"], { encoding: "utf8" });
-if (sourceDiff.status !== 0) throw new Error("T5-003 mutation harness left a candidate source diff.");
-console.log(`T5-003 mutation harness caught ${selectedGuards.length} compiling behavioral mutations and restored the source.`);
+console.log(`T5-003 mutation harness caught ${selectedGuards.length} compiling behavioral mutations in an isolated worktree.`);
 
 function escapeRegularExpression(value) {
   return value.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
