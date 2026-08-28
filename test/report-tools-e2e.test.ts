@@ -90,6 +90,206 @@ function schemaLiteral(value: unknown): string {
   if (Array.isArray(property.enum) && typeof property.enum[0] === "string") return property.enum[0];
   throw new Error("expected JSON-schema literal");
 }
+
+test(
+  "nested Standard output schemas match invented complete results without closing Toast strings",
+  { timeout: 30_000 },
+  async () => {
+    const connection = createConnection("modern", "multi-group-tags");
+    try {
+      await connectWithTimeout(connection);
+      const listed = await connection.client.listTools();
+      const completeSchemas = new Map<string, Record<string, unknown>>();
+      for (const [name, report] of [
+        ["toast_sales_summary", "sales_summary"],
+        ["toast_payment_summary", "payment_summary"],
+        ["toast_item_sales_summary", "item_sales_summary"],
+        ["toast_cash_summary", "cash_summary"],
+      ] as const) {
+        const tool = listed.tools.find((candidate) => candidate.name === name);
+        assert.ok(tool, `expected ${name} in tools/list`);
+        const schema = structured(tool.outputSchema);
+        const branches = Array.isArray(schema.anyOf)
+          ? schema.anyOf.map(structured)
+          : Array.isArray(schema.oneOf)
+            ? schema.oneOf.map(structured)
+            : [];
+        const branch = branches.find((candidate) =>
+          schemaLiteral(structured(candidate.properties).status) === "complete"
+          && schemaLiteral(structured(candidate.properties).report) === report,
+        );
+        assert.ok(branch, `expected ${name} complete output branch`);
+        completeSchemas.set(name, structured(branch.properties));
+      }
+
+      assertFixedNestedObject(
+        completeSchemas.get("toast_sales_summary"),
+        "currentAndPast",
+        salesBucketFields,
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_sales_summary"),
+        "future",
+        salesBucketFields,
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_sales_summary"),
+        "combined",
+        salesBucketFields,
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_sales_summary"),
+        "exclusions",
+        salesExclusionsFields,
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_payment_summary"),
+        "paid",
+        ["paymentCount", "amountMinor", "tipAmountMinor"],
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_payment_summary"),
+        "refunded",
+        ["paymentCount", "refundAmountMinor", "tipRefundAmountMinor"],
+      );
+      assertFixedNestedObject(
+        completeSchemas.get("toast_payment_summary"),
+        "voided",
+        ["paymentCount", "amountMinor"],
+      );
+      assertFixedArrayItem(
+        completeSchemas.get("toast_payment_summary"),
+        "paidByType",
+        ["type", "paymentCount", "amountMinor", "tipAmountMinor"],
+      );
+      assertFixedArrayItem(
+        completeSchemas.get("toast_payment_summary"),
+        "paymentStatusCounts",
+        ["status", "paymentCount"],
+      );
+      assertFixedArrayItem(
+        completeSchemas.get("toast_payment_summary"),
+        "refundStatusCounts",
+        ["status", "paymentCount"],
+      );
+      assertFixedArrayItem(
+        completeSchemas.get("toast_item_sales_summary"),
+        "groups",
+        itemSalesGroupFields,
+      );
+      assertFixedArrayItem(
+        completeSchemas.get("toast_cash_summary"),
+        "cashEntryTotalsByType",
+        ["type", "entryCount", "amountMinor"],
+      );
+      for (const field of [
+        "cashDrawerReferences",
+        "noSaleReasonReferences",
+        "payoutReasonReferences",
+      ]) {
+        assertFixedArrayItem(
+          completeSchemas.get("toast_cash_summary"),
+          field,
+          field === "cashDrawerReferences"
+            ? ["drawerGuid", "entryCount", "resolved"]
+            : ["reasonGuid", "entryCount", "resolved"],
+        );
+      }
+
+      const dimensionContext = structured(
+        structured(completeSchemas.get("toast_item_sales_summary")).dimensionContext,
+      );
+      assert.notEqual(
+        dimensionContext.additionalProperties,
+        false,
+        "dimension context remains intentionally extensible across Menu and Configuration sources",
+      );
+
+      const sales = structured((await connection.client.callTool({
+        name: "toast_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      })).structuredContent);
+      assertExactObjectFields(structured(sales.currentAndPast), salesBucketFields);
+      assertExactObjectFields(structured(sales.exclusions), salesExclusionsFields);
+
+      const payment = structured((await connection.client.callTool({
+        name: "toast_payment_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      })).structuredContent);
+      assertExactObjectFields(structured(payment.paid), ["paymentCount", "amountMinor", "tipAmountMinor"]);
+      assertExactObjectFields(structured(payment.paidByType[0]), ["type", "paymentCount", "amountMinor", "tipAmountMinor"]);
+
+      const item = structured((await connection.client.callTool({
+        name: "toast_item_sales_summary",
+        arguments: { businessDate: BUSINESS_DATE, dimension: "item_tag" },
+      })).structuredContent);
+      const unknownTag = groupByGuid(item, TAG_UNKNOWN_GUID);
+      assert.equal(unknownTag.displayName, "NEW_ENUM_TAG");
+      assert.equal(typeof unknownTag.displayName, "string");
+      assertExactObjectFields(structured(item.groups[0]), itemSalesGroupFields);
+
+      const cash = structured((await connection.client.callTool({
+        name: "toast_cash_summary",
+        arguments: { businessDate: BUSINESS_DATE },
+      })).structuredContent);
+      assertExactObjectFields(
+        structured(cash.cashEntryTotalsByType[0]),
+        ["type", "entryCount", "amountMinor"],
+      );
+    } finally {
+      await connection.client.close();
+    }
+  },
+);
+
+const salesBucketFields = [
+  "orderCount", "checkCount", "knownGuestCount", "ordersWithKnownGuestCount",
+  "grossCheckAmountMinor", "netOrderAmountMinor", "netSalesMinor", "taxAmountMinor",
+  "discountAmountMinor", "serviceChargeAmountMinor", "selectionExclusionAmountMinor",
+  "deferredSelectionAmountMinor", "houseAccountBalancePaymentAmountMinor",
+  "fundraisingContributionAmountMinor", "ordersEmbeddedRefundAmountMinor", "taxExemptCheckCount",
+];
+
+const salesExclusionsFields = [
+  "deletedOrders", "voidedOrders", "excessFoodOrders", "deletedChecks", "voidedChecks",
+];
+
+const itemSalesGroupFields = [
+  "key", "guid", "multiLocationId", "value", "displayName", "enrichmentState",
+  "selectionCount", "checkCount", "quantity", "grossSelectionAmountMinor",
+  "netSelectionAmountMinor", "observedSelectionRefundAmountMinor", "selectionTaxAmountMinor",
+  "attributedCheckAmountMinor", "currencyCode",
+];
+
+function assertFixedNestedObject(
+  properties: Record<string, unknown> | undefined,
+  field: string,
+  fields: readonly string[],
+): void {
+  assertFixedObject(structured(structured(properties)[field]), field, fields);
+}
+
+function assertFixedArrayItem(
+  properties: Record<string, unknown> | undefined,
+  field: string,
+  fields: readonly string[],
+): void {
+  const items = structured(structured(structured(properties)[field]).items);
+  assertFixedObject(items, `${field} item`, fields);
+}
+
+function assertFixedObject(
+  schema: Record<string, unknown>,
+  name: string,
+  fields: readonly string[],
+): void {
+  assert.equal(schema.additionalProperties, false, `${name} rejects unproved keys`);
+  assert.deepEqual([...(schema.required as string[])].sort(), [...fields].sort(), `${name} requires its exact fields`);
+}
+
+function assertExactObjectFields(value: Record<string, unknown>, fields: readonly string[]): void {
+  assert.deepEqual(Object.keys(value).sort(), [...fields].sort());
+}
 test(
   "historical item absent from current menu remains a distinct unresolved sales fact",
   { timeout: 20_000 },
