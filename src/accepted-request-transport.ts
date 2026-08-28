@@ -15,9 +15,11 @@ const REPORT_TOOL_NAMES = new Set<string>(REPORT_TOOL_REGISTRATION_MATRIX);
 export class AcceptedReportRequestRegistry {
   readonly #accepted = new Map<RequestId, boolean>();
 
-  observeInbound(message: JSONRPCMessage): void {
-    if (!isReportToolRequest(message)) return;
+  acceptInbound(message: JSONRPCMessage): boolean {
+    if (!isReportToolRequest(message)) return true;
+    if (this.#accepted.has(message.id)) return false;
     this.#accepted.set(message.id, false);
+    return true;
   }
 
   observeOutbound(message: JSONRPCMessage): void {
@@ -62,8 +64,8 @@ export class AcceptedRequestTrackingTransport implements Transport {
     this.#transport = transport;
     this.#acceptedRequests = acceptedRequests;
     this.#transport.onmessage = (message) => {
+      if (!this.#acceptedRequests.acceptInbound(message)) return;
       this.onmessage?.(message);
-      this.#acceptedRequests.observeInbound(message);
     };
     this.#transport.onerror = (error) => this.onerror?.(error);
     this.#transport.onclose = () => {
