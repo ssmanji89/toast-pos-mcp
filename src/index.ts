@@ -4,6 +4,8 @@ import { createApplicationRuntime } from "./runtime.js";
 import { createServer } from "./server.js";
 import { startStdioServer } from "./stdio.js";
 
+const EXECUTABLE_TEST_OBSERVER = process.env.TOAST_MCP_EXECUTABLE_TEST_OBSERVER === "true";
+
 async function main(): Promise<void> {
   // Validate runtime configuration and Merchant-AI-consent acknowledgment,
   // then construct exactly one config/token/HTTP/location/rate-limit identity
@@ -16,6 +18,15 @@ async function main(): Promise<void> {
   startStdioServer(({ era }) => createServer({
     runtime,
     advertiseToolListChanged: era === "legacy",
+    ...(EXECUTABLE_TEST_OBSERVER
+      ? {
+          cancellationSnapshotObserver: (snapshot) => {
+            console.error(
+              `gate60-cancellation-snapshot:activeControllers=${snapshot.activeControllers} relayListeners=${snapshot.relayListeners}`,
+            );
+          },
+        }
+      : {}),
   }));
 }
 

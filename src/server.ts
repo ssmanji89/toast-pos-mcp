@@ -2,6 +2,10 @@ import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerStandardReportTools } from "./report-tools.js";
 import { registerAnalyticsReportTools } from "./analytics-report-tools.js";
+import {
+  installMcpRequestCancellationBridge,
+  type CancellationSnapshotObserver,
+} from "./mcp-request-cancellation.js";
 import type { ApplicationRuntime } from "./runtime.js";
 
 export const SERVER_IDENTITY = {
@@ -20,6 +24,8 @@ export interface CreateServerOptions {
   readonly runtime?: ApplicationRuntime;
   /** Retained 2025 clients receive their required tool-list capability metadata. */
   readonly advertiseToolListChanged?: boolean;
+  /** Test-only count observer. Normal local execution leaves this undefined. */
+  readonly cancellationSnapshotObserver?: CancellationSnapshotObserver;
 }
 
 /**
@@ -38,8 +44,12 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       : undefined,
   );
   if (options.runtime !== undefined) {
-    registerStandardReportTools(server, options.runtime);
-    registerAnalyticsReportTools(server, options.runtime);
+    const cancellationBridge = installMcpRequestCancellationBridge(
+      server,
+      options.cancellationSnapshotObserver,
+    );
+    registerStandardReportTools(server, options.runtime, cancellationBridge);
+    registerAnalyticsReportTools(server, options.runtime, cancellationBridge);
   }
   return server;
 }

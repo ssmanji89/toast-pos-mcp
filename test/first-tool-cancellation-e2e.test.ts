@@ -47,11 +47,11 @@ for (const era of ["legacy", "modern"] as const) {
 
         const first = callTool(client, "toast_sales_summary", BUSINESS_DATES.firstCancellation);
         await stderr.waitFor("gate60-orders-started:20260816");
-        assert.equal(transport.firstToolCallId(), 0, "the first post-connect tools/call must use numeric JSON-RPC ID zero");
         first.controller.abort("invented request-zero cancellation");
         await assert.rejects(first.result);
         await stderr.waitFor("gate60-orders-aborted:20260816");
         await stderr.waitFor("gate60-cancellation-snapshot:activeControllers=0 relayListeners=0");
+        assert.equal(transport.firstToolCallId(), 0, "the first post-connect tools/call must use numeric JSON-RPC ID zero");
 
         const later = callTool(client, "toast_payment_summary", BUSINESS_DATES.laterCancellation);
         await stderr.waitFor("gate60-payments-started:20260817");
