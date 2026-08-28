@@ -113,12 +113,15 @@ unverified or external disposition.
 
 ## Verification Procedure
 
-1. Start from a clean candidate head and record its SHA.
-2. Run the traceability script with the required base source commit.
-3. Run `git diff --check`.
-4. Obtain a findings-only independent review on the same SHA.
-5. Correct findings in a new candidate. Repeat steps 1 through 4 after any
-   change.
+1. Complete and commit every tracked inventory, matrix, validation, and
+   control-plane pending-review update.
+2. Start from the clean final candidate head and record its SHA.
+3. Run the traceability script and clean-worktree Node 20.20.2 and Node
+   22.22.2 gates with the required base source commit.
+4. Record matching before and after SHAs and run `git diff --check`.
+5. Obtain a findings-only independent review on that final tracked SHA.
+6. Do not change a tracked file after review. If a finding requires a change,
+   create a new candidate and repeat steps 1 through 5.
 
 This procedure does not run live Toast operations. It does not sign or publish
 a package. It does not convert a successful local command into an external
