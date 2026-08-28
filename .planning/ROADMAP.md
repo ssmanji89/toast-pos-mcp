@@ -66,7 +66,7 @@ One local `stdio` process can load non-persistent configuration, fail closed on 
 
 - T1-001 through T1-006 — closed in `LOOP.md`
 - #32 / PR #37 — closed with exact-head rate-limit evidence
-- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete. Issue #60 owns the separate first-tool-request T6-003 release gate.
+- #4 / PR #45 — merged as `4a069937` after CLEAN review at `a406b479`; local stdio lifecycle, reconnect, and nonzero-ID cancellation evidence is complete. The separate first-tool-request T6-003 gate closed through PR #69, merged as `8d1c659` after CLEAN review at `52df015`.
 
 ### Implemented/wired evidence
 
