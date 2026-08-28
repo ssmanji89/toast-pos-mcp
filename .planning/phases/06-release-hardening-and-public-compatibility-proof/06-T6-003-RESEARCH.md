@@ -256,13 +256,11 @@ The client pattern is the current local E2E pattern. The preload mechanism needs
 
 | Dependency | Required by | Available | Version | Fallback |
 |---|---|---|---|---|
-| Node.js 20.20.2 | Supported floor gate | ✗ | — | Install or select the authentic Node 20 runtime. [VERIFIED: local environment probe, 2026-08-27] |
-| Node.js 22.22.2 | Compatibility gate | ✗ | — | Install or select the authentic Node 22 runtime. [VERIFIED: local environment probe, 2026-08-27] |
-| Node.js | Local exploratory runtime | ✓ | 25.9.0 | Do not use as a substitute for required evidence. [VERIFIED: local environment probe, 2026-08-27] |
-| npm | Clean restore and pack | ✓ | 11.12.1 | Do not substitute for the declared npm 10.9.2 without recording the difference. [VERIFIED: local environment probe, 2026-08-27; VERIFIED: `package.json`] |
+| Node.js 20.20.2 | Supported floor gate | ✓ | npm 10.8.2 | Use the authentic NVM runtime. [VERIFIED: local environment probe, 2026-08-27] |
+| Node.js 22.22.2 | Compatibility gate | ✓ | npm 10.9.7 | Use the authentic NVM runtime. [VERIFIED: local environment probe, 2026-08-27] |
 | `tar`, `shasum`, `jq` | Artifact evidence parsing | ✓ | bsdtar 3.5.3; shasum 6.02; jq 1.8.1 | — [VERIFIED: local environment probe, 2026-08-27] |
 
-**Missing dependencies with no fallback:** authentic Node 20.20.2 and Node 22.22.2. [VERIFIED: `LOOP.md`; VERIFIED: local environment probe, 2026-08-27]
+**Missing dependencies with no fallback:** none for local T6-003 evidence. [VERIFIED: local environment probe, 2026-08-27]
 
 ## Validation Architecture
 
