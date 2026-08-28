@@ -14,6 +14,10 @@ import {
   createAnalyticsAccessAdapter,
   type AnalyticsAccessAdapter,
 } from "./analytics-access.js";
+import {
+  createAnalyticsReportJobAdapter,
+  type AnalyticsReportJobAdapter,
+} from "./analytics-report-jobs.js";
 import { StandardDimensionContextProvider } from "./dimension-context.js";
 import {
   createLocationRegistry,
@@ -94,6 +98,8 @@ export class ApplicationRuntimeError extends Error {
  */
 export class ApplicationRuntime {
   readonly analyticsAccess: AnalyticsAccessAdapter | undefined;
+  /** Internal T5-002 seam. T5-003 alone may present it through MCP. */
+  readonly analyticsReportJobs: AnalyticsReportJobAdapter | undefined;
   readonly config: RuntimeConfig;
   readonly dimensionContextProvider: StandardDimensionContextProvider;
   readonly locationContextMaxAgeMs: number;
@@ -123,6 +129,7 @@ export class ApplicationRuntime {
       now,
     ),
     analyticsAccess: AnalyticsAccessAdapter | undefined = undefined,
+    analyticsReportJobs: AnalyticsReportJobAdapter | undefined = undefined,
   ) {
     if (
       !Number.isSafeInteger(locationContextMaxAgeMs)
@@ -141,6 +148,7 @@ export class ApplicationRuntime {
     this.locationContextMaxAgeMs = locationContextMaxAgeMs;
     this.dimensionContextProvider = dimensionContextProvider;
     this.analyticsAccess = analyticsAccess;
+    this.analyticsReportJobs = analyticsReportJobs;
   }
 
   async getLocation(
@@ -305,14 +313,30 @@ export function createApplicationRuntime(
     transportOptions,
   );
   const analyticsConfig = getAnalyticsRuntimeConfig(config);
-  const analyticsAccess = analyticsConfig === undefined
+  const analyticsTokenManager = analyticsConfig === undefined
+    ? undefined
+    : createAnalyticsOAuthTokenManager(analyticsConfig, {
+        ...(options.authFetch !== undefined ? { fetch: options.authFetch } : {}),
+        now,
+      });
+  const analyticsAccess = analyticsConfig === undefined || analyticsTokenManager === undefined
     ? undefined
     : createAnalyticsAccessAdapter({
       identity: analyticsConfig,
-      tokenManager: createAnalyticsOAuthTokenManager(analyticsConfig, {
-        ...(options.authFetch !== undefined ? { fetch: options.authFetch } : {}),
-        now,
-      }),
+      tokenManager: analyticsTokenManager,
+      hostname: analyticsConfig.apiHostname,
+      ...(options.dataFetch !== undefined ? { fetch: options.dataFetch } : {}),
+      now,
+      ...(options.sleep !== undefined ? { sleep: options.sleep } : {}),
+    });
+  const analyticsReportJobs = analyticsConfig === undefined
+    || analyticsTokenManager === undefined
+    || analyticsAccess === undefined
+    ? undefined
+    : createAnalyticsReportJobAdapter({
+      access: analyticsAccess,
+      identity: analyticsConfig,
+      tokenManager: analyticsTokenManager,
       hostname: analyticsConfig.apiHostname,
       ...(options.dataFetch !== undefined ? { fetch: options.dataFetch } : {}),
       now,
@@ -328,6 +352,7 @@ export function createApplicationRuntime(
     options.locationContextMaxAgeMs ?? DEFAULT_LOCATION_CONTEXT_MAX_AGE_MS,
     undefined,
     analyticsAccess,
+    analyticsReportJobs,
   );
 }
 
