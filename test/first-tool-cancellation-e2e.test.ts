@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import path from "node:path";
+import type { Stream } from "node:stream";
 import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/client";
@@ -35,7 +37,7 @@ for (const era of ["legacy", "modern"] as const) {
         stderr: "pipe",
         env: executableTestEnvironment(),
       });
-      const stderr = observeStderr(transport);
+      const stderr = observeStderr(transport.stderr);
       const client = new Client(
         { name: `toast-first-tool-cancellation-${era}`, version: "0.0.0" },
         era === "legacy"
@@ -142,6 +144,65 @@ for (const era of ["legacy", "modern"] as const) {
   );
 }
 
+test(
+  "coalesced legacy initialized, tools/call ID one, and cancellation abort before tool source access",
+  { timeout: PROTOCOL_TIMEOUT_MS * 4 },
+  async () => {
+    const child = spawn(process.execPath, [PRODUCTION_SERVER_PATH], {
+      cwd: process.cwd(),
+      env: executableTestEnvironment(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stderr = observeStderr(child.stderr);
+    const stdout = observeJsonMessages(child.stdout);
+
+    try {
+      writeRawMessages(child.stdin, [{
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "toast-coalesced-cancellation-test", version: "0.0.0" },
+        },
+      }]);
+      await stdout.waitFor((message) => hasResponseId(message, 0), "missing legacy initialize response");
+
+      const sourceCursor = stderr.cursor();
+      writeRawMessages(child.stdin, [
+        { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "toast_sales_summary",
+            arguments: { businessDate: BUSINESS_DATES.immediateCancellation },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "notifications/cancelled",
+          params: { requestId: 1, reason: "invented coalesced legacy cancellation" },
+        },
+      ]);
+
+      const enteredHandler = await stderr.waitFor(
+        "gate60-cancellation-snapshot:activeControllers=1 relayListeners=2",
+        sourceCursor,
+      );
+      const cleanup = await stderr.waitFor(CLEANUP_SNAPSHOT, enteredHandler.sequence);
+      await stderr.assertAbsentFor("gate60-orders-started:20260815", sourceCursor);
+      assert.ok(cleanup.sequence > enteredHandler.sequence, "the pre-aborted legacy handler must finalize after registration");
+    } finally {
+      stderr.stop();
+      stdout.stop();
+      if (child.exitCode === null) child.kill();
+    }
+  },
+);
+
 function callTool(
   client: Client,
   name: "toast_sales_summary" | "toast_payment_summary",
@@ -247,12 +308,12 @@ interface StderrMarker {
   readonly text: string;
 }
 
-function observeStderr(transport: StdioClientTransport): {
+function observeStderr(stream: Stream | null): {
   cursor(): number;
   waitFor(marker: string, afterSequence?: number): Promise<StderrMarker>;
+  assertAbsentFor(marker: string, afterSequence: number): Promise<void>;
   stop(): void;
 } {
-  const stream = transport.stderr;
   assert.ok(stream !== null, "the production executable must expose stderr");
   const markers: StderrMarker[] = [];
   let output = "";
@@ -283,8 +344,54 @@ function observeStderr(transport: StdioClientTransport): {
         ]);
       }
     },
+    assertAbsentFor: async (marker, afterSequence) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(
+        markers.some((candidate) => candidate.sequence > afterSequence && candidate.text.includes(marker)),
+        false,
+        `unexpected test marker ${marker}`,
+      );
+    },
     stop: () => stream.off("data", onData),
   };
+}
+
+function observeJsonMessages(stream: Stream | null): {
+  waitFor(predicate: (message: unknown) => boolean, failure: string): Promise<void>;
+  stop(): void;
+} {
+  assert.ok(stream !== null, "the production executable must expose stdout");
+  const messages: unknown[] = [];
+  let buffer = "";
+  const onData = (chunk: Buffer | string): void => {
+    buffer += chunk.toString();
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line.length > 0) messages.push(JSON.parse(line));
+      newlineIndex = buffer.indexOf("\n");
+    }
+  };
+  stream.on("data", onData);
+  return {
+    waitFor: async (predicate, failure) => {
+      await waitUntil(() => messages.some(predicate), failure);
+    },
+    stop: () => stream.off("data", onData),
+  };
+}
+
+function writeRawMessages(
+  stdin: NonNullable<ReturnType<typeof spawn>["stdin"]>,
+  messages: readonly Record<string, unknown>[],
+): void {
+  stdin.write(messages.map((message) => `${JSON.stringify(message)}\n`).join(""));
+}
+
+function hasResponseId(message: unknown, id: number): boolean {
+  return message !== null && typeof message === "object"
+    && "id" in message && (message as { readonly id?: unknown }).id === id;
 }
 
 function isDeniedToolResponse(message: unknown, id: unknown): boolean {

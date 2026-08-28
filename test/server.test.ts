@@ -45,7 +45,7 @@ test("production factory shares one startup runtime and keeps the cancellation o
   assert.equal((source.match(/createApplicationRuntime\(\)/gu) ?? []).length, 1);
   assert.match(
     source,
-    /createServer\(\{\s+runtime,\s+advertiseToolListChanged: era === "legacy",/u,
+    /createServer\(\{\s+runtime,\s+acceptedRequests,\s+advertiseToolListChanged: era === "legacy",/u,
   );
   assert.match(source, /TOAST_MCP_EXECUTABLE_TEST_OBSERVER === "true"/u);
   assert.match(source, /cancellationSnapshotObserver/u);

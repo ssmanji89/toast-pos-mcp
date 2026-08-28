@@ -4,6 +4,8 @@ import type {
   ServerContext,
 } from "@modelcontextprotocol/server";
 
+import type { AcceptedReportRequestRegistry } from "./accepted-request-transport.js";
+
 export const REPORT_TOOL_REGISTRATION_MATRIX = Object.freeze([
   "toast_sales_summary",
   "toast_payment_summary",
@@ -35,6 +37,7 @@ export interface McpRequestCancellationBridge {
  */
 export function installMcpRequestCancellationBridge(
   server: McpServer,
+  acceptedRequests: AcceptedReportRequestRegistry,
   observer: CancellationSnapshotObserver | undefined = undefined,
 ): McpRequestCancellationBridge {
   const activeControllers = new Map<RequestId, AbortController>();
@@ -48,7 +51,9 @@ export function installMcpRequestCancellationBridge(
   server.server.setNotificationHandler("notifications/cancelled", (notification) => {
     const requestId = notification.params.requestId;
     if (requestId === undefined) return;
-    activeControllers.get(requestId)?.abort(notification.params.reason);
+    if (acceptedRequests.markCancelled(requestId)) {
+      activeControllers.get(requestId)?.abort(notification.params.reason);
+    }
     observe();
   });
 
@@ -67,11 +72,13 @@ export function installMcpRequestCancellationBridge(
         context.mcpReq.signal.addEventListener("abort", abortFromSdk, { once: true });
         bridgeController.signal.addEventListener("abort", abortFromBridge, { once: true });
         relayListeners += 2;
+        const cancelledBeforeRegistration = acceptedRequests.consumeCancellation(requestId);
         activeControllers.set(requestId, bridgeController);
         observe();
 
         try {
           if (context.mcpReq.signal.aborted) abortFromSdk();
+          if (cancelledBeforeRegistration) bridgeController.abort();
           if (bridgeController.signal.aborted) abortFromBridge();
           return await callback(input, {
             ...context,
@@ -87,6 +94,7 @@ export function installMcpRequestCancellationBridge(
           if (activeControllers.get(requestId) === bridgeController) {
             activeControllers.delete(requestId);
           }
+          acceptedRequests.complete(requestId);
           observe();
         }
       };

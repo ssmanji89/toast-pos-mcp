@@ -6,6 +6,7 @@ import {
   installMcpRequestCancellationBridge,
   type CancellationSnapshotObserver,
 } from "./mcp-request-cancellation.js";
+import { AcceptedReportRequestRegistry } from "./accepted-request-transport.js";
 import type { ApplicationRuntime } from "./runtime.js";
 
 export const SERVER_IDENTITY = {
@@ -26,6 +27,8 @@ export interface CreateServerOptions {
   readonly advertiseToolListChanged?: boolean;
   /** Test-only count observer. Normal local execution leaves this undefined. */
   readonly cancellationSnapshotObserver?: CancellationSnapshotObserver;
+  /** The stdio entry supplies only request IDs already dispatched to it. */
+  readonly acceptedRequests?: AcceptedReportRequestRegistry;
 }
 
 /**
@@ -46,6 +49,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   if (options.runtime !== undefined) {
     const cancellationBridge = installMcpRequestCancellationBridge(
       server,
+      options.acceptedRequests ?? new AcceptedReportRequestRegistry(),
       options.cancellationSnapshotObserver,
     );
     registerStandardReportTools(server, options.runtime, cancellationBridge);
