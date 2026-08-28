@@ -23,6 +23,7 @@ const MODULES = [
   "cash-report", "config", "dimension-context-helpers", "dimension-context",
   "dimension-menu-normalization", "exact-decimal", "index", "item-sales-aggregation",
   "item-sales-report", "labor-report-source", "labor-report", "locations",
+  "accepted-request-transport", "mcp-request-cancellation",
   "orders-normalization-helpers", "orders-normalization-source",
   "orders-normalization-traversal", "orders-normalization-types", "orders-normalization",
   "payment-report", "rate-limit", "rate-limited-client", "report-contract", "report-core",

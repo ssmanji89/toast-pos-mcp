@@ -58,8 +58,10 @@ const runtime = createApplicationRuntime({
   dataFetch: analyticsFetch,
 });
 
-startStdioServer(({ era }) => createServer(
-  era === "modern" ? { runtime } : { advertiseToolListChanged: true },
+startStdioServer(({ era, acceptedRequests }) => createServer(
+  era === "modern"
+    ? { runtime, acceptedRequests }
+    : { advertiseToolListChanged: true, acceptedRequests },
 ));
 
 async function analyticsFetch(

@@ -4,6 +4,7 @@ const READINESS_MARKER = "installed-artifact-fetch-preload-ready";
 const ROUTE_REJECT_MARKER = "installed-artifact-fetch-route-rejected";
 const RESTAURANT_GUID = "00000000-0000-4000-8000-000000000002";
 const BUSINESS_DATE = "20260816";
+const EXECUTABLE_TEST_FETCH = process.env.TOAST_MCP_EXECUTABLE_TEST_FETCH === "true";
 
 // This module is loaded only through NODE_OPTIONS in the installed-artifact
 // test. It has no production imports and is intentionally excluded from npm.
@@ -52,8 +53,21 @@ globalThis.fetch = async (input: string | URL | Request, init?: RequestInit): Pr
 
   if (url.pathname === "/orders/v2/ordersBulk") {
     assertRestaurantHeader(headers);
-    assert.equal(url.searchParams.get("businessDate"), BUSINESS_DATE, "orders request must keep the invented business date");
+    const businessDate = url.searchParams.get("businessDate");
+    if (EXECUTABLE_TEST_FETCH && businessDate !== null) {
+      return executableOrdersRoute(businessDate, init?.signal);
+    }
+    assert.equal(businessDate, BUSINESS_DATE, "orders request must keep the invented business date");
     return json([inventedOrder()]);
+  }
+
+  if (url.pathname === "/orders/v2/payments" && EXECUTABLE_TEST_FETCH) {
+    assertRestaurantHeader(headers);
+    const businessDate = url.searchParams.get("paidBusinessDate")
+      ?? url.searchParams.get("refundBusinessDate")
+      ?? url.searchParams.get("voidBusinessDate");
+    if (businessDate === "20260817") return waitForAbort("gate60-payments", businessDate, init?.signal);
+    return json([]);
   }
 
   console.error(`${ROUTE_REJECT_MARKER}:${url.pathname}`);
@@ -70,6 +84,31 @@ function json(value: unknown): Response {
   });
 }
 
+function executableOrdersRoute(businessDate: string, signal: AbortSignal | null | undefined): Promise<Response> {
+  if (businessDate === "20260815") return waitForAbort("gate60-orders", businessDate, signal);
+  if (businessDate === "20260819") {
+    console.error("gate60-orders-rejected:20260819");
+    throw new Error("gate60 invented source rejection");
+  }
+  console.error(`gate60-orders-resolved:${businessDate}`);
+  return Promise.resolve(json([inventedOrder(Number(businessDate))]));
+}
+
+function waitForAbort(marker: string, businessDate: string, signal: AbortSignal | null | undefined): Promise<Response> {
+  console.error(`${marker}-started:${businessDate}`);
+  return new Promise<Response>((_resolve, reject) => {
+    if (signal?.aborted) {
+      console.error(`${marker}-aborted:${businessDate}`);
+      reject(signal.reason);
+      return;
+    }
+    signal?.addEventListener("abort", () => {
+      console.error(`${marker}-aborted:${businessDate}`);
+      reject(signal.reason);
+    }, { once: true });
+  });
+}
+
 function assertRestaurantHeader(headers: Headers): void {
   assert.equal(headers.get("toast-restaurant-external-id"), RESTAURANT_GUID, "restaurant-scoped request must retain its restaurant GUID");
 }
@@ -78,10 +117,10 @@ function syntheticJwt(scope: readonly string[]): string {
   return `fixture.${Buffer.from(JSON.stringify({ scope })).toString("base64url")}.signature`;
 }
 
-function inventedOrder(): object {
+function inventedOrder(businessDate = 20260816): object {
   return {
     guid: "00000000-0000-4000-8000-000000000802",
-    businessDate: 20260816,
+    businessDate,
     openedDate: "2026-08-16T12:00:00-0500",
     modifiedDate: "2026-08-16T12:30:00-0500",
     promisedDate: null,

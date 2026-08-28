@@ -1,9 +1,20 @@
 import {
+  StdioServerTransport,
   serveStdio,
   type StdioServerHandle,
 } from "@modelcontextprotocol/server/stdio";
 
-export type StdioServerFactory = Parameters<typeof serveStdio>[0];
+import {
+  AcceptedReportRequestRegistry,
+  AcceptedRequestTrackingTransport,
+} from "./accepted-request-transport.js";
+
+type SdkStdioServerFactory = Parameters<typeof serveStdio>[0];
+type SdkStdioFactoryContext = Parameters<SdkStdioServerFactory>[0];
+
+export type StdioServerFactory = (
+  context: SdkStdioFactoryContext & { readonly acceptedRequests: AcceptedReportRequestRegistry },
+) => ReturnType<SdkStdioServerFactory>;
 
 export interface StartStdioServerOptions {
   /** Injectable only so the owned failure path can be exercised without a second server implementation. */
@@ -31,6 +42,11 @@ export function startStdioServer(
 ): StdioServerHandle {
   const serve = options.serve ?? serveStdio;
   const onFatalError = options.onFatalError ?? defaultFatalError;
+  const acceptedRequests = new AcceptedReportRequestRegistry();
+  const transport = new AcceptedRequestTrackingTransport(
+    new StdioServerTransport(),
+    acceptedRequests,
+  );
   let handle: StdioServerHandle | undefined;
   let failed = false;
 
@@ -52,9 +68,10 @@ export function startStdioServer(
     });
   };
 
-  handle = serve(factory, {
+  handle = serve((context) => factory({ ...context, acceptedRequests }), {
     legacy: "serve",
     onerror: failClosed,
+    transport,
   });
 
   return handle;

@@ -10,6 +10,7 @@ import {
   type AnalyticsReportJobLifecycleResult,
 } from "./analytics-report-jobs.js";
 import type { ApplicationRuntime } from "./runtime.js";
+import type { McpRequestCancellationBridge } from "./mcp-request-cancellation.js";
 
 const ANALYTICS_REPORT_SCHEMA_VERSION: 1 = 1;
 const ANALYTICS_METRICS_DAY_TOOL = "toast_analytics_metrics_day";
@@ -56,6 +57,7 @@ const formulaNote = "Analytics output is informational and non-GAAP. Completed s
 export function registerAnalyticsReportTools(
   server: McpServer,
   runtime: ApplicationRuntime,
+  cancellationBridge: McpRequestCancellationBridge,
 ): void {
   server.registerTool(
     ANALYTICS_METRICS_DAY_TOOL,
@@ -71,7 +73,7 @@ export function registerAnalyticsReportTools(
         openWorldHint: false,
       },
     },
-    async (input, ctx) => {
+    cancellationBridge.wrap("toast_analytics_metrics_day", async (input: z.infer<typeof analyticsToolInputSchema>, ctx) => {
       const signal = ctx.mcpReq.signal;
       const access = runtime.analyticsAccess;
       const jobs = runtime.analyticsReportJobs;
@@ -104,7 +106,7 @@ export function registerAnalyticsReportTools(
         }
         return analyticsToolResult(incompleteEnvelope(input.restaurantGuid, input.businessDate, "analytics_failed_or_incomplete"));
       }
-    },
+    }),
   );
 }
 

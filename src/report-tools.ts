@@ -7,6 +7,7 @@ import { buildLaborSummaryReport } from "./labor-report.js";
 import { buildPaymentSummaryReport } from "./payment-report.js";
 import { STANDARD_REPORT_SCHEMA_VERSION } from "./report-contract.js";
 import type { ApplicationRuntime } from "./runtime.js";
+import type { McpRequestCancellationBridge } from "./mcp-request-cancellation.js";
 import { buildSalesSummaryReport } from "./sales-report.js";
 
 const businessDateSchema = z
@@ -320,9 +321,10 @@ const laborSummaryOutputSchema = z.union([
 export function registerStandardReportTools(
   server: McpServer,
   runtime: ApplicationRuntime,
+  cancellationBridge: McpRequestCancellationBridge,
 ): void {
-  registerCashSummaryTool(server, runtime);
-  registerLaborSummaryTool(server, runtime);
+  registerCashSummaryTool(server, runtime, cancellationBridge);
+  registerLaborSummaryTool(server, runtime, cancellationBridge);
 
   server.registerTool(
     "toast_sales_summary",
@@ -334,13 +336,13 @@ export function registerStandardReportTools(
       outputSchema: salesSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
-    async (input, ctx) => toolResult(await buildSalesSummaryReport(
+    cancellationBridge.wrap("toast_sales_summary", async (input: z.infer<typeof reportInputSchema>, ctx) => toolResult(await buildSalesSummaryReport(
       runtime,
       input.restaurantGuid === undefined
         ? { businessDate: input.businessDate }
         : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
-    )),
+    ))),
   );
 
   server.registerTool(
@@ -353,13 +355,13 @@ export function registerStandardReportTools(
       outputSchema: paymentSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
-    async (input, ctx) => toolResult(await buildPaymentSummaryReport(
+    cancellationBridge.wrap("toast_payment_summary", async (input: z.infer<typeof reportInputSchema>, ctx) => toolResult(await buildPaymentSummaryReport(
       runtime,
       input.restaurantGuid === undefined
         ? { businessDate: input.businessDate }
         : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
-    )),
+    ))),
   );
 
   server.registerTool(
@@ -372,7 +374,7 @@ export function registerStandardReportTools(
       outputSchema: itemSalesSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
-    async (input, ctx) => toolResult(await buildItemSalesSummaryReport(
+    cancellationBridge.wrap("toast_item_sales_summary", async (input: z.infer<typeof itemSalesInputSchema>, ctx) => toolResult(await buildItemSalesSummaryReport(
       runtime,
       input.restaurantGuid === undefined
         ? { businessDate: input.businessDate, dimension: input.dimension }
@@ -382,13 +384,14 @@ export function registerStandardReportTools(
             restaurantGuid: input.restaurantGuid,
           },
       { signal: ctx.mcpReq.signal },
-    )),
+    ))),
   );
 }
 
 function registerCashSummaryTool(
   server: McpServer,
   runtime: ApplicationRuntime,
+  cancellationBridge: McpRequestCancellationBridge,
 ): void {
   server.registerTool(
     "toast_cash_summary",
@@ -400,19 +403,20 @@ function registerCashSummaryTool(
       outputSchema: cashSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
-    async (input, ctx) => toolResult(await buildCashSummaryReport(
+    cancellationBridge.wrap("toast_cash_summary", async (input: z.infer<typeof reportInputSchema>, ctx) => toolResult(await buildCashSummaryReport(
       runtime,
       input.restaurantGuid === undefined
         ? { businessDate: input.businessDate }
         : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
-    )),
+    ))),
   );
 }
 
 function registerLaborSummaryTool(
   server: McpServer,
   runtime: ApplicationRuntime,
+  cancellationBridge: McpRequestCancellationBridge,
 ): void {
   server.registerTool(
     "toast_labor_summary",
@@ -424,13 +428,13 @@ function registerLaborSummaryTool(
       outputSchema: laborSummaryOutputSchema,
       annotations: readOnlyAnnotations(),
     },
-    async (input, ctx) => toolResult(await buildLaborSummaryReport(
+    cancellationBridge.wrap("toast_labor_summary", async (input: z.infer<typeof reportInputSchema>, ctx) => toolResult(await buildLaborSummaryReport(
       runtime,
       input.restaurantGuid === undefined
         ? { businessDate: input.businessDate }
         : { businessDate: input.businessDate, restaurantGuid: input.restaurantGuid },
       { signal: ctx.mcpReq.signal },
-    )),
+    ))),
   );
 }
 
