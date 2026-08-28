@@ -1,7 +1,7 @@
 # Phase 6: Release hardening and public compatibility proof - Research
 
-**Researched:** 2026-08-27  
-**Domain:** Toast API terms, branding, and public operator documentation  
+**Researched:** 2026-08-27
+**Domain:** Toast API terms, branding, and public operator documentation
 **Confidence:** MEDIUM
 
 ## User Constraints
@@ -340,5 +340,5 @@ T6-002 has no new external runtime dependency. [VERIFIED: GitHub issue #22]
 - Terms and branding: MEDIUM — the Terms page is current and direct, but it cannot resolve this repository's exact public-brand approval case. [CITED: https://pos.toasttab.com/api-terms-of-use]
 - Pitfalls: HIGH — they follow binding repository evidence rules and the implemented Analytics schema gate. [VERIFIED: `AGENTS.md`; VERIFIED: `src/analytics-report-tools.ts`]
 
-**Research date:** 2026-08-27  
+**Research date:** 2026-08-27
 **Valid until:** 2026-09-03, or earlier if Toast changes its Terms or developer documentation. [CITED: https://pos.toasttab.com/api-terms-of-use]
