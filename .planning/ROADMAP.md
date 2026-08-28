@@ -416,6 +416,7 @@ sufficiency.
   location discovery.
 - Live Analytics compatibility requires authorized access and documented
   Merchant consent under `AGENTS.md`.
+
 - Signing and publication require authorized human credentials.
 - Terms, brand, consent, provider, logging, retention, and legal sufficiency
   require the applicable external or human authority.
