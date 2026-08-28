@@ -1,11 +1,27 @@
 # Threat Model: Local Distribution, AI-Provider Data Flow, and Future Remote Transport
 
 **Status:** current, reviewable  
-**Last reviewed:** 2026-07-29  
-**Scope:** the architecture decided in [`public-use-boundary.md`](public-use-boundary.md), evaluated against the code merged to `main` through T2-001. Phase T1 is complete and T2-001 (location discovery) is merged. T2-002 (scope decoding and capability denials) is claimed and in progress; T3 onward has not started  
+**Last reviewed:** 2026-08-27
+**Scope:** the architecture decided in [`public-use-boundary.md`](public-use-boundary.md), evaluated against the current source through T5-003 safe MCP wiring. Five Standard API report tools are registered. One Analytics API lifecycle tool is registered and remains body-free, with only denied or incomplete output while T5-003-G01 remains open.
 **Method:** asset/boundary enumeration plus per-area threat walkthrough, grounded in the source files and tests present at review time rather than in the planned end-state design
 
 This document extends the accepted architecture decision with a concrete threat catalog. It does not reopen or restate the decision itself; where the two overlap, `public-use-boundary.md` remains the authority on what the product *will* do, and this document is the authority on what can go wrong and what already mitigates it *today*.
+
+## Current evidence and release limits
+
+Implemented source registers Standard API report tools and the separate
+Analytics API lifecycle tool. Synthetic validation exercises repository
+fixtures and local stdio behavior. It does not prove live Toast compatibility,
+Merchant consent, Terms approval, brand approval, installed-artifact behavior,
+signing, or publication.
+
+T5-003-G01, #4/T6-003, #28, live Standard compatibility, live Analytics
+compatibility, installed-artifact smoke, signing, publication, and human brand
+and Terms approvals remain external gates. The observed Toast API Terms date is
+2026-06-23. Operators must read the current
+[Toast API Terms](https://pos.toasttab.com/api-terms-of-use) directly. This
+repository does not claim Toast approval, endorsement, certification,
+partnership, or public-distribution authorization.
 
 ## T5-001 Analytics authority boundary
 
