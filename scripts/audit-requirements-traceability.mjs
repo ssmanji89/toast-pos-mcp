@@ -95,7 +95,7 @@ function anchoredSection(source, anchor) {
   return lines.slice(target.index + 1, following?.index).join("\n");
 }
 
-function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
+function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSourceCommit) {
   const diagnostics = [];
   const inventoryCommit = inventoryMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
   if (inventoryCommit !== requiredSourceCommit) {
@@ -104,9 +104,12 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
 
   const inventoryRows = table(inventoryMarkdown, "ID");
   const matrixRows = table(matrixMarkdown, "Requirement ID");
+  const manifestRows = table(manifestMarkdown, "Requirement ID");
   const gateRows = table(matrixMarkdown.slice(matrixMarkdown.indexOf("## Mandatory external gates")), "Gate ID");
   const inventoryIds = new Set();
   const matrixIds = new Set();
+  const manifestIds = new Set();
+  const inventoryById = new Map();
   const sourceCache = new Map();
   const allowedSources = new Set([
     "AGENTS.md",
@@ -129,6 +132,7 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     }
 
     inventoryIds.add(id);
+    inventoryById.set(id, row);
     for (const [column, diagnosticName] of [
       ["Canonical source", "canonical source"],
       ["Source anchor", "source anchor"],
@@ -201,6 +205,26 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     }
   }
 
+  for (const row of manifestRows) {
+    const id = row["Requirement ID"];
+    if (manifestIds.has(id)) {
+      diagnostics.push(`duplicate required leaf: ${id}`);
+      continue;
+    }
+    manifestIds.add(id);
+
+    const inventoryRow = inventoryById.get(id);
+    if (!inventoryRow) {
+      diagnostics.push(`missing required leaf: ${id}`);
+      continue;
+    }
+    for (const column of ["Canonical source", "Source anchor", "Canonical quote"]) {
+      if (inventoryRow[column] !== row[column]) {
+        diagnostics.push(`${id}: required leaf ${column.toLowerCase()} does not match inventory`);
+      }
+    }
+  }
+
   const atomicFamilies = new Set();
   for (const id of inventoryIds) {
     const match = /^(REQ-[A-Z]+-\d{3})[A-Z]$/u.exec(id);
@@ -245,6 +269,7 @@ try {
   const diagnostics = audit(
     readFileSync(argument("--inventory"), "utf8"),
     readFileSync(argument("--matrix"), "utf8"),
+    readFileSync(argument("--manifest"), "utf8"),
     argument("--required-source-commit"),
   );
   if (diagnostics.length > 0) {

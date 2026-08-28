@@ -50,18 +50,31 @@ function matrix(requirementRows: string[], gateRows = requiredGates.map((gate) =
   ].join("\n");
 }
 
+function manifest(rows: string[]): string {
+  return [
+    "# Required Leaf Manifest",
+    "",
+    "| Requirement ID | Canonical source | Source anchor | Canonical quote |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
 const validRequirement = "| REQ-ONE | AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external |";
 const validMatrixRow = "| REQ-ONE | `src/server.ts` | `test/server.test.ts` | unverified | production-wired | synthetic-tested | external |";
 
-function runAudit(requirements: string, evidenceMatrix: string) {
+function runAudit(requirements: string, evidenceMatrix: string, requiredLeaves = manifest(["| REQ-ONE | AGENTS.md | AGENTS.md > Binding safety rules | `Read-only means structurally read-only.` |"])) {
   const directory = mkdtempSync(join(tmpdir(), "toast-traceability-audit-"));
   const inventoryPath = join(directory, "REQUIREMENTS.md");
   const matrixPath = join(directory, "matrix.md");
+  const manifestPath = join(directory, "manifest.md");
   writeFileSync(inventoryPath, requirements);
   writeFileSync(matrixPath, evidenceMatrix);
+  writeFileSync(manifestPath, requiredLeaves);
 
   try {
-    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--required-source-commit", sourceCommit], {
+    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", sourceCommit], {
       encoding: "utf8",
     });
   } finally {
@@ -127,6 +140,13 @@ test("audit rejects a compound baseline that overlaps atomic requirement rows", 
   const result = runAudit(inventory([compound, atomic]), matrix([compoundMatrix, atomicMatrix]));
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /REQ-PROD-006: compound baseline overlaps atomic requirement rows/u);
+});
+
+test("audit rejects removal of a source-derived required leaf", () => {
+  const requiredLeaves = manifest(["| REQ-PROD-001E | AGENTS.md | AGENTS.md > Binding safety rules | any other Toast write operation in the reporting server. |"]);
+  const result = runAudit(inventory([validRequirement]), matrix([validMatrixRow]), requiredLeaves);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing required leaf: REQ-PROD-001E/u);
 });
 
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {
