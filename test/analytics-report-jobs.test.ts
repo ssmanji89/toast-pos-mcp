@@ -407,6 +407,56 @@ test("Analytics runtime composes one private job adapter without Standard exposu
   assert.equal("analyticsReportJobs" in standard.config, false);
 });
 
+test("Analytics lifecycle maps capability and source failures to immutable safe envelopes", async () => {
+  const { access, selection } = await createSelection();
+  const denied = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: {
+      async getAuthorizationHeader() { return `Bearer ${TOKEN_MARKER}`; },
+      async getProvisionedScopes() { return []; },
+    },
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => { throw new Error("A denied turn must not fetch"); },
+  });
+  const deniedResult = await denied.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(deniedResult, "capability_denied", 0, 0);
+  assert.equal(deniedResult.completeness.state, "denied");
+
+  const failed = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async () => { throw new Error(TOKEN_MARKER); },
+  });
+  const failedResult = await failed.runReportJob(selection, createInput("metrics"));
+  assertLifecycleResult(failedResult, "failed_or_incomplete", 0, 0);
+  assert.equal(JSON.stringify(failedResult).includes(TOKEN_MARKER), false);
+});
+
+test("Analytics lifecycle retries a bounded 429 create turn using Retry-After", async () => {
+  const { access, selection } = await createSelection();
+  const sleeps: number[] = [];
+  let turns = 0;
+  const adapter = createAnalyticsReportJobAdapter({
+    access,
+    identity: {},
+    tokenManager: createTokenManager(),
+    hostname: "analytics.synthetic-toast-fixture.test",
+    fetch: async (_url, init) => {
+      turns += 1;
+      if (turns === 1) return new Response(null, { status: 429, headers: { "retry-after": "2" } });
+      if (init?.method === "POST") return new Response(JSON.stringify("opaque-429-retry"), { status: 200 });
+      return unreadableCompleteResponse();
+    },
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+  });
+  assertLifecycleResult(await adapter.runReportJob(selection, createInput("metrics")), "result_contract_unavailable", 0, 0);
+  assert.equal(turns, 3);
+  assert.deepEqual(sleeps, [2_000]);
+});
+
 function unreadableCompleteResponse(): Response {
   return unreadableResponse(200);
 }
