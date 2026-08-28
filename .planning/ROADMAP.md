@@ -459,7 +459,9 @@ sufficiency.
   `2026-07-28` records first `tools/call` ID 0. Plan 06-07 uses the corrected
   contract: modern ID 0 is the defect proof; legacy ID 1 is regression proof.
   Plan 06-08 retains cleanup, registration, mutation, Node 20/22, and
-  independent exact-head review gates.
+  independent exact-head review gates. Candidate `3818c36dc2a9eb67d45fb25d88393c77af6d621c`
+  completed the Node 20 gate. Node 22 completed restore, full check, and focused
+  process tests, but still needs four registration-wrapper mutations.
 - T5-003-G01 requires a corrected Toast retrieval contract or written vendor
   confirmation before a complete Analytics result contract can be claimed.
 - #28 requires owner-authorized live Standard evidence for credential-wide

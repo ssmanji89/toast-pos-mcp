@@ -536,3 +536,7 @@ The threat model went stale twice during this slice — once because `main` move
 - **External and human gates:** #60/T6-003 first-tool-request cancellation,
   #28 live Standard compatibility, live Analytics compatibility, signing,
   publication, and human or Toast Terms and brand approval remain open.
+
+### #60 candidate handoff
+
+Candidate `3818c36dc2a9eb67d45fb25d88393c77af6d621c` adds local synthetic mutation proof for the accepted-request cancellation bridge. Node 20.20.2 completed committed-lockfile restore, `npm run check` (45 discovered files, 440 normal tests, one installed-artifact test), 39 focused executable process tests, and 12 isolated mutations. Node 22.22.2 completed the same restore, full check, and focused suite, but its item, cash, labor, and Analytics wrapper mutations remain unfinished. Issue #60 stays OPEN until the Node 22 mutation gate and independent findings-only exact-head review complete. DOX: updated.
