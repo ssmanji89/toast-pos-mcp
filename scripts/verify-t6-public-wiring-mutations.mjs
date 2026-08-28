@@ -28,9 +28,21 @@ const guards = [
   ["denial-required", "tools/list advertises only the real Standard result branches", reportToolsPath, "missingScopes: z.array(z.string()),", "missingScopes: z.array(z.string()).optional(),"],
   ["item-dimension-required", "tools/list advertises only the real Standard result branches", reportToolsPath, "report: z.literal(\"item_sales_summary\"),\n    dimension: z.string().min(1),\n    metricBasis:", "report: z.literal(\"item_sales_summary\"),\n    dimension: z.string().min(1).optional(),\n    metricBasis:"],
 ];
+const requestedBatch = process.env.T6_PUBLIC_WIRING_GUARD_BATCH;
+const selectedGuards = requestedBatch === undefined
+  ? guards
+  : guards.filter((_, index) => (
+    requestedBatch === "first" ? index < 5
+      : requestedBatch === "second" ? index >= 5 && index < 10
+        : requestedBatch === "third" ? index >= 10
+          : false
+  ));
 
 if (new Set(guards.map(([id]) => id)).size !== guards.length) {
   throw new Error("The complete unique T6 public-wiring guard list is required.");
+}
+if (requestedBatch !== undefined && !["first", "second", "third"].includes(requestedBatch)) {
+  throw new Error("T6_PUBLIC_WIRING_GUARD_BATCH must be first, second, or third when it is set.");
 }
 
 try {
@@ -40,7 +52,7 @@ try {
     [indexPath, serverPath, reportToolsPath].map(async (file) => [file, await readFile(file, "utf8")]),
   ));
 
-  for (const [id, testName, file, before, after] of guards) {
+  for (const [id, testName, file, before, after] of selectedGuards) {
     const original = originals.get(file);
     if (original === undefined || original.split(before).length !== 2) {
       throw new Error(`Guard ${id} needs one unique source marker.`);
@@ -74,7 +86,7 @@ try {
   await rm(mutationRoot, { recursive: true, force: true });
 }
 
-console.log(`T6 public-wiring mutation harness caught ${guards.length} compiling behavioral mutations in an isolated worktree.`);
+console.log(`T6 public-wiring mutation harness caught ${selectedGuards.length} compiling behavioral mutations in an isolated worktree.`);
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8" });
