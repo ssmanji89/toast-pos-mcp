@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
 const audit = new URL("scripts/audit-requirements-traceability.mjs", root);
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
 const requiredGates = [
   "#60",
@@ -23,7 +24,7 @@ function inventory(rows: string[]): string {
   return [
     "# Formal Requirement Inventory",
     "",
-    "**Canonical source commit:** `source-1`",
+    `**Canonical source commit:** \`${sourceCommit}\``,
     "",
     "| ID | Canonical source | Source anchor | Canonical quote | Applies to | Implementation status | Implementation links | Evidence status | Evidence links | Production reachability | External-gate disposition |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -49,8 +50,8 @@ function matrix(requirementRows: string[], gateRows = requiredGates.map((gate) =
   ].join("\n");
 }
 
-const validRequirement = "| REQ-ONE | AGENTS.md | Binding safety rules 1 | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external: live proof remains open |";
-const validMatrixRow = "| REQ-ONE | `src/server.ts` | `test/server.test.ts` | unverified | production-wired | synthetic-tested | external: live proof remains open |";
+const validRequirement = "| REQ-ONE | AGENTS.md | Binding safety rules | `Read-only means structurally read-only.` | all tools | implemented | `src/server.ts` | synthetic-tested | `test/server.test.ts` | production-wired | external |";
+const validMatrixRow = "| REQ-ONE | `src/server.ts` | `test/server.test.ts` | unverified | production-wired | synthetic-tested | external |";
 
 function runAudit(requirements: string, evidenceMatrix: string) {
   const directory = mkdtempSync(join(tmpdir(), "toast-traceability-audit-"));
@@ -60,7 +61,7 @@ function runAudit(requirements: string, evidenceMatrix: string) {
   writeFileSync(matrixPath, evidenceMatrix);
 
   try {
-    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--required-source-commit", "source-1"], {
+    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--required-source-commit", sourceCommit], {
       encoding: "utf8",
     });
   } finally {
@@ -79,6 +80,22 @@ test("audit rejects a requirement with a missing required field", () => {
   const result = runAudit(inventory([missingQuote]), matrix([validMatrixRow]));
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /REQ-ONE: missing canonical quote/u);
+});
+
+test("audit rejects a canonical quote that is absent from its required source revision", () => {
+  const forgedQuote = validRequirement.replace("Read-only means structurally read-only.", "Invented release-ready requirement.");
+  const result = runAudit(inventory([forgedQuote]), matrix([validMatrixRow]));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /REQ-ONE: canonical quote is absent from AGENTS.md at /u);
+});
+
+test("audit rejects invalid inventory and matrix status enums", () => {
+  const invalidInventory = validRequirement.replace("| implemented |", "| complete |");
+  const invalidMatrix = validMatrixRow.replace("| synthetic-tested |", "| complete |" );
+  const result = runAudit(inventory([invalidInventory]), matrix([invalidMatrix]));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /REQ-ONE: invalid implementation status: complete/u);
+  assert.match(result.stderr, /REQ-ONE: invalid evidence level: complete/u);
 });
 
 test("audit rejects duplicate and unlinked requirement IDs", () => {

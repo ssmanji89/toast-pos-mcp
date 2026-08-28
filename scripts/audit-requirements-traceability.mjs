@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const mandatoryGates = [
@@ -49,6 +50,28 @@ function missing(value) {
   return !value || value === "unverified";
 }
 
+function enumValue(diagnostics, id, field, value, allowed) {
+  if (!allowed.has(value)) {
+    diagnostics.push(`${id}: invalid ${field}: ${value}`);
+  }
+}
+
+function sourceAtRevision(commit, source, cache) {
+  if (!cache.has(source)) {
+    cache.set(source, execFileSync("git", ["show", `${commit}:${source}`], { encoding: "utf8" }));
+  }
+
+  return cache.get(source);
+}
+
+function headingExists(source, anchor) {
+  return source.split(/\r?\n/u).some((line) => line.replace(/^#+\s+/u, "") === anchor);
+}
+
+function exactText(value) {
+  return value.replaceAll("**", "").replaceAll("`", "").replace(/\s+/gu, " ").trim();
+}
+
 function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
   const diagnostics = [];
   const inventoryCommit = inventoryMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
@@ -61,6 +84,19 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
   const gateRows = table(matrixMarkdown.slice(matrixMarkdown.indexOf("## Mandatory external gates")), "Gate ID");
   const inventoryIds = new Set();
   const matrixIds = new Set();
+  const sourceCache = new Map();
+  const allowedSources = new Set([
+    "AGENTS.md",
+    "LOOP.md",
+    ".planning/ROADMAP.md",
+    "docs/architecture/report-contract.md",
+    "docs/architecture/public-use-boundary.md",
+    "docs/architecture/threat-model.md",
+  ]);
+  const implementationStatuses = new Set(["implemented", "unverified"]);
+  const evidenceStatuses = new Set(["synthetic-tested", "independent-review", "unverified"]);
+  const reachabilityStatuses = new Set(["production-wired", "unverified"]);
+  const gateDispositions = new Set(["external", "unverified"]);
 
   for (const row of inventoryRows) {
     const id = row.ID;
@@ -88,6 +124,28 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
         diagnostics.push(`${id}: missing ${diagnosticName}`);
       }
     }
+    enumValue(diagnostics, id, "implementation status", row["Implementation status"], implementationStatuses);
+    enumValue(diagnostics, id, "evidence status", row["Evidence status"], evidenceStatuses);
+    enumValue(diagnostics, id, "production reachability", row["Production reachability"], reachabilityStatuses);
+    enumValue(diagnostics, id, "external-gate disposition", row["External-gate disposition"], gateDispositions);
+
+    const source = row["Canonical source"];
+    if (!allowedSources.has(source)) {
+      diagnostics.push(`${id}: unsupported canonical source: ${source}`);
+      continue;
+    }
+    try {
+      const sourceText = sourceAtRevision(requiredSourceCommit, source, sourceCache);
+      const quote = exactText(row["Canonical quote"]);
+      if (!exactText(sourceText).includes(quote)) {
+        diagnostics.push(`${id}: canonical quote is absent from ${source} at ${requiredSourceCommit}`);
+      }
+      if (!headingExists(sourceText, row["Source anchor"])) {
+        diagnostics.push(`${id}: source anchor is absent from ${source} at ${requiredSourceCommit}`);
+      }
+    } catch {
+      diagnostics.push(`${id}: cannot read ${source} at ${requiredSourceCommit}`);
+    }
   }
 
   const evidenceLevels = new Set(["implemented", "synthetic-tested", "independent-review", "production-wired", "live-proven", "unverified", "external"]);
@@ -105,6 +163,8 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     if (!evidenceLevels.has(row["Evidence level"])) {
       diagnostics.push(`${id}: invalid evidence level: ${row["Evidence level"]}`);
     }
+    enumValue(diagnostics, id, "matrix production reachability", row["Production reachability"], reachabilityStatuses);
+    enumValue(diagnostics, id, "matrix gate disposition", row["Gate disposition"], gateDispositions);
     for (const column of ["Implementation links", "Local evidence", "Review evidence", "Production reachability", "Gate disposition"]) {
       if (!row[column]) {
         diagnostics.push(`${id}: missing matrix ${column.toLowerCase()}`);
@@ -130,6 +190,7 @@ function audit(inventoryMarkdown, matrixMarkdown, requiredSourceCommit) {
     if (!["open", "pending", "external"].includes(row.State)) {
       diagnostics.push(`${id}: invalid external gate state: ${row.State}`);
     }
+    enumValue(diagnostics, id, "gate evidence basis", row["Evidence basis"], new Set(["external"]));
     if (row.State === "closed" && /synthetic|merged|local|review/iu.test(row["Evidence basis"])) {
       diagnostics.push(`${id}: external gate cannot close from ${row["Evidence basis"]} evidence`);
     }
