@@ -85,9 +85,33 @@ function runAudit(requirements: string, evidenceMatrix: string, requiredLeaves =
   writeFileSync(manifestPath, requiredLeaves);
 
   try {
-    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", sourceCommit], {
+    return spawnSync(process.execPath, [audit.pathname, "--fixture", "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", sourceCommit], {
       encoding: "utf8",
     });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function projectDocuments() {
+  const requirements = readFileSync(new URL(".planning/REQUIREMENTS.md", root), "utf8");
+  const evidenceMatrix = readFileSync(new URL("docs/verification/phase-06-requirements-evidence-matrix.md", root), "utf8");
+  const requiredLeaves = readFileSync(new URL("docs/verification/phase-06-required-leaf-manifest.md", root), "utf8");
+  const requiredSourceCommit = requirements.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
+  assert.ok(requiredSourceCommit);
+  return { requirements, evidenceMatrix, requiredLeaves, requiredSourceCommit };
+}
+
+function runProjectAudit(requirements: string, evidenceMatrix: string, requiredLeaves: string, requiredSourceCommit: string) {
+  const directory = mkdtempSync(join(tmpdir(), "toast-traceability-domain-"));
+  const inventoryPath = join(directory, "REQUIREMENTS.md");
+  const matrixPath = join(directory, "matrix.md");
+  const manifestPath = join(directory, "manifest.md");
+  writeFileSync(inventoryPath, requirements);
+  writeFileSync(matrixPath, evidenceMatrix);
+  writeFileSync(manifestPath, requiredLeaves);
+  try {
+    return spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", requiredSourceCommit], { encoding: "utf8" });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -160,31 +184,51 @@ test("audit rejects removal of a source-derived required leaf", () => {
   assert.match(result.stderr, /Fixture domain: required leaf (count|digest) mismatch/u);
 });
 
-test("audit rejects removal from every required source domain", () => {
-  const projectInventory = readFileSync(new URL(".planning/REQUIREMENTS.md", root), "utf8");
-  const projectMatrix = readFileSync(new URL("docs/verification/phase-06-requirements-evidence-matrix.md", root), "utf8");
-  const projectManifest = readFileSync(new URL("docs/verification/phase-06-required-leaf-manifest.md", root), "utf8");
-  const requiredSourceCommit = projectInventory.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
-  assert.ok(requiredSourceCommit);
+test("audit accepts the unmodified canonical repository documents", () => {
+  const documents = projectDocuments();
+  const result = runProjectAudit(documents.requirements, documents.evidenceMatrix, documents.requiredLeaves, documents.requiredSourceCommit);
+  assert.equal(result.status, 0, result.stderr);
+});
 
-  for (const id of ["REQ-CONTRACT-001A", "REQ-PROD-001A", "REQ-ARCH-001", "REQ-DEL-001"]) {
-    const alteredInventory = projectInventory.replace(new RegExp(`^\\| ${id} \\|.*\\n`, "mu"), "");
-    const alteredMatrix = projectMatrix.replace(new RegExp(`^\\| ${id} \\|.*\\n`, "mu"), "");
-    const directory = mkdtempSync(join(tmpdir(), "toast-traceability-domain-"));
-    const inventoryPath = join(directory, "REQUIREMENTS.md");
-    const matrixPath = join(directory, "matrix.md");
-    const manifestPath = join(directory, "manifest.md");
-    writeFileSync(inventoryPath, alteredInventory);
-    writeFileSync(matrixPath, alteredMatrix);
-    writeFileSync(manifestPath, projectManifest);
-    try {
-      const result = spawnSync(process.execPath, [audit.pathname, "--inventory", inventoryPath, "--matrix", matrixPath, "--manifest", manifestPath, "--required-source-commit", requiredSourceCommit], { encoding: "utf8" });
-      assert.notEqual(result.status, 0, id);
-      assert.match(result.stderr, /required leaf (count|digest) mismatch/u, id);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+test("audit rejects every mutation mode in every canonical source domain", () => {
+  const documents = projectDocuments();
+  const domains = [
+    { name: "Product contract", id: "REQ-CONTRACT-001A" },
+    { name: "Binding safety rules", id: "REQ-PROD-001A" },
+    { name: "Architecture constraints", id: "REQ-ARCH-001" },
+    { name: "GSD delivery rules", id: "REQ-DEL-001" },
+    { name: "Delivery standard", id: "REQ-DEL-006" },
+    { name: "Documentation check", id: "REQ-DEL-008" },
+  ];
+
+  for (const domain of domains) {
+    const inventoryLine = documents.requirements.match(new RegExp(`^\\| ${domain.id} \\|.*\\n`, "mu"))?.[0];
+    const matrixLine = documents.evidenceMatrix.match(new RegExp(`^\\| ${domain.id} \\|.*\\n`, "mu"))?.[0];
+    assert.ok(inventoryLine, domain.id);
+    assert.ok(matrixLine, domain.id);
+    const addedId = domain.id.replace(/\d{3}[A-Z]?$/u, "999Z");
+    const mutations = [
+      { mode: "missing", requirements: documents.requirements.replace(inventoryLine, ""), evidenceMatrix: documents.evidenceMatrix.replace(matrixLine, ""), requiredLeaves: documents.requiredLeaves },
+      { mode: "added", requirements: documents.requirements.replace(inventoryLine, `${inventoryLine}${inventoryLine.replace(domain.id, addedId)}`), evidenceMatrix: documents.evidenceMatrix.replace(matrixLine, `${matrixLine}${matrixLine.replace(domain.id, addedId)}`), requiredLeaves: documents.requiredLeaves },
+      { mode: "changed", requirements: documents.requirements.replace(inventoryLine, inventoryLine.replace(/^(\| [^|]+ \| [^|]+ \| [^|]+ \| )[^|]+/u, "$1changed source clause")), evidenceMatrix: documents.evidenceMatrix, requiredLeaves: documents.requiredLeaves },
+      { mode: "unmanifested", requirements: documents.requirements.replace(inventoryLine, `${inventoryLine}${inventoryLine.replace(domain.id, "REQ-UNMANIFESTED-001A")}`), evidenceMatrix: documents.evidenceMatrix.replace(matrixLine, `${matrixLine}${matrixLine.replace(domain.id, "REQ-UNMANIFESTED-001A")}`), requiredLeaves: documents.requiredLeaves },
+    ];
+    for (const mutation of mutations) {
+      const result = runProjectAudit(mutation.requirements, mutation.evidenceMatrix, mutation.requiredLeaves, documents.requiredSourceCommit);
+      assert.notEqual(result.status, 0, `${domain.name}/${mutation.mode}`);
+      assert.match(result.stderr, /(required leaf (count|digest) mismatch|canonical inventory leaf is not covered|required leaf .* does not match inventory)/u, `${domain.name}/${mutation.mode}`);
     }
   }
+});
+
+test("audit independently requires each canonical domain when matching leaves also disappear", () => {
+  const documents = projectDocuments();
+  const alteredRequirements = documents.requirements.replace(/^\| REQ-CONTRACT-001A \|.*\n/mu, "");
+  const alteredMatrix = documents.evidenceMatrix.replace(/^\| REQ-CONTRACT-001A \|.*\n/mu, "");
+  const alteredManifest = documents.requiredLeaves.replace(/^\| Product contract \|.*\n/mu, "");
+  const result = runProjectAudit(alteredRequirements, alteredMatrix, alteredManifest, documents.requiredSourceCommit);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing canonical source domain: Product contract/u);
 });
 
 test("audit rejects a synthetic or local review claim that closes an external gate", () => {

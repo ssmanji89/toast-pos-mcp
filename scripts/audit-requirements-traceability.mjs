@@ -13,6 +13,15 @@ const mandatoryGates = [
   "Signing and publication",
 ];
 
+const canonicalLeafDomains = [
+  { Domain: "Product contract", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Product contract", "Requirement ID prefix": "REQ-CONTRACT-" },
+  { Domain: "Binding safety rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Binding safety rules", "Requirement ID prefix": "REQ-PROD-" },
+  { Domain: "Architecture constraints", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Architecture constraints", "Requirement ID prefix": "REQ-ARCH-" },
+  { Domain: "GSD delivery rules", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > GSD execution bridge", "Requirement ID prefix": "REQ-DEL-" },
+  { Domain: "Delivery standard", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Delivery standard", "Requirement ID prefix": "REQ-DEL-" },
+  { Domain: "Documentation check", "Canonical source": "AGENTS.md", "Source anchor": "AGENTS.md > Documentation check (DOX)", "Requirement ID prefix": "REQ-DEL-" },
+];
+
 function argument(name) {
   const index = process.argv.indexOf(name);
   if (index < 0 || !process.argv[index + 1]) {
@@ -104,7 +113,7 @@ function anchoredSection(source, anchor) {
   return lines.slice(target.index + 1, following?.index).join("\n");
 }
 
-function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSourceCommit) {
+function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSourceCommit, fixture) {
   const diagnostics = [];
   const inventoryCommit = inventoryMarkdown.match(/^\*\*Canonical source commit:\*\* `([^`]+)`/mu)?.[1];
   if (inventoryCommit !== requiredSourceCommit) {
@@ -215,6 +224,7 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
   }
 
   const coveredIds = new Set();
+  const manifestByDomain = new Map();
   for (const domain of manifestRows) {
     const name = domain.Domain;
     if (manifestDomains.has(name)) {
@@ -222,6 +232,7 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
       continue;
     }
     manifestDomains.add(name);
+    manifestByDomain.set(name, domain);
     const rows = inventoryRows.filter((row) =>
       row.ID.startsWith(domain["Requirement ID prefix"])
       && row["Canonical source"] === domain["Canonical source"]
@@ -244,6 +255,25 @@ function audit(inventoryMarkdown, matrixMarkdown, manifestMarkdown, requiredSour
   for (const row of inventoryRows) {
     if (!coveredIds.has(row.ID)) {
       diagnostics.push(`${row.ID}: canonical inventory leaf is not covered by the required leaf manifest`);
+    }
+  }
+  if (!fixture) {
+    for (const expected of canonicalLeafDomains) {
+      const observed = manifestByDomain.get(expected.Domain);
+      if (!observed) {
+        diagnostics.push(`missing canonical source domain: ${expected.Domain}`);
+        continue;
+      }
+      for (const field of ["Canonical source", "Source anchor", "Requirement ID prefix"]) {
+        if (observed[field] !== expected[field]) {
+          diagnostics.push(`${expected.Domain}: canonical source domain ${field.toLowerCase()} mismatch`);
+        }
+      }
+    }
+    for (const name of manifestDomains) {
+      if (!canonicalLeafDomains.some((domain) => domain.Domain === name)) {
+        diagnostics.push(`unknown canonical source domain: ${name}`);
+      }
     }
   }
 
@@ -293,6 +323,7 @@ try {
     readFileSync(argument("--matrix"), "utf8"),
     readFileSync(argument("--manifest"), "utf8"),
     argument("--required-source-commit"),
+    process.argv.includes("--fixture"),
   );
   if (diagnostics.length > 0) {
     process.stderr.write(`${diagnostics.join("\n")}\n`);
