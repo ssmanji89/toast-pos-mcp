@@ -92,7 +92,7 @@ Candidate `3818c36dc2a9eb67d45fb25d88393c77af6d621c` adds isolated mutations for
 
 Node `20.20.2` with npm `10.8.2` restored the committed lockfile, passed `npm run check` with 45 discovered files, 440 normal tests, and one installed-artifact test, then passed the 39-test focused executable suite and all 12 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
-Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 440 normal tests, and one installed-artifact test, then passed the same 39-test focused executable suite. Its isolated mutation sequence is incomplete at this handoff. It completed numeric ID zero, nonzero dispatch, exact ID matching, combined signal, active-controller cleanup, relay-listener cleanup, and sales/payment registration wrappers. It still requires item, cash, labor, and Analytics registration mutations before the exact candidate can claim a completed dual-runtime mutation gate.
+Node `22.22.2` with npm `10.9.7` restored the same committed lockfile, passed `npm run check` with 45 discovered files, 440 normal tests, and one installed-artifact test, then passed the same 39-test focused executable suite and all 12 isolated mutations. The candidate SHA was unchanged before and after the gate, and tracked and index diffs were empty.
 
 Issue #60 remains OPEN. Independent findings-only review is pending. This local synthetic evidence does not close #28, T5-003-G01, live Analytics compatibility, Merchant consent, Terms or brand approval, signing, publication, or the PR #55 and PR #58 GitHub-review gaps. DOX: updated.
 
