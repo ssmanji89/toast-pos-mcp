@@ -63,7 +63,7 @@ The server must support operators using their own authorized Toast credentials, 
 | T4-002 | T4 | Implement labor hours, breaks, wages, sales, and tips summaries | T3-002 CLOSED | CLOSED |
 | T5-001 | T5 | Implement Analytics API capability and management-group location adapter | T4-002 | CLOSED |
 | T5-002 | T5 | Implement Analytics report-job creation/retrieval lifecycle, 202 polling, expiry, 409 replacement, and endpoint/time-range limiters | T5-001 | CLOSED |
-| T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN |
+| T5-003 | T5 | Implement source-distinct Analytics reporting tools excluding guest-payment datasets | T5-002 | OPEN — safe incomplete-only MCP boundary merged; complete result contract blocked by G01 |
 | T6-001 | T6 | Threat model local distribution, AI-provider data flow, and future remote transport | T0-001 CLOSED (built out of order) | CLOSED |
 | T6-002 | T6 | Complete Toast terms/branding checkpoint and public operator documentation | T6-001 | OPEN |
 | T6-003 | T6 | Publish installable package with exact-head local validation evidence | T6-002 | OPEN |
@@ -80,14 +80,18 @@ The server must support operators using their own authorized Toast credentials, 
 
 ## Current slice
 
-T5-002 is CLOSED on `main` at `0c6de53760b64b38b5cae30717117c551aca7e1d`.
-PR #50 merged after independent CLEAN review of
-`e3d07868ed0c5fa18f5bbcfdc2aa52bc912661ee`.
-Both Node 20.20.2 and Node 22.22.2 candidate runs passed authentic clean
-dependency restoration, 399 tests, the 15-test lifecycle suite, 16/16
+T5-003 has merged its safe MCP boundary on `main` at
+`ff39d1d79dd4b7532d0314279ec62df1727f21ff` from PR #51. The independently
+reviewed CLEAN head was `55ab1e2d35c80c0de596bc390f292b39fff1d143`.
+Node 20.20.2 and Node 22.22.2 candidate validation passed authentic clean
+dependency restoration, 406 tests, focused stdio tests, 18/18 isolated
 semantic mutations, and package validation. Rebuilt `main` passed the Node 22
-equivalent gate. This is synthetic internal-lifecycle evidence only. T5-003
-retains MCP presentation and source-result-contract ownership.
+equivalent gate. The registered `toast_analytics_metrics_day` path is
+intentionally body-free and produces only denied or incomplete results.
+T5-003 remains OPEN because G01 prevents any verified complete Analytics
+result contract: the current official OpenAPI and retrieval guide conflict on
+the retrieval response top-level shape. This synthetic implementation evidence
+does not prove live Analytics compatibility or close publication gates.
 
 T4 is CLOSED on `main` at `9f145c287bafc3817ba79767e59c965353e544ce`.
 T4-001 / PR #46 merged as `b52f394` after a CLEAN review of `f34c083`.
@@ -438,9 +442,15 @@ The threat model went stale twice during this slice — once because `main` move
 
 ## Next assignment
 
-- **Next slice:** T5-003. Plan the source-distinct Analytics reporting tools
-  from the closed T5-002 base.
-- **Required action:** preserve source separation, guest-payment exclusion,
-  closed report-job operations, G01-G05 gates, and the actual MCP runtime path.
+- **Next slice:** T6-002. Plan the terms, branding, and public operator
+  documentation checkpoint independently from the unresolved Analytics result
+  contract.
+- **Required action:** keep published operator guidance consistent with the
+  body-free incomplete-only Analytics tool and all consent, credential, and
+  no-endorsement requirements.
+- **Blocking gate:** T5-003-G01 requires a corrected current Toast OpenAPI or
+  written vendor confirmation of the retrieval response top-level shape before
+  any complete Analytics result parser or report claim can be implemented.
 - **External gates:** #4/T6-003 first-tool-request cancellation, #28 live
-  Toast compatibility, and T6 packaging/signing/publication remain open.
+  Standard compatibility, live Analytics compatibility, signing, install
+  smoke, and publication remain open.

@@ -339,6 +339,20 @@ Required behavior:
 
 MCP invocation exercises real Analytics adapter/job state/provenance through stdio with synthetic upstream fixtures; source-distinctness is visible to the caller.
 
+### Current evidence and blocking gate
+
+PR #51 merged the one fixed `toast_analytics_metrics_day` MCP path. The path
+uses the production stdio runtime, separate Analytics identity, capability,
+selection, fixed Metrics/day lifecycle, and structured MCP response. It is
+body-free and incomplete-only. It does not parse or publish a completed
+Analytics response.
+
+T5-003-G01 remains open. The current official OpenAPI and retrieval guide
+conflict about the retrieval response top-level shape. A corrected current
+OpenAPI or written vendor confirmation is required before a complete result
+contract can be designed, implemented, or claimed. Synthetic evidence does not
+close live Analytics compatibility.
+
 ---
 
 ## Phase 6: Release hardening and public compatibility proof
@@ -378,6 +392,9 @@ Required release gates:
 - no unresolved HIGH/BLOCKER review finding;
 - package contents contain intended runtime/docs only;
 - publication/signing remains a human/external gate when credentials/signing are required.
+- T5-003-G01 requires a corrected current Toast Analytics retrieval contract;
+- live Analytics compatibility requires authorized access and documented
+  Merchant consent under `AGENTS.md`.
 
 ---
 
