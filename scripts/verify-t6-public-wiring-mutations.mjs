@@ -26,7 +26,7 @@ const guards = [
   ["labor-denied", "tools/list advertises only the real Standard result branches", reportToolsPath, "deniedStandardEnvelopeSchema.extend({ report: z.literal(\"labor_summary\") })", "completeStandardEnvelopeSchema.extend({ report: z.literal(\"labor_summary\") })"],
   ["report-literal", "tools/list advertises only the real Standard result branches", reportToolsPath, "report: z.literal(\"sales_summary\"),", "report: z.string().min(1),"],
   ["denial-required", "tools/list advertises only the real Standard result branches", reportToolsPath, "missingScopes: z.array(z.string()),", "missingScopes: z.array(z.string()).optional(),"],
-  ["item-dimension-required", "tools/list advertises only the real Standard result branches", reportToolsPath, "dimension: z.string().min(1),", "dimension: z.string().min(1).optional(),"],
+  ["item-dimension-required", "tools/list advertises only the real Standard result branches", reportToolsPath, "report: z.literal(\"item_sales_summary\"),\n    dimension: z.string().min(1),\n    metricBasis:", "report: z.literal(\"item_sales_summary\"),\n    dimension: z.string().min(1).optional(),\n    metricBasis:"],
 ];
 
 if (new Set(guards.map(([id]) => id)).size !== guards.length) {
