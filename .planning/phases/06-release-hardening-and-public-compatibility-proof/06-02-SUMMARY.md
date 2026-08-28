@@ -25,7 +25,7 @@ metrics:
   duration: 37min
   tasks_completed: 3
   files_modified: 9
-completed: 2026-08-28
+completed: 2026-08-27
 status: complete
 ---
 
@@ -50,6 +50,7 @@ status: complete
 
 ## Validation
 
+- Evidence date: 2026-08-27, America/Chicago (CDT).
 - RED: `npm run build:test && ! node --test --enable-source-maps dist-test/test/package-artifact-e2e.test.js` passed because the installed child could not load the absent external preload marker.
 - GREEN: `npm run build:test && node --test --enable-source-maps dist-test/test/package-artifact-e2e.test.js` passed.
 - Full local gate: 43 discovered files, 411 normal tests, and one artifact test passed. The runner rebuilt `dist-test` after artifact packaging.

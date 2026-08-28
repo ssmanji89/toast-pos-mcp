@@ -169,9 +169,9 @@ Task 1 owns this Wave 0 dependency. Task 2 cannot be green before it exists and 
 
 ## T6-003 observed exact-head evidence
 
-The focused RED command passed on 2026-08-28 because the installed child could
-not emit `installed-artifact-fetch-preload-ready` before the external test-only
-preload existed. The unchanged contract created the real tarball and empty
+The focused RED command ran on 2026-08-27 in America/Chicago (CDT) and passed
+because the installed child could not emit `installed-artifact-fetch-preload-ready`
+before the external test-only preload existed. The unchanged contract created the real tarball and empty
 consumer first. GREEN used `NODE_OPTIONS --import` to load the copied external
 preload before the installed bin constructed its runtime.
 
