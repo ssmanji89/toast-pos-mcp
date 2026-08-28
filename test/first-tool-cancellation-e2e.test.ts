@@ -203,6 +203,72 @@ test(
   },
 );
 
+for (const [name, arguments_] of [
+  ["toast_sales_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_payment_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_item_sales_summary", { businessDate: BUSINESS_DATES.immediateCancellation, dimension: "item" }],
+  ["toast_cash_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_labor_summary", { businessDate: BUSINESS_DATES.immediateCancellation }],
+  ["toast_analytics_metrics_day", {
+    restaurantGuid: "00000000-0000-4000-8000-000000000002",
+    businessDate: BUSINESS_DATES.immediateCancellation,
+  }],
+] as const) {
+  test(
+    `legacy compiled registration wrapper: ${name}`,
+    { timeout: PROTOCOL_TIMEOUT_MS * 4 },
+    async () => {
+      const child = spawn(process.execPath, [PRODUCTION_SERVER_PATH], {
+        cwd: process.cwd(),
+        env: executableTestEnvironment(),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const stderr = observeStderr(child.stderr);
+      const stdout = observeJsonMessages(child.stdout);
+
+      try {
+        writeRawMessages(child.stdin, [{
+          jsonrpc: "2.0",
+          id: 0,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: `toast-registration-wrapper-${name}`, version: "0.0.0" },
+          },
+        }]);
+        await stdout.waitFor((message) => hasResponseId(message, 0), "missing legacy initialize response");
+
+        const snapshotCursor = stderr.cursor();
+        writeRawMessages(child.stdin, [
+          { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name, arguments: arguments_ },
+          },
+          {
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: { requestId: 1, reason: `invented ${name} registration cancellation` },
+          },
+        ]);
+
+        const enteredBridge = await stderr.waitFor(
+          "gate60-cancellation-snapshot:activeControllers=1 relayListeners=2",
+          snapshotCursor,
+        );
+        await stderr.waitFor(CLEANUP_SNAPSHOT, enteredBridge.sequence);
+      } finally {
+        stderr.stop();
+        stdout.stop();
+        if (child.exitCode === null) child.kill();
+      }
+    },
+  );
+}
+
 function callTool(
   client: Client,
   name: "toast_sales_summary" | "toast_payment_summary",
