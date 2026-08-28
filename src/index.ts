@@ -22,7 +22,7 @@ async function main(): Promise<void> {
       ? {
           cancellationSnapshotObserver: (snapshot) => {
             console.error(
-              `gate60-cancellation-snapshot:activeControllers=${snapshot.activeControllers} earlyCancellations=${snapshot.earlyCancellations} relayListeners=${snapshot.relayListeners}`,
+              `gate60-cancellation-snapshot:activeControllers=${snapshot.activeControllers} relayListeners=${snapshot.relayListeners}`,
             );
           },
         }

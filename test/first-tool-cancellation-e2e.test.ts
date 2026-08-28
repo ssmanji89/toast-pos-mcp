@@ -7,14 +7,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const BUSINESS_DATES = {
   immediateCancellation: 20260815,
-  firstCancellation: 20260816,
   laterCancellation: 20260817,
   resolve: 20260818,
   reject: 20260819,
   reuse: 20260820,
 } as const;
 const PROTOCOL_TIMEOUT_MS = 10_000;
-const CLEANUP_SNAPSHOT = "gate60-cancellation-snapshot:activeControllers=0 earlyCancellations=0 relayListeners=0";
+const CLEANUP_SNAPSHOT = "gate60-cancellation-snapshot:activeControllers=0 relayListeners=0";
 const PRODUCTION_SERVER_PATH = path.resolve(process.cwd(), "dist", "index.js");
 const PRELOAD_PATH = path.resolve(
   process.cwd(),
@@ -76,22 +75,34 @@ for (const era of ["legacy", "modern"] as const) {
         await stderr.waitFor(CLEANUP_SNAPSHOT, immediateAborted.sequence);
 
         assert.equal(typeof firstRequestId, "number", "the official client must allocate numeric request IDs");
-        const earlyCursor = stderr.cursor();
-        const preRegisteredRequestId = firstRequestId + 1;
+        const ignoredCancellationCursor = stderr.cursor();
+        const futureRequestId = firstRequestId + 1;
         await client.notification({
           method: "notifications/cancelled",
-          params: { requestId: preRegisteredRequestId, reason: "invented pre-registration cancellation" },
+          params: { requestId: `invented-unknown-${era}`, reason: "invented unknown cancellation" },
         });
-        const earlyCancellation = await stderr.waitFor(
-          "gate60-cancellation-snapshot:activeControllers=0 earlyCancellations=1 relayListeners=0",
-          earlyCursor,
-        );
-        const preRegistered = callTool(client, "toast_sales_summary", BUSINESS_DATES.firstCancellation);
-        await waitUntil(() => transport.lastToolCallId() === preRegisteredRequestId, "missing pre-registered tools/call request ID");
-        const preRegisteredResult = await preRegistered.result as { readonly isError?: boolean };
-        assert.equal(preRegisteredResult.isError, true, "the retained early cancellation must abort the matching report request");
-        await transport.waitForDeniedResponse(preRegisteredRequestId);
-        await stderr.waitFor(CLEANUP_SNAPSHOT, earlyCancellation.sequence);
+        await client.notification({
+          method: "notifications/cancelled",
+          params: { requestId: firstRequestId, reason: "invented late cancellation" },
+        });
+        await client.notification({
+          method: "notifications/cancelled",
+          params: { requestId: futureRequestId, reason: "invented future cancellation" },
+        });
+        const unknownCancellation = await stderr.waitFor(CLEANUP_SNAPSHOT, ignoredCancellationCursor);
+        const lateCancellation = await stderr.waitFor(CLEANUP_SNAPSHOT, unknownCancellation.sequence);
+        const futureCancellation = await stderr.waitFor(CLEANUP_SNAPSHOT, lateCancellation.sequence);
+
+        const resolveCursor = stderr.cursor();
+        const resolvedPromise = client.callTool({
+          name: "toast_sales_summary",
+          arguments: { businessDate: BUSINESS_DATES.resolve },
+        });
+        await waitUntil(() => transport.lastToolCallId() === futureRequestId, "missing later valid tools/call request ID");
+        const sourceResolved = await stderr.waitFor("gate60-orders-resolved:20260818", futureCancellation.sequence);
+        const resolved = await resolvedPromise;
+        assert.notEqual(resolved.isError, true, "unknown and late cancellation notifications must not poison a later valid request");
+        await stderr.waitFor(CLEANUP_SNAPSHOT, Math.max(resolveCursor, sourceResolved.sequence));
 
         const laterCursor = stderr.cursor();
         const later = callTool(client, "toast_payment_summary", BUSINESS_DATES.laterCancellation);
@@ -104,16 +115,6 @@ for (const era of ["legacy", "modern"] as const) {
         assert.equal(transport.lastCancellationRequestId(), laterRequestId, "the later cancellation notification must target its matching request ID");
         await transport.waitForDeniedResponse(laterRequestId);
         await stderr.waitFor(CLEANUP_SNAPSHOT, laterAborted.sequence);
-
-        const resolveCursor = stderr.cursor();
-        const resolvedPromise = client.callTool({
-          name: "toast_sales_summary",
-          arguments: { businessDate: BUSINESS_DATES.resolve },
-        });
-        const sourceResolved = await stderr.waitFor("gate60-orders-resolved:20260818", resolveCursor);
-        const resolved = await resolvedPromise;
-        assert.notEqual(resolved.isError, true);
-        await stderr.waitFor(CLEANUP_SNAPSHOT, sourceResolved.sequence);
 
         const rejectCursor = stderr.cursor();
         const rejectedPromise = client.callTool({
