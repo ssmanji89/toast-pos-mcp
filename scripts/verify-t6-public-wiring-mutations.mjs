@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 const repositoryRoot = process.cwd();
 const mutationRoot = await mkdtemp(join(tmpdir(), "toast-pos-mcp-t6-public-wiring-"));
+const candidateHead = runOutput("git", ["rev-parse", "HEAD"], repositoryRoot);
 const indexPath = join(mutationRoot, "src/index.ts");
 const serverPath = join(mutationRoot, "src/server.ts");
 const reportToolsPath = join(mutationRoot, "src/report-tools.ts");
@@ -33,7 +34,7 @@ if (new Set(guards.map(([id]) => id)).size !== guards.length) {
 }
 
 try {
-  run("git", ["worktree", "add", "--detach", mutationRoot, "HEAD"], repositoryRoot);
+  run("git", ["worktree", "add", "--detach", mutationRoot, candidateHead], repositoryRoot);
   run("npm", ["ci", "--no-audit", "--no-fund"], mutationRoot);
   const originals = new Map(await Promise.all(
     [indexPath, serverPath, reportToolsPath].map(async (file) => [file, await readFile(file, "utf8")]),
@@ -80,6 +81,14 @@ function run(command, args, cwd) {
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`);
   }
+}
+
+function runOutput(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
 }
 
 function escapeRegularExpression(value) {
