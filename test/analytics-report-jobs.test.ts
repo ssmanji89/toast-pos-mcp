@@ -222,12 +222,14 @@ test("Analytics report jobs retain only an opaque bounded create identifier and 
 
 test("Analytics report jobs reject malformed create identifiers without publishing a descriptor", async () => {
   const { access, selection } = await createSelection();
+  let validFirst = true;
   const adapter = createAnalyticsReportJobAdapter({
     access,
     tokenManager: createTokenManager(),
     hostname: "analytics.synthetic-toast-fixture.test",
-    fetch: async () => new Response(JSON.stringify(""), { status: 200 }),
+    fetch: async () => new Response(JSON.stringify(validFirst ? (validFirst = false, "opaque-valid-id") : ""), { status: 200 }),
   });
+  assert.equal((await adapter.create(selection, createInput("metrics"))).reportRequestId, "opaque-valid-id");
   await assert.rejects(adapter.create(selection, createInput("metrics")), isContractError);
 
   const tooLong = createAnalyticsReportJobAdapter({
@@ -504,6 +506,11 @@ test("Analytics lifecycle enforces all documented endpoint windows atomically", 
   });
   for (let index = 0; index < 11; index += 1) await adapter.create(selection, createInput("metrics"));
   assert.deepEqual(sleeps, [60_000]);
+
+  const retrievalJob = await adapter.create(selection, createInput("metrics"));
+  for (let index = 0; index < 31; index += 1) await adapter.retrieve(retrievalJob);
+  assert.ok(sleeps.includes(1_000));
+  assert.ok(sleeps.includes(60_000));
 });
 
 function unreadableCompleteResponse(): Response {
