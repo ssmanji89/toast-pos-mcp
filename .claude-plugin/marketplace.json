@@ -1,0 +1,22 @@
+{
+  "name": "toast-pos-mcp-preview",
+  "owner": {
+    "name": "Suleman Manji",
+    "url": "https://github.com/ssmanji89"
+  },
+  "description": "Public-preview Claude Code plugins for the local, read-only Toast POS reporting MCP.",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "toast-pos-mcp",
+      "source": "./",
+      "description": "Local, read-only Toast POS reporting tools for Claude Code.",
+      "tags": [
+        "toast",
+        "pos",
+        "reporting",
+        "mcp"
+      ]
+    }
+  ]
+}
