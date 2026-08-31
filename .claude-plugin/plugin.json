@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "toast-pos-mcp",
+  "displayName": "Toast POS Reporting MCP (Public Preview)",
+  "version": "0.1.0-preview.1",
+  "description": "Local, read-only Toast POS reporting tools for Claude Code. Public preview; operator authorization, Merchant consent, and Toast requirements remain the operator's responsibility.",
+  "author": {
+    "name": "Suleman Manji",
+    "url": "https://github.com/ssmanji89"
+  },
+  "homepage": "https://github.com/ssmanji89/toast-pos-mcp#claude-code-public-preview",
+  "repository": "https://github.com/ssmanji89/toast-pos-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "toast",
+    "pos",
+    "reporting",
+    "mcp",
+    "claude-code"
+  ],
+  "defaultEnabled": false,
+  "mcpServers": "./claude-plugin.mcp.json",
+  "userConfig": {
+    "toast_api_hostname": {
+      "type": "string",
+      "title": "Toast API hostname",
+      "description": "Bare Toast Standard API hostname, with no scheme, path, query, or port.",
+      "required": true
+    },
+    "toast_client_id": {
+      "type": "string",
+      "title": "Toast client ID",
+      "description": "Operator-owned Toast Standard API client ID. Stored as a sensitive plugin value.",
+      "sensitive": true,
+      "required": true
+    },
+    "toast_client_secret": {
+      "type": "string",
+      "title": "Toast client secret",
+      "description": "Operator-owned Toast Standard API client secret. Stored as a sensitive plugin value.",
+      "sensitive": true,
+      "required": true
+    },
+    "toast_default_restaurant_guid": {
+      "type": "string",
+      "title": "Default restaurant GUID",
+      "description": "An authorized Toast restaurant GUID used to bootstrap the selected-location context.",
+      "sensitive": true,
+      "required": true
+    },
+    "merchant_ai_consent_acknowledged": {
+      "type": "boolean",
+      "title": "Merchant AI-processing consent is documented",
+      "description": "Set true only after documented Merchant consent and applicable Toast/provider requirements are satisfied. This acknowledgment is not legal proof.",
+      "required": true,
+      "default": false
+    }
+  }
+}
