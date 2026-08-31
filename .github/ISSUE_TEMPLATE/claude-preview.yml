@@ -1,0 +1,83 @@
+name: Claude Code public-preview feedback
+description: Report installation, compatibility, or report-boundary feedback for the Claude Code plugin preview.
+title: "[CLAUDE PREVIEW] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing the public preview.
+
+        **Do not include credentials, bearer tokens, Merchant Data, guest data, or raw Toast API bodies.** Use only sanitized protocol facts and independently described observations.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: 0.1.0-preview.1
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Node.js and npm versions
+      placeholder: Node 22.22.2, npm 10.9.7
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Failure or feedback stage
+      options:
+        - Marketplace add
+        - Plugin install
+        - Plugin enable or configuration
+        - MCP startup or connection
+        - Tool discovery
+        - Standard report invocation
+        - Analytics lifecycle invocation
+        - Documentation or usability
+    validations:
+      required: true
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name, when applicable
+      placeholder: toast_sales_summary
+  - type: input
+    id: result
+    attributes:
+      label: Structured status or sanitized denial code
+      placeholder: denied / capability_missing_scope
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Do not include Merchant Data. Describe the behavior and include only sanitized request IDs when necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Sanitized environment context
+      description: Credential type, configured location count, operating system, and MCP host details only. Do not include credentials or raw configured values.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed credentials, bearer tokens, Merchant Data, guest data, and raw API bodies.
+          required: true
+        - label: The supplied observations are sanitized and safe to publish.
+          required: true
