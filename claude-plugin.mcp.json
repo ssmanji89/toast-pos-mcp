@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "toast-pos-reporting": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/claude-plugin-launcher.mjs"
+      ],
+      "env": {
+        "TOAST_API_HOSTNAME": "${user_config.toast_api_hostname}",
+        "TOAST_CLIENT_ID": "${user_config.toast_client_id}",
+        "TOAST_CLIENT_SECRET": "${user_config.toast_client_secret}",
+        "TOAST_ACCESS_TYPE": "TOAST_MACHINE_CLIENT",
+        "TOAST_DEFAULT_RESTAURANT_GUID": "${user_config.toast_default_restaurant_guid}",
+        "TOAST_MERCHANT_AI_CONSENT_ACKNOWLEDGED": "${user_config.merchant_ai_consent_acknowledged}"
+      }
+    }
+  }
+}
